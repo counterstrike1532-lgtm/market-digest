@@ -1,0 +1,50 @@
+name: news digest
+
+on:
+  schedule:
+    - cron: "0 5 * * 1-5"      # 07:00 Варшава летом, 06:00 зимой. Указывать в UTC!
+  workflow_dispatch:            # кнопка "Run workflow" для ручного запуска
+    inputs:
+      hours:
+        description: "Окно свежести, часов"
+        default: "26"
+      drafts:
+        description: "Сколько черновиков"
+        default: "3"
+
+permissions:
+  contents: write               # нужно, чтобы коммитить state/seen.json
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Собрать и отправить сводку
+        env:
+          GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
+          GEMINI_MODEL:       ${{ vars.GEMINI_MODEL }}
+        run: |
+          python -m src.main \
+            --hours ${{ github.event.inputs.hours || '26' }} \
+            --drafts ${{ github.event.inputs.drafts || '3' }}
+
+      - name: Запомнить показанное
+        run: |
+          git config user.name  "digest-bot"
+          git config user.email "actions@github.com"
+          git add state/seen.json
+          git diff --staged --quiet || git commit -m "state: seen items $(date -u +%F)"
+          git push

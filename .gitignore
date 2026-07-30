@@ -1,0 +1,17 @@
+# Секреты — никогда в git. Репозиторий публичный.
+secrets.ps1
+.secrets/
+.env
+*.key
+
+# Окружение
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Локальные артефакты
+out/
+requirements-local.txt.lock
+secrets.ps1
+secrets.ps1

@@ -1,0 +1,63 @@
+# =============================================================
+#  ИСТОЧНИКИ. Правь смело — добавляй/убирай строки.
+#  weight: 1.0 = обычный, 1.3 = доверяю больше, 0.7 = шумный
+#  Перед первым запуском прогони: python -m src.verify_feeds
+#  Он скажет, какие фиды мертвы — их удали.
+# =============================================================
+
+rss:
+  # ---------- ПОЛЬША: экономика и рынки (проверено 30.07.2026) ----------
+  - {url: "https://www.money.pl/rss/all", tag: poland, weight: 1.0}
+  - {url: "https://www.bankier.pl/rss/wiadomosci.xml", tag: poland, weight: 1.1}
+
+  # GUS — настоящие адреса, взяты со stat.gov.pl/rss
+  - {url: "https://stat.gov.pl/rss/pl/5438/8.xml", tag: poland_official, weight: 1.5}
+  - {url: "https://stat.gov.pl/rss/pl/5463/11.xml", tag: poland_official, weight: 1.5}
+  - {url: "http://ec.europa.eu/eurostat/cache/RSS/rss_estat_news.xml", tag: eu_official, weight: 1.4}
+
+  # NBP своего новостного RSS не имеет — закрываем через Google News.
+  # Это обычный RSS с поисковым запросом: меняешь q= и получаешь любую тему.
+  - {url: "https://news.google.com/rss/search?q=%22Rada+Polityki+Pieni%C4%99%C5%BCnej%22+OR+%22NBP+stopy+procentowe%22&hl=pl&gl=PL&ceid=PL:pl", tag: poland_official, weight: 1.3}
+  - {url: "https://news.google.com/rss/search?q=inflacja+Polska+GUS&hl=pl&gl=PL&ceid=PL:pl", tag: poland, weight: 0.9}
+  - {url: "https://news.google.com/rss/search?q=gospodarka+Polski+PKB+OR+bud%C5%BCet&hl=pl&gl=PL&ceid=PL:pl", tag: poland, weight: 0.9}
+  # Англоязычное освещение Польши — даёт готовую лексику и рамку для постов на английском
+  - {url: "https://news.google.com/rss/search?q=Poland+economy+OR+Polish+central+bank&hl=en-US&gl=US&ceid=US:en", tag: poland, weight: 1.1}
+
+  # ---------- США / ГЛОБАЛ: рынки ----------
+  - {url: "https://www.cnbc.com/id/100003114/device/rss/rss.html", tag: markets, weight: 1.0}
+  - {url: "https://feeds.content.dowjones.io/public/rss/mw_topstories", tag: markets, weight: 1.0}
+  - {url: "https://finance.yahoo.com/news/rssindex", tag: markets, weight: 0.8}
+  - {url: "https://www.axios.com/feeds/feed.rss", tag: markets, weight: 1.0}
+  - {url: "https://www.federalreserve.gov/feeds/press_all.xml", tag: us_official, weight: 1.5}
+
+  # ---------- ИИ: первоисточники (самое ценное) ----------
+  - {url: "https://openai.com/news/rss.xml", tag: ai_primary, weight: 1.5}
+  - {url: "https://news.google.com/rss/search?q=Anthropic+OR+%22frontier+model%22+OR+%22AI+capex%22&hl=en-US&gl=US&ceid=US:en", tag: ai, weight: 1.0}
+  - {url: "https://deepmind.google/blog/rss.xml", tag: ai_primary, weight: 1.4}
+  - {url: "https://huggingface.co/blog/feed.xml", tag: ai_primary, weight: 1.2}
+  - {url: "https://techcrunch.com/category/artificial-intelligence/feed/", tag: ai, weight: 0.9}
+  - {url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", tag: ai, weight: 0.9}
+  - {url: "http://export.arxiv.org/rss/cs.LG", tag: ai_research, weight: 0.7}
+
+# ---------- Hacker News (бесплатный Algolia API) ----------
+hackernews:
+  min_points: 150
+  queries: ["AI", "OpenAI", "Anthropic", "economy", "inflation", "semiconductor", "datacenter"]
+
+# ---------- Reddit (.json, без ключа; может отвалиться с IP GitHub) ----------
+reddit:
+  min_score: 400
+  subs: [economics, finance, singularity, LocalLLaMA, stocks, poland]
+
+# ---------- Цифры для аналитики ----------
+data:
+  nbp_currencies: [usd, eur, chf]        # api.nbp.pl, без ключа
+  stooq_symbols:                          # stooq.pl CSV, без ключа
+    wig20: wig20
+    sp500: ^spx
+    nasdaq: ^ndq
+  eurostat_hicp: [PL, DE, EA19]           # годовая инфляция, без ключа
+  fred_series:                            # нужен бесплатный ключ FRED (опционально)
+    fed_funds: DFF
+    us_cpi: CPIAUCSL
+    us_unemployment: UNRATE
