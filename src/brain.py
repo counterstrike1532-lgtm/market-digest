@@ -293,9 +293,23 @@ Do not reuse one skeleton. Assign a different structure to each draft:
 No two drafts may open with the same move or close with the same move. If two drafts start
 with "I looked at the data" or both end with a question, you have failed this instruction.
 
-At least 2 of the {n} drafts must be first person: something he did, calculated, or noticed
-("I pulled...", "I ran the numbers and..."). An entirely impersonal draft reads like a
-textbook entry, not a person with a stake in being right.
+=== FIRST PERSON: ONLY FOR WORK ACTUALLY DONE ===
+At least 2 of the {n} drafts should be first person, but ONLY for something he verifiably
+did with the material in front of him: read a primary source, pulled a specific figure from
+it, compared two numbers, computed a ratio or delta. NEVER claim observation, monitoring,
+research, or access he did not have - no "I tracked this play out", "I've been following
+this", "I noticed this developing". A false claim about his own work is worse than a
+fabricated number: a number can be checked against the source, a claim about what he
+personally did cannot - and if it's ever caught out, it costs more than the post.
+
+  GOOD: "I pulled these figures from Statistics Poland."
+  GOOD: "I compared the two figures Rolls-Royce reported this quarter."
+  BAD:  "I tracked this mechanism play out at Situational Awareness."
+  BAD:  "I have been following this story for weeks."
+
+If a story gives him nothing of his own to do - he only read it, nothing to pull or compare -
+write that draft impersonally. The "at least 2 of {n}" target does not apply when there is
+nothing real to claim.
 
 === NUMBERS: HARD RULE ===
 Use a figure ONLY if it appears verbatim in that story's SOURCE TEXT below, or in the
@@ -335,6 +349,8 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
 - Sound like a curious student who read the source, not a consultant summarising it.
 - Never name his own role or status in the text itself: no "for a finance student", "as a
   student", "as someone learning IB". The analysis carries the weight, not the bio.
+- Always a space after a period before the next sentence. "spikes.Quarterly" is a proofing
+  failure, not a style choice - check for it.
 
 === OUTPUT FORMAT (exactly this, per draft) ===
 SHAPE: (A, B or C)
