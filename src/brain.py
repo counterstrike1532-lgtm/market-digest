@@ -21,6 +21,7 @@ _DEFAULT_MODELS = "gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite"
 MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", _DEFAULT_MODELS).split(",") if m.strip()]
 
 _requests_made = 0
+_day_exhausted: set[str] = set()   # модели с исчерпанной дневной квотой в этом прогоне
 
 
 def requests_made() -> int:
@@ -39,9 +40,13 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
     global _requests_made
     key = os.environ["GEMINI_API_KEY"]
     last = "неизвестно"
-    day_exhausted = []
 
     for model in MODELS:
+        if model in _day_exhausted:
+            log.warning("%s: дневная квота уже исчерпана в этом прогоне — пропускаю", model)
+            last = f"{model}: дневная квота исчерпана"
+            continue
+
         gen: dict = {"temperature": temperature, "maxOutputTokens": max_tokens}
         if as_json:
             gen["responseMimeType"] = "application/json"
@@ -87,7 +92,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                     if "PerDay" in r.text:
                         log.warning("%s: дневная квота исчерпана, следующая модель", model)
                         last = f"{model}: дневная квота исчерпана"
-                        day_exhausted.append(model)
+                        _day_exhausted.add(model)
                         break
                     wait = min(20 * (2 ** (attempt - 1)), 120)
                     log.warning("%s: HTTP 429 (в минуту), ждём %ss", model, wait)
@@ -118,7 +123,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                 log.warning("%s попытка %d: %s", model, attempt, str(exc)[:160])
                 time.sleep(5 * attempt)
 
-    if day_exhausted and set(day_exhausted) == set(MODELS):
+    if _day_exhausted >= set(MODELS):
         raise RuntimeError(
             f"дневная квота Gemini исчерпана на всех моделях ({', '.join(MODELS)}). "
             "Free tier сбрасывается около полуночи по тихоокеанскому времени "
@@ -306,6 +311,14 @@ Before finalizing, check every number claim against itself. If a figure moves fr
 58.6, that is roughly a 12.5x change - call it that, not "tripling" or "doubling". If two
 sentences in the same draft imply different magnitudes for the same move, the draft is
 broken: fix the math or drop the comparison.
+
+MISMATCHED BASES. When you put two numbers side by side, name what each one actually is:
+period (annual vs. cumulative vs. quarterly), unit, and scope. A ratio between numbers with
+different bases is not a fact even if the arithmetic is correct - an annual contract figure
+compared to a multi-year total, a quarter compared to a year, a flow compared to a stock, or
+a nominal figure compared to a real one. If the bases don't match, do not compute or name a
+ratio ("Nx", "up 12x") - describe the two numbers in words instead, stating each one's base.
+A correctly-computed ratio between mismatched bases is exactly as bad as a made-up figure.
 
 === VOICE ===
 - Plain words. Banned: leverage, synergy, landscape, paradigm, unprecedented, game-changer,
