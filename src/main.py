@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import pathlib
 import sys
 from datetime import datetime, timezone, timedelta
@@ -19,6 +20,28 @@ STYLE = ROOT / "style" / "my_posts.md"
 logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s",
                     stream=sys.stdout)
 log = logging.getLogger("digest")
+
+# Отбор Gemini теперь один запрос на весь список (см. brain.rank), а дневная
+# квота free tier - 20 запросов на модель. Значит вход в rank() надо ограничить
+# заранее, дёшево и без LLM. Приоритетные теги - первоисточники.
+_PREFILTER_TAG_BONUS = {"poland_official": 1.0, "us_official": 1.0, "ai_primary": 1.0,
+                        "eu_official": 0.6}
+
+
+def heuristic_prefilter(items: list, hours: int, cap: int = 100) -> list:
+    """Без LLM сужает список до cap самых перспективных по weight/tag/свежести/social."""
+    now = datetime.now(timezone.utc)
+
+    def score(it) -> float:
+        age_h = (now - datetime.fromisoformat(it.published)).total_seconds() / 3600
+        freshness = max(0.0, 1 - age_h / hours)
+        social = min(1.0, math.log1p(it.social) / math.log1p(1000))
+        return it.weight * 2 + _PREFILTER_TAG_BONUS.get(it.tag, 0.0) + freshness + social
+
+    ranked = sorted(items, key=score, reverse=True)
+    kept = ranked[:cap]
+    log.info("эвристический предотбор: оставили %d из %d", len(kept), len(items))
+    return kept
 
 
 def load_seen(keep_days: int = 21) -> dict:
@@ -92,7 +115,8 @@ def main() -> int:
     data = numbers.gather(cfg)
 
     log.info("--- отбор ---")
-    selected = brain.rank(fresh, top_n=args.top)
+    candidates = heuristic_prefilter(fresh, args.hours)
+    selected = brain.rank(candidates, top_n=args.top)
     if not selected:
         log.warning("отбор не дал ничего — сегодня без сводки")
         return 0
@@ -115,6 +139,7 @@ def main() -> int:
             seen[s["item"].key] = now
         save_seen(seen)
 
+    log.info("расход квоты Gemini: %d запросов", brain.requests_made())
     log.info("готово")
     return 0
 

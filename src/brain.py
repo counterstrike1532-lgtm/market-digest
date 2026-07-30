@@ -20,6 +20,13 @@ API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateC
 _DEFAULT_MODELS = "gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite"
 MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", _DEFAULT_MODELS).split(",") if m.strip()]
 
+_requests_made = 0
+
+
+def requests_made() -> int:
+    """Сколько HTTP-запросов реально ушло в Gemini за этот прогон (для контроля квоты)."""
+    return _requests_made
+
 
 def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
           max_tokens: int = 32768, retries: int = 3, no_thinking: bool = False) -> str:
@@ -29,8 +36,10 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
     из-за чего JSON обрывается. Но Gemini 3 может запрещать полное отключение —
     тогда параметр снимается автоматически.
     """
+    global _requests_made
     key = os.environ["GEMINI_API_KEY"]
     last = "неизвестно"
+    day_exhausted = []
 
     for model in MODELS:
         gen: dict = {"temperature": temperature, "maxOutputTokens": max_tokens}
@@ -48,6 +57,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                                   headers={"x-goog-api-key": key,
                                            "Content-Type": "application/json"},
                                   json=body, timeout=180)
+                _requests_made += 1
 
                 if r.status_code == 404:
                     log.warning("%s: модели нет — следующая", model)
@@ -70,7 +80,22 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                     last = f"{model}: 400 {detail[:120]}"
                     break                      # к следующей модели
 
-                if r.status_code in (429, 500, 503):
+                if r.status_code == 429:
+                    # "PerDay" в quotaId значит дневной лимит модели, а не всплеск
+                    # запросов в минуту. Ждать бессмысленно - у следующей модели своя
+                    # дневная квота, пробуем её сразу.
+                    if "PerDay" in r.text:
+                        log.warning("%s: дневная квота исчерпана, следующая модель", model)
+                        last = f"{model}: дневная квота исчерпана"
+                        day_exhausted.append(model)
+                        break
+                    wait = min(20 * (2 ** (attempt - 1)), 120)
+                    log.warning("%s: HTTP 429 (в минуту), ждём %ss", model, wait)
+                    last = f"{model}: HTTP 429"
+                    time.sleep(wait)
+                    continue
+
+                if r.status_code in (500, 503):
                     wait = min(20 * (2 ** (attempt - 1)), 120)
                     log.warning("%s: HTTP %s, ждём %ss", model, r.status_code, wait)
                     last = f"{model}: HTTP {r.status_code}"
@@ -93,6 +118,11 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                 log.warning("%s попытка %d: %s", model, attempt, str(exc)[:160])
                 time.sleep(5 * attempt)
 
+    if day_exhausted and set(day_exhausted) == set(MODELS):
+        raise RuntimeError(
+            f"дневная квота Gemini исчерпана на всех моделях ({', '.join(MODELS)}). "
+            "Free tier сбрасывается около полуночи по тихоокеанскому времени "
+            "(~09:00-10:00 UTC) - раньше запросы не пройдут.")
     raise RuntimeError(f"Gemini недоступен. Последнее: {last}")
 
 
@@ -180,8 +210,14 @@ CRITICAL RULES:
    Otherwise describe the claim without numbers. A fabricated figure is the worst possible
    outcome here, because it would be published under a real person's name.
 
-3. BE TERSE. "angle" max 20 words. "why_nonobvious" max 15 words. Long fields get truncated
-   and the whole batch is lost.
+3. BE TERSE. "angle" max 35 words. "why_nonobvious" max 25 words. This is one call scoring
+   everything at once - long fields eat the output token budget and truncate the whole response.
+
+4. NAME THE MECHANISM, NOT THE EFFECT. "angle" must point at a specific line item, rule, or
+   process, not a generic label for one.
+   BAD: "high operating leverage"
+   GOOD: "interest income on uninvested client cash balances"
+   If you can only describe the general effect, the score is below 7.
 
 For each item, "angle" is what the post would ARGUE - a claim, not a topic. If you cannot
 write a real claim, the score is below 7.
@@ -194,30 +230,26 @@ ITEMS:
 """
 
 
-def rank(items, top_n: int = 12, batch: int = 25) -> list[dict]:
-    """Батчим небольшими порциями: короткий ответ реже обрывается по лимиту токенов."""
+def rank(items, top_n: int = 12) -> list[dict]:
+    """Один вызов на весь список. Дефицит free tier - число запросов в день (20/модель),
+    не токены, а вход в 1M токенов легко тянет сотню заголовков разом."""
     scored: list[dict] = []
-    by_id = {}
-    for i, it in enumerate(items):
-        by_id[i] = it
+    by_id = {i: it for i, it in enumerate(items)}
 
-    for start in range(0, len(items), batch):
-        chunk = list(range(start, min(start + batch, len(items))))
-        payload = "\n".join(
-            f"id={i} | {by_id[i].source} | {by_id[i].tag} | social={by_id[i].social}\n"
-            f"  {by_id[i].title}\n  {by_id[i].summary[:280]}"
-            for i in chunk)
-        try:
-            res = _parse_json(_call(RANK_PROMPT.format(items=payload), as_json=True,
-                                    temperature=0.2, no_thinking=True))
-            for row in res:
-                idx = int(row["id"])
-                if idx in by_id:
-                    row["item"] = by_id[idx]
-                    scored.append(row)
-        except Exception as exc:
-            log.warning("батч %d-%d упал: %s", chunk[0], chunk[-1], exc)
-        time.sleep(7)   # free tier: держимся ниже лимита запросов в минуту
+    payload = "\n".join(
+        f"id={i} | {by_id[i].source} | {by_id[i].tag} | social={by_id[i].social}\n"
+        f"  {by_id[i].title}\n  {by_id[i].summary[:280]}"
+        for i in by_id)
+    try:
+        res = _parse_json(_call(RANK_PROMPT.format(items=payload), as_json=True,
+                                temperature=0.2, no_thinking=True))
+        for row in res:
+            idx = int(row["id"])
+            if idx in by_id:
+                row["item"] = by_id[idx]
+                scored.append(row)
+    except Exception as exc:
+        log.warning("отбор упал: %s", exc)
 
     for s in scored:
         s["final"] = float(s.get("score", 0)) * s["item"].weight
@@ -256,12 +288,24 @@ Do not reuse one skeleton. Assign a different structure to each draft:
 No two drafts may open with the same move or close with the same move. If two drafts start
 with "I looked at the data" or both end with a question, you have failed this instruction.
 
+At least 2 of the {n} drafts must be first person: something he did, calculated, or noticed
+("I pulled...", "I ran the numbers and..."). An entirely impersonal draft reads like a
+textbook entry, not a person with a stake in being right.
+
 === NUMBERS: HARD RULE ===
 Use a figure ONLY if it appears verbatim in that story's SOURCE TEXT below, or in the
 FRESH DATA block. If a story shows "SOURCE TEXT: (unavailable)", write the post with NO
 specific figures at all - argue the mechanism qualitatively instead. Inventing a plausible
 number is the single worst thing you can do here.
 List every figure you used in the FIGURES field, with where it came from.
+
+Format numbers the English way: "." for decimals, "," for thousands. Write 2.6%, not 2,6%.
+Write 58,600 not 58.600.
+
+Before finalizing, check every number claim against itself. If a figure moves from 4.7 to
+58.6, that is roughly a 12.5x change - call it that, not "tripling" or "doubling". If two
+sentences in the same draft imply different magnitudes for the same move, the draft is
+broken: fix the math or drop the comparison.
 
 === VOICE ===
 - Plain words. Banned: leverage, synergy, landscape, paradigm, unprecedented, game-changer,
@@ -276,6 +320,8 @@ List every figure you used in the FIGURES field, with where it came from.
   question a professional would actually answer. The others end on a statement.
 - No links in the body. LinkedIn suppresses reach on posts with external links.
 - Sound like a curious student who read the source, not a consultant summarising it.
+- Never name his own role or status in the text itself: no "for a finance student", "as a
+  student", "as someone learning IB". The analysis carries the weight, not the bio.
 
 === OUTPUT FORMAT (exactly this, per draft) ===
 SHAPE: (A, B or C)
