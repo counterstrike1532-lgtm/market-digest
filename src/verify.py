@@ -32,8 +32,13 @@ _DRAFT_RE = re.compile(
     r"WHY_THIS_ONE:\s*(?P<why_this_one>.*?)\n"
     r"VERDICT:\s*(?P<verdict>.*?)\n"
     r"WHY:\s*(?P<why>.*?)\n"
-    r"CHECK_FIRST:\s*(?P<check_first>.*?)"
-    r"(?=\n\s*SHAPE:|\Z)",
+    # CHECK_FIRST - последнее поле блока, по формату одна строка. Раньше конец
+    # определялся lookahead'ом "до следующего SHAPE:", а \s* в нём проглатывал
+    # любой разделитель между черновиками (пустые строки, "---" от модели) ВНУТРЬ
+    # CHECK_FIRST - аннотация вставлялась после разделителя, визуально прилипая
+    # к следующему черновику. Явная граница по одной строке ("[^\n]*", перевод
+    # строки не входит независимо от re.S) убирает саму возможность такого сдвига.
+    r"CHECK_FIRST:[ \t]*(?P<check_first>[^\n]*)",
     re.S)
 
 
@@ -300,9 +305,15 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> str
                          if c["draft_idx"] == i and c["id"] in level_b_raw}
 
     out_parts, pos = [], 0
-    for b in blocks:
+    for i, b in enumerate(blocks, 1):
         m = b["_match"]
-        out_parts.append(drafts_text[pos:m.end()])
+        # заголовок "DRAFT n" печатает рендерер, не модель: в одном прогоне модель
+        # сама подписала черновики "DRAFT 1/2/3", в другом - нет, промпт этого не
+        # требует буквально. Нумерация не должна зависеть от того, вставит ли
+        # модель такую строку в конкретном ответе.
+        out_parts.append(drafts_text[pos:m.start()])
+        out_parts.append(f"DRAFT {i} ({b['shape'] or '?'})\n")
+        out_parts.append(drafts_text[m.start():m.end()])
         out_parts.append("\n" + "\n".join(_report_lines(b)))
         pos = m.end()
     out_parts.append(drafts_text[pos:])

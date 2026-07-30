@@ -7,12 +7,22 @@ import csv
 import io
 import logging
 import os
+import re
 from datetime import date, timedelta
 
 import requests
 
 log = logging.getLogger(__name__)
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; personal-news-digest/1.0)"}
+
+# stooq отдаёт анти-бот "This site requires JavaScript" на дефолтный/непохожий-на-браузер
+# User-Agent. Браузерный UA + Accept как у обычного GET из Chrome.
+STOOQ_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
+    "Accept": "text/csv,text/plain,*/*",
+    "Accept-Language": "pl,en-US;q=0.9,en;q=0.8",
+}
 
 
 def nbp_fx(codes: list[str]) -> dict:
@@ -49,7 +59,7 @@ def stooq_series(symbols: dict) -> tuple[dict, dict]:
         try:
             r = requests.get("https://stooq.pl/q/d/l/",
                              params={"s": sym, "d1": d1, "d2": d2, "i": "d"},
-                             headers=HEADERS, timeout=20)
+                             headers=STOOQ_HEADERS, timeout=20)
             r.raise_for_status()
             rows = list(csv.DictReader(io.StringIO(r.text)))
             closes = [float(x["Zamkniecie"]) for x in rows if x.get("Zamkniecie")]
@@ -73,8 +83,28 @@ def stooq_series(symbols: dict) -> tuple[dict, dict]:
     return out, series
 
 
+def _stale_marker(period_key: str, months_threshold: int = 3) -> str:
+    """period_key в формате "YYYY-MM". Не распарсился — молча "" (ничего не утверждаем)."""
+    m = re.fullmatch(r"(\d{4})-(\d{2})", period_key or "")
+    if not m:
+        return ""
+    y, mo = int(m.group(1)), int(m.group(2))
+    now = date.today()
+    months_old = (now.year - y) * 12 + (now.month - mo)
+    return f" — старше {months_old} мес!" if months_old >= months_threshold else ""
+
+
 def eurostat_hicp(geos: list[str]) -> dict:
-    """Годовая инфляция HICP. Официальный Eurostat API, без ключа."""
+    """Годовая инфляция HICP. Официальный Eurostat API, без ключа.
+
+    JSON-stat кодирует "value" плоским индексом по ВСЕМ измерениям сразу;
+    freq/unit/coicop здесь размера 1, единственные варьируются geo и time,
+    причём time — последнее измерение и меняется быстрее: index = i_geo*T + i_time
+    (T = число периодов в ответе). Раньше код молча предполагал T==1 и брал
+    период "list(...)[0]" один на все geo - если сервер вернул больше одного
+    периода (или под другую geo давность отличается), значения и период тихо
+    расходились. Теперь период и значение декодируются из одного и того же pos
+    для каждой geo независимо - подмены нет по построению."""
     out = {}
     try:
         r = requests.get(
@@ -83,12 +113,21 @@ def eurostat_hicp(geos: list[str]) -> dict:
                     "lastTimePeriod": 1, "geo": geos}, headers=HEADERS, timeout=25)
         r.raise_for_status()
         js = r.json()
-        geo_idx = js["dimension"]["geo"]["category"]["index"]
-        period = list(js["dimension"]["time"]["category"]["label"].values())[0]
-        rev = {v: k for k, v in geo_idx.items()}
+        geo_idx = js["dimension"]["geo"]["category"]["index"]        # geo_code -> i_geo
+        time_idx = js["dimension"]["time"]["category"]["index"]      # period_key -> i_time
+        time_label = js["dimension"]["time"]["category"].get("label", {})
+        n_time = len(time_idx) or 1
+        rev_geo = {i: g for g, i in geo_idx.items()}
+        rev_time = {i: t for t, i in time_idx.items()}
         for pos, val in js["value"].items():
-            out[f"HICP {rev.get(int(pos) % len(rev), '?')}"] = {
-                "value": val, "unit": "% г/г", "as_of": period}
+            i_geo, i_time = divmod(int(pos), n_time)
+            geo_code = rev_geo.get(i_geo, "?")
+            period_key = rev_time.get(i_time, "?")
+            period_label = time_label.get(period_key, period_key)
+            out[f"HICP {geo_code}"] = {
+                "value": val, "unit": "% г/г",
+                "as_of": f"{period_label}{_stale_marker(period_key)}",
+            }
     except Exception as exc:
         log.warning("Eurostat упал: %s", exc)
     return out
