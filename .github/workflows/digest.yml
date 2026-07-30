@@ -12,6 +12,10 @@ on:
         description: "Сколько черновиков"
         default: "3"
 
+concurrency:
+  group: digest
+  cancel-in-progress: false     # прогон уже потратил квоту Gemini, прерывать на середине незачем
+
 permissions:
   contents: write               # нужно, чтобы коммитить state/seen.json
 
@@ -36,15 +40,51 @@ jobs:
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
           FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
           GEMINI_MODEL:       ${{ vars.GEMINI_MODEL }}
+          HOURS:              ${{ github.event.inputs.hours || '26' }}
+          DRAFTS:             ${{ github.event.inputs.drafts || '3' }}
         run: |
-          python -m src.main \
-            --hours ${{ github.event.inputs.hours || '26' }} \
-            --drafts ${{ github.event.inputs.drafts || '3' }}
+          python -m src.main --hours "$HOURS" --drafts "$DRAFTS" 2>&1 | tee digest.log
+
+      - name: Загрузить лог прогона
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-log-${{ github.run_id }}
+          path: digest.log
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Запомнить показанное
+        id: remember
+        continue-on-error: true   # сводка уже отправлена, падать на служебном коммите бессмысленно
         run: |
           git config user.name  "digest-bot"
           git config user.email "actions@github.com"
           git add state/seen.json
           git diff --staged --quiet || git commit -m "state: seen items $(date -u +%F)"
+          git pull --rebase --autostash origin master || true
           git push
+
+      - name: Notify on state commit failure
+        if: steps.remember.outcome == 'failure'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d chat_id="$TELEGRAM_CHAT_ID" \
+            -d disable_web_page_preview=true \
+            --data-urlencode text="state не сохранён, возможны повторы сюжетов. Ран: $RUN_URL"
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d chat_id="$TELEGRAM_CHAT_ID" \
+            -d disable_web_page_preview=true \
+            --data-urlencode text="Дайджест упал. Лог: $RUN_URL"
