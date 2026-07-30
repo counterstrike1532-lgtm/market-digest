@@ -266,11 +266,38 @@ def rank(items, top_n: int = 12) -> list[dict]:
 # ------------------------------------------------------------------
 #  ЭТАП 2: черновики. Антишлак-правила прописаны явно.
 # ------------------------------------------------------------------
-DRAFT_PROMPT = """Write {n} LinkedIn post drafts in ENGLISH.
+DRAFT_PROMPT = """Write exactly 3 LinkedIn post drafts in ENGLISH, in this fixed order:
+
+DRAFT 1 - digest: a roundup of the 2-3 best stories from the selection below. Frame it as
+something like "Three things I read this week that stuck with me" (vary the wording, do not
+copy that line). For each story: one line on what happened, then one or two lines on why it
+is interesting. Keep it light - no deep analysis. 120-170 words.
+
+DRAFT 2 - digest, short: the same roundup, the same stories, but 80-110 words. Drier, no
+intro line - go straight into the first item.
+
+DRAFT 3 - single: one story, the strongest one, examined a bit deeper - a normal analytical
+post. Pick ONE shape for it:
+
+  A. MECHANISM: name the mechanism, explain how it works, then show where it just showed up.
+  B. TWO NUMBERS: put two figures side by side, then explain what the pairing reveals.
+  C. COMMON BELIEF: state the widely held view plainly, then the fact that complicates it.
+
+The reader is choosing between the two digest lengths and the single post - that is the
+point of writing three, not three unrelated posts on different topics.
 
 WHO IS WRITING: a 2nd-year Finance & Accounting student at Kozminski University in Warsaw,
 aiming for investment banking and asset management. He reads primary sources and runs his own
-small analyses. He is not an expert and does not pretend to be one.
+small analyses. He is not an expert and does not pretend to be one. The digest itself is a
+deliberately modest frame - "an active student who reads a lot", not "an analyst" - it is
+honest about what these posts are and it lowers reputational risk.
+
+=== TONE CEILING ===
+The author is a 2nd-year student, not a professor. If a sentence sounds like a bank research
+note, simplify it. Prefer "X grew faster than Y" over "the differential in growth
+trajectories". No jargon where a plain word exists. It is fine for the post to be simple; it
+is not fine for it to be pretentious. A fancy word the author would not actually say out loud
+in conversation is a mistake.
 
 === POSTURE: EXPLAINING, NOT ASKING ===
 He explains a mechanism and uses his own work as illustration. He does NOT ask to be corrected.
@@ -283,23 +310,13 @@ BANNED, do not write these or anything close: "What am I missing", "I might be w
 "I might be reading this wrong", "Correct me if", "Am I off base". Confidence about the
 mechanism, honesty about limits of the data - those are different things.
 
-=== EACH DRAFT MUST HAVE A DIFFERENT SHAPE ===
-Do not reuse one skeleton. Assign a different structure to each draft:
-
-  A. MECHANISM: name the mechanism, explain how it works, then show where it just showed up.
-  B. TWO NUMBERS: put two figures side by side, then explain what the pairing reveals.
-  C. COMMON BELIEF: state the widely held view plainly, then the fact that complicates it.
-
-No two drafts may open with the same move or close with the same move. If two drafts start
-with "I looked at the data" or both end with a question, you have failed this instruction.
-
 === FIRST PERSON: ONLY FOR WORK ACTUALLY DONE ===
-At least 2 of the {n} drafts should be first person, but ONLY for something he verifiably
-did with the material in front of him: read a primary source, pulled a specific figure from
-it, compared two numbers, computed a ratio or delta. NEVER claim observation, monitoring,
-research, or access he did not have - no "I tracked this play out", "I've been following
-this", "I noticed this developing". A false claim about his own work is worse than a
-fabricated number: a number can be checked against the source, a claim about what he
+A digest item or the single post can be written in first person, but ONLY for something he
+verifiably did with the material in front of him: read a primary source, pulled a specific
+figure from it, compared two numbers, computed a ratio or delta. NEVER claim observation,
+monitoring, research, or access he did not have - no "I tracked this play out", "I've been
+following this", "I noticed this developing". A false claim about his own work is worse than
+a fabricated number: a number can be checked against the source, a claim about what he
 personally did cannot - and if it's ever caught out, it costs more than the post.
 
   GOOD: "I pulled these figures from Statistics Poland."
@@ -308,8 +325,8 @@ personally did cannot - and if it's ever caught out, it costs more than the post
   BAD:  "I have been following this story for weeks."
 
 If a story gives him nothing of his own to do - he only read it, nothing to pull or compare -
-write that draft impersonally. The "at least 2 of {n}" target does not apply when there is
-nothing real to claim.
+write about it impersonally. Do not force a first-person claim where there is nothing real
+to claim.
 
 === NUMBERS: HARD RULE ===
 Use a figure ONLY if it appears verbatim in that story's SOURCE TEXT below, or in the
@@ -342,8 +359,9 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
 - No emoji. Plain "-" bullets only, max 3.
 - Hashtags: 0 or 1. Never generic ones (#finance #macroeconomics #GPW #forex) - they hurt
   classification. Prefer none.
-- 110-170 words. Hard limit.
-- At most ONE of the {n} drafts may end with a question, and it must be a specific technical
+- Word count is a hard limit per draft: DRAFT 1 (digest) 120-170 words, DRAFT 2
+  (digest, short) 80-110 words, DRAFT 3 (single) 110-170 words.
+- At most ONE of the 3 drafts may end with a question, and it must be a specific technical
   question a professional would actually answer. The others end on a statement.
 - No links in the body. LinkedIn suppresses reach on posts with external links.
 - Sound like a curious student who read the source, not a consultant summarising it.
@@ -352,11 +370,12 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
 - Always a space after a period before the next sentence. "spikes.Quarterly" is a proofing
   failure, not a style choice - check for it.
 
-=== OUTPUT FORMAT (exactly this, per draft) ===
-SHAPE: (A, B or C)
+=== OUTPUT FORMAT (exactly this, per draft, in order DRAFT 1 / DRAFT 2 / DRAFT 3) ===
+SHAPE: (digest | digest-short | A/B/C - digest for DRAFT 1, digest-short for DRAFT 2,
+  whichever of A/B/C you picked for DRAFT 3)
 BODY: (the post, starting with its own first line - do not print the hook separately)
 FIGURES: (each number used -> where it came from; or "none used")
-SOURCE: (the url)
+SOURCE: (the url; if the draft covers more than one story, list them comma-separated)
 WHY_THIS_ONE: (one line, for the author only)
 
 --- SELECTED STORIES ---
