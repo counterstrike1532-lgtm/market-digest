@@ -50,9 +50,13 @@ def stooq_series(symbols: dict) -> tuple[dict, dict]:
             r = requests.get("https://stooq.pl/q/d/l/",
                              params={"s": sym, "d1": d1, "d2": d2, "i": "d"},
                              headers=HEADERS, timeout=20)
+            r.raise_for_status()
             rows = list(csv.DictReader(io.StringIO(r.text)))
             closes = [float(x["Zamkniecie"]) for x in rows if x.get("Zamkniecie")]
             if len(closes) < 5:
+                log.warning(
+                    "stooq %s: получили только %d валидных строк (нужно >=5) - "
+                    "пропускаю. Начало ответа: %r", sym, len(closes), r.text[:150])
                 continue
             out[name] = {
                 "value": round(closes[-1], 2),

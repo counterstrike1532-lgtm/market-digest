@@ -22,7 +22,8 @@ log = logging.getLogger(__name__)
 
 _OUT_DIR = pathlib.Path(tempfile.gettempdir()) / "newsbot_charts"
 
-_FIGURE_LINE = re.compile(r"^(?P<value>[\d][\d,.\s%$]*)\s*(?:->|—|-)\s*(?P<source>\S.*)$")
+_FIGURE_PAREN = re.compile(r"^(?P<value>\$?\d[\d,.\s%$]*?)\s*\(\s*(?P<source>[^()]+?)\s*\)$")
+_FIGURE_ARROW = re.compile(r"^(?P<value>\$?\d[\d,.\s%$]*?)\s*(?:->|—|-)\s*(?P<source>\S.*)$")
 
 
 def _save(fig, name: str) -> pathlib.Path:
@@ -79,24 +80,32 @@ def market_overview(numbers: dict, theme: str = "dark") -> pathlib.Path | None:
 def parse_figures(text: str) -> list[tuple[str, str]] | None:
     """Парсит FIGURES-поле черновика в пары (значение, источник).
 
-    Формат строки: "значение -> источник". Строки без источника (нет "->"),
-    пустой текст или "none used" -> None, рисовать нечего.
+    Модель в реальности пишет и "значение -> источник" по одной паре на строку,
+    и "значение (источник); значение (источник)" все пары в одну строку через
+    точку с запятой - оба формата поддержаны. Разделитель между парами строго
+    ";" или перевод строки, никогда "," - у чисел запятая бывает разделителем
+    тысяч ("6,872").
+
+    Возвращает None ТОЛЬКО если поле пустое или буквально "none used" - это
+    единственный случай, когда "цифр нет" законно. Если текст непустой, но
+    ни одна пара не распозналась, возвращает [] (пусто, но не None) - вызывающий
+    код обязан отличать "нечего рисовать/проверять" от "не смогли разобрать".
     """
     text = (text or "").strip()
     if not text or text.lower().startswith("none used"):
         return None
     pairs = []
-    for line in text.splitlines():
-        line = line.strip().lstrip("-*").strip()
-        if not line:
+    for entry in re.split(r"[;\n]", text):
+        entry = entry.strip().lstrip("-*").strip()
+        if not entry:
             continue
-        m = _FIGURE_LINE.match(line)
+        m = _FIGURE_PAREN.match(entry) or _FIGURE_ARROW.match(entry)
         if not m:
             continue
         value, source = m.group("value").strip(), m.group("source").strip()
         if value and source:
             pairs.append((value, source))
-    return pairs or None
+    return pairs
 
 
 def _to_float(value: str) -> float | None:

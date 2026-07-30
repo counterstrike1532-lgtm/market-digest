@@ -21,12 +21,23 @@ _DEFAULT_MODELS = "gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite"
 MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", _DEFAULT_MODELS).split(",") if m.strip()]
 
 _requests_made = 0
+_successful_calls = 0    # реально вернувшие пригодный текст
+_quota_refusals = 0      # HTTP 429 с "PerDay" - дневной лимит модели исчерпан
 _day_exhausted: set[str] = set()   # модели с исчерпанной дневной квотой в этом прогоне
 
 
 def requests_made() -> int:
-    """Сколько HTTP-запросов реально ушло в Gemini за этот прогон (для контроля квоты)."""
+    """Сколько HTTP-запросов реально ушло в Gemini за этот прогон (для контроля квоты).
+    Считает КАЖДУЮ попытку, включая повторы после 429/500/503 - это и есть расход
+    против дневного лимита, не только успешные ответы."""
     return _requests_made
+
+
+def quota_summary() -> dict:
+    """Разбивка для лога: всего HTTP-попыток, сколько из них реально вернули текст,
+    сколько получили отказ по дневному лимиту (429 "PerDay")."""
+    return {"total": _requests_made, "successful": _successful_calls,
+           "quota_refused": _quota_refusals}
 
 
 def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
@@ -37,7 +48,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
     из-за чего JSON обрывается. Но Gemini 3 может запрещать полное отключение —
     тогда параметр снимается автоматически.
     """
-    global _requests_made
+    global _requests_made, _successful_calls, _quota_refusals
     key = os.environ["GEMINI_API_KEY"]
     last = "неизвестно"
 
@@ -92,6 +103,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                     if "PerDay" in r.text:
                         log.warning("%s: дневная квота исчерпана, следующая модель", model)
                         last = f"{model}: дневная квота исчерпана"
+                        _quota_refusals += 1
                         _day_exhausted.add(model)
                         break
                     wait = min(20 * (2 ** (attempt - 1)), 120)
@@ -114,6 +126,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                 if cand.get("finishReason") == "MAX_TOKENS":
                     log.warning("%s: ответ обрезан по лимиту токенов", model)
                 if text.strip():
+                    _successful_calls += 1
                     return text
                 last = f"{model}: пустой ответ ({cand.get('finishReason')})"
                 log.warning(last)

@@ -52,10 +52,15 @@ def parse_drafts(raw: str) -> list[dict]:
 def _to_search_variants(value: str) -> list[str]:
     """Строковые варианты числа для посимвольного поиска: группа из 3 цифр после
     запятой - разделитель тысяч (английский формат), иначе запятая - десятичная
-    (польский формат): "31,0" и "31.0" - одно и то же число."""
+    (польский формат): "31,0" и "31.0" - одно и то же число.
+
+    Для разделителя тысяч ищем ОБА варианта - "6,872" (как обычно и пишет
+    источник) и "6872" (на случай, если источник запятую не ставит). Раньше
+    искали только вариант без запятой, из-за чего число, буквально совпадающее
+    с текстом источника, помечалось NOT_FOUND."""
     core = re.sub(r"\s+", "", value.replace("$", "").replace("%", ""))
     if re.fullmatch(r"\d{1,3}(,\d{3})+", core):
-        return [core.replace(",", "")]
+        return [core, core.replace(",", "")]
     m = re.fullmatch(r"(\d+)[.,](\d+)", core)
     if m:
         whole, frac = m.groups()
@@ -226,26 +231,53 @@ def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, s
     return f"✅ verified ({len(found)}/{len(level_a)} found{ctx_note})", False, None
 
 
+def _report_lines(b: dict) -> list[str]:
+    if b.get("_parse_failed"):
+        return ["ЦИФРЫ: ⚠️ FIGURES не распарсился - проверь числа руками"]
+    report, downgrade, offending = _render(b["_level_a"], b["_level_b"])
+    lines = [f"ЦИФРЫ: {report}"]
+    if downgrade and b["verdict"].strip().upper() == "POST":
+        lines.append(f'  ! верификатор: VERDICT эффективно MAYBE - '
+                    f'сверь "{offending}" перед публикацией')
+    return lines
+
+
 def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> str:
     """Точка входа. Дописывает под каждым черновиком строку "ЦИФРЫ: ..." и, если
     хоть одно число NOT_FOUND или MISMATCH, явную пометку о принудительном
     понижении VERDICT до MAYBE - саму строку VERDICT черновика не трогает, только
     добавляет новые строки следом. Формат не разобрался - возвращает исходный
-    текст как есть, ничего не теряя."""
-    blocks = parse_drafts(drafts_text)
+    текст как есть, ничего не теряя.
+
+    Один проход regex.finditer по тексту: и данные для проверки, и позиция для
+    вставки берутся из ОДНИХ И ТЕХ ЖЕ match-объектов, поэтому аннотация физически
+    не может уехать не к своему черновику (раньше data и место вставки собирались
+    двумя независимыми проходами, синхронизированными только счётчиком по индексу -
+    один непарный матч расходил их на весь оставшийся текст)."""
+    blocks = []
+    for m in _DRAFT_RE.finditer(drafts_text):
+        d = {k: (v or "").strip() for k, v in m.groupdict().items()}
+        d["_match"] = m
+        blocks.append(d)
+
     if not blocks:
         log.warning("verify: не удалось разобрать черновики по формату - цифры не проверены")
         return drafts_text
 
     for b in blocks:
-        figures = charts.parse_figures(b["figures"])
+        raw_figures = b["figures"].strip()
+        figures = charts.parse_figures(raw_figures)
+        no_figures_declared = (not raw_figures) or raw_figures.lower().startswith("none used")
+        # текст был, но ни одна пара не распозналась - это НЕ "цифр нет", а сбой
+        # парсера. Ложный "все ок" тут хуже, чем явное "проверь руками".
+        b["_parse_failed"] = (not no_figures_declared) and not figures
         bodies = bodies_for_source(b["source"], selected)
         b["_bodies"] = bodies
         b["_level_a"] = verify_figures_local(figures, bodies, data_text)
 
     candidates = []
     for i, b in enumerate(blocks):
-        if b["verdict"].strip().upper() not in ("POST", "MAYBE"):
+        if b["_parse_failed"] or b["verdict"].strip().upper() not in ("POST", "MAYBE"):
             continue
         combined_body = "\n".join(x for x in b["_bodies"] if x)
         for r in b["_level_a"]:
@@ -267,15 +299,11 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> str
                          for c in candidates
                          if c["draft_idx"] == i and c["id"] in level_b_raw}
 
-    counter = iter(range(len(blocks)))
-
-    def _annotate(m: re.Match) -> str:
-        b = blocks[next(counter)]
-        report, downgrade, offending = _render(b["_level_a"], b["_level_b"])
-        extra = [f"ЦИФРЫ: {report}"]
-        if downgrade and b["verdict"].strip().upper() == "POST":
-            extra.append(f'  ! верификатор: VERDICT эффективно MAYBE - '
-                        f'сверь "{offending}" перед публикацией')
-        return m.group(0) + "\n" + "\n".join(extra)
-
-    return _DRAFT_RE.sub(_annotate, drafts_text)
+    out_parts, pos = [], 0
+    for b in blocks:
+        m = b["_match"]
+        out_parts.append(drafts_text[pos:m.end()])
+        out_parts.append("\n" + "\n".join(_report_lines(b)))
+        pos = m.end()
+    out_parts.append(drafts_text[pos:])
+    return "".join(out_parts)

@@ -179,7 +179,9 @@ def main() -> int:
             seen[s["item"].key] = now
         save_seen(seen)
 
-    log.info("расход квоты Gemini: %d запросов", brain.requests_made())
+    q = brain.quota_summary()
+    log.info("расход квоты Gemini: %d всего (успешных %d, отказов квоты %d)",
+             q["total"], q["successful"], q["quota_refused"])
     log.info("готово")
     return 0
 
