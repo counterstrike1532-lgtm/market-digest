@@ -369,8 +369,14 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
   classification. Prefer none.
 - Word count is a hard limit per draft: DRAFT 1 (digest) 120-170 words, DRAFT 2
   (digest, short) 80-110 words, DRAFT 3 (single) 110-170 words.
-- At most ONE of the 3 drafts may end with a question, and it must be a specific technical
-  question a professional would actually answer. The others end on a statement.
+- At most ONE of the 3 drafts may end with a question - not zero forced, not a rule to use
+  every time. That one question must invite someone else's expertise, not ask for
+  validation: a specific industry professional would answer it better than the author, and
+  it must grow out of the post's own content and name something concrete (an import
+  structure, a fee mechanic, a specific segment) - never a generic closer like "What do you
+  think?", "Thoughts?", "Agree?", or "let me know what you think". The digest drafts (1 and
+  2) are allowed to simply end on their last item; ending every post with a question is
+  itself a tell, and is exactly the pattern to avoid. The others end on a statement.
 - No links in the body. LinkedIn suppresses reach on posts with external links.
 - Sound like a curious student who read the source, not a consultant summarising it.
 - Never name his own role or status in the text itself: no "for a finance student", "as a
@@ -416,6 +422,12 @@ CHECK_FIRST: (one concrete action before publishing - which number to verify and
 """
 
 
+def format_data_block(data: dict) -> str:
+    """Тот же текст FRESH DATA, что видела модель - verify.py сверяет по нему же
+    числа, помеченные как взятые из этого блока."""
+    return "\n".join(f"- {k}: {v}" for k, v in data.items()) or "(нет данных)"
+
+
 def draft(selected: list[dict], data: dict, style_text: str, n: int = 3) -> str:
     blocks = []
     for i, s_ in enumerate(selected[:6], 1):
@@ -428,7 +440,7 @@ def draft(selected: list[dict], data: dict, style_text: str, n: int = 3) -> str:
             f"    non-obvious: {s_.get('why_nonobvious', '')}\n"
             f"    SOURCE TEXT: {src}")
 
-    data_txt = "\n".join(f"- {k}: {v}" for k, v in data.items()) or "(нет данных)"
+    data_txt = format_data_block(data)
     style = style_text.strip() or (
         "(No past posts provided yet - follow the voice rules above, "
         "erring on the side of plainer and shorter.)")

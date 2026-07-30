@@ -12,7 +12,7 @@ from datetime import datetime, timezone, timedelta
 
 import yaml
 
-from . import brain, charts, collect, deliver, enrich, numbers
+from . import brain, charts, collect, deliver, enrich, numbers, verify
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SEEN = ROOT / "state" / "seen.json"
@@ -152,6 +152,12 @@ def main() -> int:
             figures_chart = charts.figures_chart(pairs, title="Черновик 1", theme="light")
         except Exception as exc:
             log.warning("figures_chart упал: %s", exc)
+
+    log.info("--- верификация цифр ---")
+    try:
+        drafts = verify.verify_drafts(drafts, selected, brain.format_data_block(data))
+    except Exception as exc:
+        log.warning("verify_drafts упал: %s", exc)
 
     msg = build_message(selected, data, drafts)
 
