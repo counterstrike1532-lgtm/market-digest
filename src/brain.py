@@ -224,6 +224,14 @@ CRITICAL RULES:
    GOOD: "interest income on uninvested client cash balances"
    If you can only describe the general effect, the score is below 7.
 
+5. AUDIENCE. The audience is Polish finance people first, then people abroad who watch Poland
+   and CEE, then AI stories read through an economic lens. Ask directly: would someone working
+   in Polish finance raise an eyebrow at this? At equal quality, a story with a genuine Poland
+   or CEE angle must score higher than an equally good abstract global story. Score AI stories
+   on their economic consequence - capex, margins, the labor market, regulation - not on model
+   novelty. Purely domestic US news with no consequence for Europe or Poland is a minus, not
+   a neutral.
+
 For each item, "angle" is what the post would ARGUE - a claim, not a topic. If you cannot
 write a real claim, the score is below 7.
 
@@ -370,6 +378,21 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
 - Always a space after a period before the next sentence. "spikes.Quarterly" is a proofing
   failure, not a style choice - check for it.
 
+=== VERDICT: CAN HE DEFEND THIS? ===
+After writing each draft, judge it independently - a digest draft is judged as a whole, not
+item by item. The key filter: could the author answer the first follow-up question in the
+comments himself? He is comfortable with: financial accounting, DDM/CAPM valuation, bank
+financials, Polish macro, ETFs, crypto basics, brokerage business models. If the post's core
+mechanism sits outside this list, the verdict cannot be POST - at most MAYBE with CHECK_FIRST
+naming what he must actually understand before publishing.
+
+Second filter: if a story will obviously be in every feed within a day or two and the draft
+adds nothing of his own - no calculation, no Poland angle, no comparison he made - the verdict
+is SKIP, reason "commodity news, no edge".
+
+All three drafts getting SKIP is a valid, honest outcome for a day with no real material - say
+so plainly, do not stretch a verdict to POST to avoid an empty-handed day.
+
 === OUTPUT FORMAT (exactly this, per draft, in order DRAFT 1 / DRAFT 2 / DRAFT 3) ===
 SHAPE: (digest | digest-short | A/B/C - digest for DRAFT 1, digest-short for DRAFT 2,
   whichever of A/B/C you picked for DRAFT 3)
@@ -377,6 +400,10 @@ BODY: (the post, starting with its own first line - do not print the hook separa
 FIGURES: (each number used -> where it came from; or "none used")
 SOURCE: (the url; if the draft covers more than one story, list them comma-separated)
 WHY_THIS_ONE: (one line, for the author only)
+VERDICT: (POST | MAYBE | SKIP)
+WHY: (one line - the main reason for the verdict)
+CHECK_FIRST: (one concrete action before publishing - which number to verify and where, what
+  to re-read; or "-" if POST with no reservations)
 
 --- SELECTED STORIES ---
 {stories}
