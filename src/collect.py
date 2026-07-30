@@ -31,6 +31,7 @@ class Item:
     weight: float = 1.0
     social: int = 0         # очки HN/Reddit, если есть
     extra: dict = field(default_factory=dict)
+    published_known: bool = True   # False - дата не пришла из фида, published - заглушка "сейчас"
 
     @property
     def key(self) -> str:
@@ -42,13 +43,17 @@ class Item:
         return asdict(self)
 
 
-def _iso(struct) -> str:
+def _iso(struct) -> tuple[str, bool]:
+    """Возвращает (ISO-дата, дата_известна). Если фид не дал дату, подставляем
+    "сейчас" - число нужно самим числовым расчётам (сортировка, эвристика), но
+    published_known=False сигналит фильтру свежести и выводу в сводке не путать
+    эту заглушку с настоящей датой публикации."""
     if not struct:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(timezone.utc).isoformat(), False
     try:
-        return datetime(*struct[:6], tzinfo=timezone.utc).isoformat()
+        return datetime(*struct[:6], tzinfo=timezone.utc).isoformat(), True
     except Exception:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(timezone.utc).isoformat(), False
 
 
 def fetch_rss(feeds: list[dict], hours: int) -> list[Item]:
@@ -64,8 +69,8 @@ def fetch_rss(feeds: list[dict], hours: int) -> list[Item]:
                 continue
             host = url.split("/")[2]
             for e in parsed.entries[:40]:
-                pub = _iso(e.get("published_parsed") or e.get("updated_parsed"))
-                if datetime.fromisoformat(pub) < cutoff:
+                pub, pub_known = _iso(e.get("published_parsed") or e.get("updated_parsed"))
+                if pub_known and datetime.fromisoformat(pub) < cutoff:
                     continue
                 out.append(Item(
                     title=(e.get("title") or "").strip(),
@@ -75,6 +80,7 @@ def fetch_rss(feeds: list[dict], hours: int) -> list[Item]:
                     published=pub,
                     summary=(e.get("summary") or "")[:800],
                     weight=float(f.get("weight", 1.0)),
+                    published_known=pub_known,
                 ))
             log.info("ok %-45s %3d", host, len(parsed.entries))
         except Exception as exc:
@@ -100,11 +106,13 @@ def fetch_hackernews(cfg: dict, hours: int) -> list[Item]:
                 if link in seen:
                     continue
                 seen.add(link)
+                created_at = h.get("created_at") or ""
                 out.append(Item(
                     title=h.get("title", ""), url=link, source="news.ycombinator.com",
-                    tag="hn", published=h.get("created_at", ""),
+                    tag="hn", published=created_at or datetime.now(timezone.utc).isoformat(),
                     weight=1.1, social=int(h.get("points") or 0),
                     extra={"comments": h.get("num_comments"), "hn_query": q},
+                    published_known=bool(created_at),
                 ))
         except Exception as exc:
             log.warning("HN '%s' упал: %s", q, exc)

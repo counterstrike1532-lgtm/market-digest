@@ -45,6 +45,33 @@ def heuristic_prefilter(items: list, hours: int, cap: int = 100) -> list:
     return kept
 
 
+def filter_by_age(items: list, max_age_days: int) -> list:
+    """Догляд поверх --hours: у фида (особенно Google News c q=) запись иногда
+    приходит без пригодной даты публикации, и до сих пор такой записи молча
+    подставлялось "сейчас" - без проверки возраста она проходила как свежая,
+    даже будь ей год. Запись без даты (published_known=False) не отбрасываем
+    по требованию - пропускаем как есть, дату в сводке пометим отдельно."""
+    now = datetime.now(timezone.utc)
+    kept, dropped = [], []
+    for it in items:
+        if not it.published_known:
+            kept.append(it)
+            continue
+        pub = datetime.fromisoformat(it.published)
+        if pub.tzinfo is None:                      # наивную дату считаем UTC
+            pub = pub.replace(tzinfo=timezone.utc)
+        age_days = (now - pub).total_seconds() / 86400
+        if age_days > max_age_days:
+            dropped.append((age_days, it))
+        else:
+            kept.append(it)
+    if dropped:
+        oldest_age, oldest_it = max(dropped, key=lambda x: x[0])
+        log.info("отброшено по возрасту: %d (старейшая: %s, %s)",
+                len(dropped), oldest_it.title[:80], oldest_it.published[:10])
+    return kept
+
+
 def load_seen(keep_days: int = 21) -> dict:
     if not SEEN.exists():
         return {}
@@ -86,8 +113,9 @@ def build_message(selected, data, drafts) -> str:
     lines.append(f"СЮЖЕТЫ ({len(selected)})")
     for i, s in enumerate(selected, 1):
         it = s["item"]
+        date_str = it.published[:10] if it.published_known else "дата неизвестна"
         lines.append(f"\n{i}. [{s.get('score')}/10] {it.title}")
-        lines.append(f"   {it.source} — {it.url}")
+        lines.append(f"   {it.source}, {date_str} — {it.url}")
         if s.get("angle"):
             lines.append(f"   угол: {s['angle']}")
         if s.get("why_nonobvious"):
@@ -118,6 +146,12 @@ def main() -> int:
     log.info("новых (не видели раньше): %d из %d", len(fresh), len(items))
     if not fresh:
         log.info("нечего показывать, выходим")
+        return 0
+
+    max_age_days = cfg.get("freshness", {}).get("max_age_days", 7)
+    fresh = filter_by_age(fresh, max_age_days)
+    if not fresh:
+        log.info("после фильтра по возрасту ничего не осталось, выходим")
         return 0
 
     log.info("--- цифры ---")

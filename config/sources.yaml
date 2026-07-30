@@ -49,6 +49,11 @@ reddit:
   min_score: 400
   subs: [economics, finance, singularity, LocalLLaMA, stocks, poland]
 
+# ---------- Свежесть: догляд поверх --hours на случай, если фид (особенно
+# Google News с q=) поднимет старую статью без пригодной даты публикации ----------
+freshness:
+  max_age_days: 7
+
 # ---------- Цифры для аналитики ----------
 data:
   nbp_currencies: [usd, eur, chf]        # api.nbp.pl, без ключа
