@@ -374,3 +374,39 @@ def draft(selected: list[dict], data: dict, style_text: str, n: int = 3) -> str:
     return _call(DRAFT_PROMPT.format(n=n, stories="\n\n".join(blocks),
                                      data=data_txt, style=style),
                  temperature=0.9, max_tokens=16384)
+
+
+# ------------------------------------------------------------------
+#  T5: скорер черновиков. Судит уже готовый пост, не переписывает.
+#  Вызывается только из score_draft.py --deep, после локальных проверок.
+# ------------------------------------------------------------------
+SCORE_PROMPT = """You are reviewing one already-written LinkedIn draft before publication.
+Do not rewrite it - judge only.
+
+DRAFT:
+{text}
+
+Answer four questions, each a one-word verdict plus a one-sentence reason:
+1. personal_stake: STAKE if it reads as the author's own work (something he did, computed,
+   or noticed), RECAP if it reads as a summary of someone else's reporting.
+2. posture: EXPLAINING if it argues a mechanism with confidence, ASKING if it subtly seeks
+   correction or validation - even without the literal banned phrases.
+3. voice: STUDENT if it reads like a curious student who did the work, CONSULTANT if it
+   reads like someone summarizing a report for a client.
+4. human: HUMAN if it reads like a person wrote it, LLM_RHYTHM if it has telltale LLM
+   patterns (parallel triads, "it's not just X, it's Y" structure, generic transitions).
+
+Then give exactly 2-3 concrete edits: quote the exact phrase or sentence to cut or change,
+and say what to do instead. No general advice like "make it more personal".
+
+Return JSON only:
+{{"personal_stake": "STAKE|RECAP", "posture": "EXPLAINING|ASKING",
+"voice": "STUDENT|CONSULTANT", "human": "HUMAN|LLM_RHYTHM",
+"reasons": {{"personal_stake": "...", "posture": "...", "voice": "...", "human": "..."}},
+"edits": ["...", "...", "..."]}}
+"""
+
+
+def judge_draft(text: str) -> dict:
+    raw = _call(SCORE_PROMPT.format(text=text), as_json=True, temperature=0.2, no_thinking=True)
+    return _parse_json(raw)

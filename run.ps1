@@ -1,10 +1,16 @@
 # Usage:  .\run.ps1 verify   |   .\run.ps1 dry   |   .\run.ps1 send
+#         .\run.ps1 score draft.txt   |   .\run.ps1 score draft.txt -Deep
 # ASCII only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet("verify","dry","send","models")]
-    [string]$Mode
+    [ValidateSet("verify","dry","send","models","score")]
+    [string]$Mode,
+
+    [Parameter(Mandatory=$false)]
+    [string]$Path,
+
+    [switch]$Deep
 )
 
 $py = ".\.venv\Scripts\python.exe"
@@ -13,7 +19,10 @@ if (-not (Test-Path $py)) {
     exit 1
 }
 
-if ($Mode -ne "verify") {
+# score without -Deep is local-only and needs no API key
+$needsSecrets = ($Mode -ne "verify") -and (($Mode -ne "score") -or $Deep)
+
+if ($needsSecrets) {
     if (-not (Test-Path "secrets.ps1")) {
         Write-Host "secrets.ps1 not found. Run .\setup.ps1 first." -ForegroundColor Red
         exit 1
@@ -45,4 +54,10 @@ switch ($Mode) {
     "models" { & $py -m src.list_models }
     "dry"    { & $py -m src.main --dry --hours 48 }
     "send"   { & $py -m src.main --hours 48 }
+    "score"  {
+        $scoreArgs = @()
+        if ($Path) { $scoreArgs += $Path }
+        if ($Deep) { $scoreArgs += "--deep" }
+        & $py -m src.score_draft @scoreArgs
+    }
 }
