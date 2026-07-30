@@ -3,6 +3,8 @@ rem Digest -> Telegram. Double-click to run.
 rem ASCII only: cmd.exe uses OEM codepage and mangles Cyrillic in .cmd files.
 chcp 65001 >nul
 cd /d "%~dp0"
+git pull --rebase --autostash 2>nul
+if errorlevel 1 echo Warning: git pull failed, continuing anyway
 title Digest
 
 echo Running digest, this takes 1-3 minutes...
