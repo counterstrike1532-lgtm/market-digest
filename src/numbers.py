@@ -35,9 +35,14 @@ def nbp_fx(codes: list[str]) -> dict:
     return out
 
 
-def stooq_series(symbols: dict) -> dict:
-    """Индексы со stooq.pl в CSV. Без ключа, покрывает и GPW, и США."""
-    out = {}
+def stooq_series(symbols: dict) -> tuple[dict, dict]:
+    """Индексы со stooq.pl в CSV. Без ключа, покрывает и GPW, и США.
+
+    Возвращает (scalars, series): scalars — как раньше (последнее значение +
+    изменения), series — весь ряд дат/close по тем же именам, для графиков.
+    CSV и так скачивается целиком, раньше ряд просто выбрасывался.
+    """
+    out, series = {}, {}
     d1 = (date.today() - timedelta(days=45)).strftime("%Y%m%d")
     d2 = date.today().strftime("%Y%m%d")
     for name, sym in symbols.items():
@@ -55,9 +60,13 @@ def stooq_series(symbols: dict) -> dict:
                 "chg_1m_pct": round((closes[-1] / closes[0] - 1) * 100, 2),
                 "as_of": rows[-1].get("Data"),
             }
+            series[name] = {
+                "dates": [x["Data"] for x in rows if x.get("Zamkniecie")],
+                "close": closes,
+            }
         except Exception as exc:
             log.warning("stooq %s упал: %s", sym, exc)
-    return out
+    return out, series
 
 
 def eurostat_hicp(geos: list[str]) -> dict:
@@ -108,11 +117,17 @@ def fred_series(series: dict) -> dict:
 
 
 def gather(cfg: dict) -> dict:
+    """Формат вывода не меняется: снимок плоский, per-symbol записи как раньше.
+    Единственное добавление — ключ "_series" с сырыми рядами stooq для графиков
+    (main.py забирает его до того, как data уйдёт в сводку/промпт черновиков)."""
     d = cfg.get("data", {})
     snap = {}
     snap.update(nbp_fx(d.get("nbp_currencies", [])))
-    snap.update(stooq_series(d.get("stooq_symbols", {})))
+    stooq_scalars, stooq_series_data = stooq_series(d.get("stooq_symbols", {}))
+    snap.update(stooq_scalars)
+    if stooq_series_data:
+        snap["_series"] = stooq_series_data
     snap.update(eurostat_hicp(d.get("eurostat_hicp", [])))
     snap.update(fred_series(d.get("fred_series", {})))
-    log.info("цифр собрано: %d", len(snap))
+    log.info("цифр собрано: %d", len(snap) - (1 if "_series" in snap else 0))
     return snap

@@ -6,12 +6,13 @@ import json
 import logging
 import math
 import pathlib
+import re
 import sys
 from datetime import datetime, timezone, timedelta
 
 import yaml
 
-from . import brain, collect, deliver, enrich, numbers
+from . import brain, charts, collect, deliver, enrich, numbers
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SEEN = ROOT / "state" / "seen.json"
@@ -60,6 +61,13 @@ def save_seen(seen: dict) -> None:
     SEEN.write_text(json.dumps(seen, indent=0, sort_keys=True), encoding="utf-8")
 
 
+def first_draft_figures(drafts_text: str) -> str:
+    """Текст FIGURES-поля первого черновика (draft #1 - без сигнала вроде VERDICT
+    "лучший" тут просто первый по порядку). Не нашлось - пустая строка."""
+    m = re.search(r"FIGURES:\s*(.*?)\n\s*SOURCE:", drafts_text, re.S)
+    return m.group(1).strip() if m else ""
+
+
 def build_message(selected, data, drafts) -> str:
     today = datetime.now(timezone.utc).strftime("%d.%m.%Y")
     lines = [f"СВОДКА {today}", ""]
@@ -97,6 +105,7 @@ def main() -> int:
     ap.add_argument("--hours", type=int, default=26, help="окно свежести новостей")
     ap.add_argument("--drafts", type=int, default=3)
     ap.add_argument("--top", type=int, default=12)
+    ap.add_argument("--no-charts", action="store_true", help="не рисовать и не слать графики")
     args = ap.parse_args()
 
     cfg = yaml.safe_load((ROOT / "config" / "sources.yaml").read_text(encoding="utf-8"))
@@ -114,6 +123,14 @@ def main() -> int:
     log.info("--- цифры ---")
     data = numbers.gather(cfg)
 
+    market_chart = None
+    if not args.no_charts:
+        try:
+            market_chart = charts.market_overview(data, theme="dark")
+        except Exception as exc:
+            log.warning("market_overview упал: %s", exc)
+    data.pop("_series", None)   # сырые ряды дальше по конвейеру не нужны
+
     log.info("--- отбор ---")
     candidates = heuristic_prefilter(fresh, args.hours)
     selected = brain.rank(candidates, top_n=args.top)
@@ -128,12 +145,29 @@ def main() -> int:
     style_text = STYLE.read_text(encoding="utf-8") if STYLE.exists() else ""
     drafts = brain.draft(selected, data, style_text, n=args.drafts)
 
+    figures_chart = None
+    if not args.no_charts:
+        try:
+            pairs = charts.parse_figures(first_draft_figures(drafts))
+            figures_chart = charts.figures_chart(pairs, title="Черновик 1", theme="light")
+        except Exception as exc:
+            log.warning("figures_chart упал: %s", exc)
+
     msg = build_message(selected, data, drafts)
 
     if args.dry:
         print("\n" + msg)
+        if market_chart:
+            print(f"\n[график] рынки: {market_chart}")
+        if figures_chart:
+            print(f"[график] к черновику 1: {figures_chart}")
     else:
+        if market_chart:
+            deliver.send_photo(market_chart, "Рынки за месяц")
         deliver.send(msg)
+        if figures_chart:
+            deliver.send_photo(figures_chart,
+                               "График к черновику 1 — можно приложить к посту")
         now = datetime.now(timezone.utc).isoformat()
         for s in selected:
             seen[s["item"].key] = now

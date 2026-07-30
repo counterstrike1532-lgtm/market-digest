@@ -51,6 +51,21 @@ def _to_html(text: str) -> str:
     return "".join(out)
 
 
+def send_photo(path, caption: str = "") -> None:
+    """sendPhoto, multipart/form-data. Caption режем до лимита Telegram (1024)."""
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    chat = os.environ["TELEGRAM_CHAT_ID"]
+    cap = _to_html(caption)[:1024]
+    with open(path, "rb") as f:
+        r = requests.post(f"https://api.telegram.org/bot{token}/sendPhoto",
+                          data={"chat_id": chat, "caption": cap, "parse_mode": "HTML"},
+                          files={"photo": f}, timeout=60)
+    if not r.ok:
+        log.error("Telegram sendPhoto отказал: %s %s", r.status_code, r.text[:300])
+    else:
+        log.info("фото отправлено: %s", path)
+
+
 def send(text: str) -> None:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat = os.environ["TELEGRAM_CHAT_ID"]
