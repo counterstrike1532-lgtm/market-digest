@@ -114,15 +114,31 @@ def bodies_for_source(source_field: str, selected: list[dict]) -> list[str]:
     return out
 
 
+_BARE_YEAR = re.compile(r"^(19|20)\d{2}$")
+
+
 def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
                          data_text: str) -> list[dict]:
     """Уровень a. Каждая запись: {value, source, status, matched_in?, closest?}.
-    status: FOUND | NOT_FOUND | NO_SOURCE_TEXT."""
+    status: FOUND | NOT_FOUND | NO_SOURCE_TEXT | UNPARSED | YEAR.
+
+    UNPARSED - значение структурно распозналось как пара (value, source), но не
+    приводится к числу (единица измерения в тексте: "$200 billion", "100,000 PLN").
+    Раньше такая пара просто не долетала до этой функции - parse_figures молча
+    ронял её на этапе регулярки, и знаменатель в отчёте занижался без следа (T9b).
+    Голый год ("2012") - YEAR, не считается проверяемым числом вовсе и не входит
+    в знаменатель, но это видно в отчёте отдельной пометкой."""
     if not pairs:
         return []
     combined_body = "\n".join(b for b in bodies if b)
     out = []
     for value, source in pairs:
+        if _BARE_YEAR.fullmatch(value.strip()):
+            out.append({"value": value, "source": source, "status": "YEAR"})
+            continue
+        if _to_float(value) is None:
+            out.append({"value": value, "source": source, "status": "UNPARSED"})
+            continue
         variants = _to_search_variants(value)
         if any(v in data_text for v in variants):
             out.append({"value": value, "source": source, "status": "FOUND",
@@ -200,11 +216,23 @@ def _verify_context_llm(candidates: list[dict]) -> dict[int, dict]:
 
 
 def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, str | None]:
-    """Возвращает (строка отчёта ЦИФРЫ с эмодзи, downgrade_to_maybe, спорное значение)."""
+    """Возвращает (строка отчёта ЦИФРЫ с эмодзи, downgrade_to_maybe, спорное значение).
+
+    Знаменатель - число ПАР в FIGURES (countable), а не число распознанных как
+    число значений. YEAR исключается из знаменателя явно (голый год - легитимно
+    не проверяемое число), UNPARSED - нет: это реальная пара, просто без единицы
+    измерения, которую мы умеем сверять, и её обязаны показать честно (T9b)."""
     if not level_a:
         return "✅ verified (no figures used)", False, None
 
-    not_found = [r for r in level_a if r["status"] == "NOT_FOUND"]
+    countable = [r for r in level_a if r["status"] != "YEAR"]
+    year_n = len(level_a) - len(countable)
+    year_note = f" (+{year_n} year{'s' if year_n != 1 else ''} not counted)" if year_n else ""
+
+    if not countable:
+        return f"✅ verified (no checkable figures{year_note})", False, None
+
+    not_found = [r for r in countable if r["status"] == "NOT_FOUND"]
     if not_found:
         r = not_found[0]
         closest = f' (closest in text: "{r["closest"]}")' if r.get("closest") else ""
@@ -212,7 +240,7 @@ def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, s
             True, r["value"]
 
     mismatches = []
-    for r in level_a:
+    for r in countable:
         if r["status"] != "FOUND":
             continue
         lb = level_b.get(r["value"])
@@ -223,17 +251,25 @@ def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, s
         why = (lb.get("why") or "").strip()
         return f'⚠️ "{r["value"]}" context mismatch - {why}', True, r["value"]
 
-    no_source = [r for r in level_a if r["status"] == "NO_SOURCE_TEXT"]
-    found = [r for r in level_a if r["status"] == "FOUND"]
-    if no_source and not found:
+    no_source = [r for r in countable if r["status"] == "NO_SOURCE_TEXT"]
+    unparsed = [r for r in countable if r["status"] == "UNPARSED"]
+    found = [r for r in countable if r["status"] == "FOUND"]
+    denom = len(countable)
+
+    if no_source and not found and not unparsed:
         return "❌ source text not fetched - figures are on you to verify", False, None
-    if no_source:
-        return (f"⚠️ {len(found)}/{len(level_a)} figures checked "
-                f"({len(no_source)} from an unfetched source) - verify those by hand"), \
-            False, None
+
+    if no_source or unparsed:
+        bits = []
+        if unparsed:
+            bits.append(f"{len(unparsed)} unparsed")
+        if no_source:
+            bits.append(f"{len(no_source)} from an unfetched source")
+        return (f"⚠️ {len(found)}/{denom} found, {', '.join(bits)}{year_note} "
+                f"- verify those by hand"), False, None
 
     ctx_note = ", context ok" if level_b else ""
-    return f"✅ verified ({len(found)}/{len(level_a)} found{ctx_note})", False, None
+    return f"✅ verified ({len(found)}/{denom} found{ctx_note}){year_note}", False, None
 
 
 def _report_lines(b: dict) -> list[str]:
