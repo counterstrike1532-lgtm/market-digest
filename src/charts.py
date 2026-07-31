@@ -22,8 +22,13 @@ log = logging.getLogger(__name__)
 
 _OUT_DIR = pathlib.Path(tempfile.gettempdir()) / "newsbot_charts"
 
-_FIGURE_PAREN = re.compile(r"^(?P<value>\$?\d[\d,.\s%$]*?)\s*\(\s*(?P<source>[^()]+?)\s*\)$")
-_FIGURE_ARROW = re.compile(r"^(?P<value>\$?\d[\d,.\s%$]*?)\s*(?:->|—|-)\s*(?P<source>\S.*)$")
+# value = числовое ядро ($/цифры/запятые/точки/%) + до 3 слов единицы измерения
+# ("billion", "PLN", "billion euros") — модель часто пишет "$200 billion", а не
+# голое число. Слова не в числовом ядре: жадный числовой класс без \s не даёт
+# им проглотить пробел перед словом, а \s+ в расширении требует его обратно.
+_VALUE = r"\$?\d[\d,.%$]*(?:\s+[A-Za-z][\w.]*){0,3}"
+_FIGURE_PAREN = re.compile(rf"^(?P<value>{_VALUE})\s*\(\s*(?P<source>[^()]+?)\s*\)$")
+_FIGURE_ARROW = re.compile(rf"^(?P<value>{_VALUE})\s*(?:->|—|-)\s*(?P<source>\S.*)$")
 
 
 def _save(fig, name: str) -> pathlib.Path:
