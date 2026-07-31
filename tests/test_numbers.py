@@ -137,3 +137,116 @@ def test_stooq_series_mixed_symbols_one_fails_one_ok(monkeypatch):
     monkeypatch.setattr(numbers.requests, "get", fake_get)
     scalars, series = numbers.stooq_series({"wig20": "wig20", "sp500": "^spx"})
     assert "wig20" in scalars and "sp500" not in scalars
+
+
+# ---------------------------------------------------------------- T9c: yfinance каскад
+
+class FakeHistory:
+    """Достаточно pandas-подобного объекта для yfinance_series: .index с
+    .strftime и .tolist() на колонке "Close"."""
+    def __init__(self, dates, closes):
+        import pandas as pd
+        self._df = pd.DataFrame({"Close": closes},
+                                index=pd.to_datetime(dates))
+
+    def __getitem__(self, key):
+        return self._df[key]
+
+    @property
+    def index(self):
+        return self._df.index
+
+
+class FakeTicker:
+    def __init__(self, responses):
+        self._responses = responses   # {ticker: (dates, closes) | Exception}
+
+    def __call__(self, ticker):
+        self._current = ticker
+        return self
+
+    def history(self, period=None, interval=None):
+        resp = self._responses[self._current]
+        if isinstance(resp, Exception):
+            raise resp
+        dates, closes = resp
+        return FakeHistory(dates, closes)
+
+
+_DATES_5 = ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"]
+_CLOSES_5 = [100.5, 101.2, 102.0, 101.8, 103.0]
+
+
+def test_yfinance_series_valid(monkeypatch):
+    fake = FakeTicker({"WIG20.WA": (_DATES_5, _CLOSES_5)})
+    monkeypatch.setattr(numbers.yf, "Ticker", fake)
+    scalars, series = numbers.yfinance_series({"wig20": "WIG20.WA"})
+    assert scalars["wig20"]["value"] == 103.0
+    assert scalars["wig20"]["as_of"] == "2026-06-05"
+    assert series["wig20"]["close"] == _CLOSES_5
+
+
+def test_yfinance_series_too_few_rows_is_skipped(monkeypatch):
+    fake = FakeTicker({"WIG20.WA": (_DATES_5[:2], _CLOSES_5[:2])})
+    monkeypatch.setattr(numbers.yf, "Ticker", fake)
+    scalars, series = numbers.yfinance_series({"wig20": "WIG20.WA"})
+    assert scalars == {} and series == {}
+
+
+def test_yfinance_series_exception_is_caught(monkeypatch):
+    fake = FakeTicker({"WIG20.WA": RuntimeError("network down")})
+    monkeypatch.setattr(numbers.yf, "Ticker", fake)
+    scalars, series = numbers.yfinance_series({"wig20": "WIG20.WA"})
+    assert scalars == {} and series == {}
+
+
+def test_market_series_falls_back_to_yfinance_for_missing_symbol(monkeypatch, caplog):
+    """stooq отдал wig20, но не sp500 - фолбэк должен добрать только sp500
+    через yfinance и явно залогировать источник."""
+    def fake_stooq(symbols):
+        return ({"wig20": {"value": 2000.0, "as_of": "2026-06-05"}},
+               {"wig20": {"dates": _DATES_5, "close": _CLOSES_5}})
+
+    def fake_yfinance(symbols):
+        assert symbols == {"sp500": "^GSPC"}
+        return ({"sp500": {"value": 5000.0, "as_of": "2026-06-05"}},
+               {"sp500": {"dates": _DATES_5, "close": _CLOSES_5}})
+
+    monkeypatch.setattr(numbers, "stooq_series", fake_stooq)
+    monkeypatch.setattr(numbers, "yfinance_series", fake_yfinance)
+
+    with caplog.at_level("INFO"):
+        scalars, series = numbers.market_series({
+            "stooq_symbols": {"wig20": "wig20", "sp500": "^spx"},
+            "yfinance_symbols": {"wig20": "WIG20.WA", "sp500": "^GSPC"},
+        })
+
+    assert scalars["wig20"]["value"] == 2000.0
+    assert scalars["sp500"]["value"] == 5000.0
+    assert "yfinance" in caplog.text
+    assert "stooq" in caplog.text.lower()
+
+
+def test_market_series_does_not_call_yfinance_when_stooq_fully_succeeds(monkeypatch):
+    def fake_stooq(symbols):
+        return ({"wig20": {"value": 2000.0}}, {"wig20": {"dates": [], "close": []}})
+
+    def boom(symbols):
+        raise AssertionError("yfinance не должен вызываться, если stooq отдал всё")
+
+    monkeypatch.setattr(numbers, "stooq_series", fake_stooq)
+    monkeypatch.setattr(numbers, "yfinance_series", boom)
+
+    scalars, series = numbers.market_series({"stooq_symbols": {"wig20": "wig20"}})
+    assert scalars == {"wig20": {"value": 2000.0}}
+
+
+def test_market_series_both_sources_fail_skips_gracefully(monkeypatch):
+    monkeypatch.setattr(numbers, "stooq_series", lambda symbols: ({}, {}))
+    monkeypatch.setattr(numbers, "yfinance_series", lambda symbols: ({}, {}))
+
+    scalars, series = numbers.market_series({
+        "stooq_symbols": {"wig20": "wig20"},
+        "yfinance_symbols": {"wig20": "WIG20.WA"},
+    })
+    assert scalars == {} and series == {}

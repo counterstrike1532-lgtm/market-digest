@@ -11,6 +11,7 @@ import re
 from datetime import date, timedelta
 
 import requests
+import yfinance as yf
 
 log = logging.getLogger(__name__)
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; personal-news-digest/1.0)"}
@@ -81,6 +82,52 @@ def stooq_series(symbols: dict) -> tuple[dict, dict]:
         except Exception as exc:
             log.warning("stooq %s упал: %s", sym, exc)
     return out, series
+
+
+def yfinance_series(symbols: dict) -> tuple[dict, dict]:
+    """Тот же формат вывода, что и stooq_series (T9c) — вызывающий код не видит
+    разницы, какой источник в итоге отдал данные. Используется только как
+    каскадный фолбэк на символы, которых stooq не дал (см. market_series)."""
+    out, series = {}, {}
+    for name, ticker in symbols.items():
+        try:
+            hist = yf.Ticker(ticker).history(period="2mo", interval="1d")
+            closes = [round(float(v), 2) for v in hist["Close"].tolist()]
+            dates = [d.strftime("%Y-%m-%d") for d in hist.index]
+            if len(closes) < 5:
+                log.warning("yfinance %s: получили только %d валидных строк "
+                           "(нужно >=5) - пропускаю", ticker, len(closes))
+                continue
+            out[name] = {
+                "value": round(closes[-1], 2),
+                "chg_1d_pct": round((closes[-1] / closes[-2] - 1) * 100, 2),
+                "chg_1m_pct": round((closes[-1] / closes[0] - 1) * 100, 2),
+                "as_of": dates[-1],
+            }
+            series[name] = {"dates": dates, "close": closes}
+        except Exception as exc:
+            log.warning("yfinance %s упал: %s", ticker, exc)
+    return out, series
+
+
+def market_series(data_cfg: dict) -> tuple[dict, dict]:
+    """Каскад для индексов: stooq первым (бесплатный, без ключа), yfinance —
+    только для символов, которых stooq не отдал (антибот требует JS, см. ГРАБЛИ).
+    Формат вывода идентичен stooq_series — main.py/charts.py подмены не видят."""
+    stooq_symbols = data_cfg.get("stooq_symbols", {})
+    scalars, series = stooq_series(stooq_symbols)
+    missing = [name for name in stooq_symbols if name not in scalars]
+    if missing:
+        yf_symbols = data_cfg.get("yfinance_symbols", {})
+        targets = {name: yf_symbols[name] for name in missing if name in yf_symbols}
+        if targets:
+            yf_scalars, yf_series_data = yfinance_series(targets)
+            if yf_scalars:
+                log.info("рынки: yfinance (stooq недоступен) - %s",
+                        ", ".join(sorted(yf_scalars)))
+            scalars.update(yf_scalars)
+            series.update(yf_series_data)
+    return scalars, series
 
 
 def _stale_marker(period_key: str, months_threshold: int = 3) -> str:
@@ -166,10 +213,10 @@ def gather(cfg: dict) -> dict:
     d = cfg.get("data", {})
     snap = {}
     snap.update(nbp_fx(d.get("nbp_currencies", [])))
-    stooq_scalars, stooq_series_data = stooq_series(d.get("stooq_symbols", {}))
-    snap.update(stooq_scalars)
-    if stooq_series_data:
-        snap["_series"] = stooq_series_data
+    market_scalars, market_series_data = market_series(d)
+    snap.update(market_scalars)
+    if market_series_data:
+        snap["_series"] = market_series_data
     snap.update(eurostat_hicp(d.get("eurostat_hicp", [])))
     snap.update(fred_series(d.get("fred_series", {})))
     log.info("цифр собрано: %d", len(snap) - (1 if "_series" in snap else 0))
