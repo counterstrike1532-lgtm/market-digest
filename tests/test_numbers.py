@@ -221,9 +221,11 @@ def test_market_series_falls_back_to_yfinance_for_missing_symbol(monkeypatch, ca
             "yfinance_symbols": {"wig20": "WIG20.WA", "sp500": "^GSPC"},
         })
 
-    assert scalars["wig20"]["value"] == 2000.0
+    # market_series() переименовывает "wig20" в "WIG20 TR (ETF)" на выходе -
+    # это цена пая TR-ETF, а не уровень индекса (T9 fix 2)
+    assert scalars["WIG20 TR (ETF)"]["value"] == 2000.0
     assert scalars["sp500"]["value"] == 5000.0
-    assert source_map == {"wig20": "stooq", "sp500": "yfinance"}
+    assert source_map == {"WIG20 TR (ETF)": "stooq", "sp500": "yfinance"}
     assert "yfinance" in caplog.text
     assert "stooq" in caplog.text.lower()
 
@@ -239,8 +241,8 @@ def test_market_series_does_not_call_yfinance_when_stooq_fully_succeeds(monkeypa
     monkeypatch.setattr(numbers, "yfinance_series", boom)
 
     scalars, series, source_map = numbers.market_series({"stooq_symbols": {"wig20": "wig20"}})
-    assert scalars == {"wig20": {"value": 2000.0}}
-    assert source_map == {"wig20": "stooq"}
+    assert scalars == {"WIG20 TR (ETF)": {"value": 2000.0}}
+    assert source_map == {"WIG20 TR (ETF)": "stooq"}
 
 
 def test_market_series_both_sources_fail_skips_gracefully(monkeypatch):

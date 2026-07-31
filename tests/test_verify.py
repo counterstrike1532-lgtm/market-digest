@@ -18,13 +18,42 @@ def test_search_variants_thousand_separator_both_forms():
 
 
 def test_search_variants_dollar_billion():
-    assert verify._to_search_variants("$200 billion") == ["200billion"]
+    # T9 fix 3: словом-порядком, с пробелом - "200 billion", как источник и пишет,
+    # не слитно "200billion" (раньше именно так, substring-поиск не находил ничего)
+    assert verify._to_search_variants("$200 billion") == ["200 billion"]
 
 
 def test_search_variants_pln_thousand():
-    # единица измерения в значении - не голое число, поэтому вариант всего один
-    # (это и есть кейс, который в T9b получает статус UNPARSED, а не NOT_FOUND)
-    assert verify._to_search_variants("100,000 PLN") == ["100,000PLN"]
+    assert verify._to_search_variants("100,000 PLN") == ["100,000 PLN", "100000 PLN"]
+
+
+def test_search_variants_magnitude_words_real_run_examples():
+    """T9 fix 3: реальный прогон, 4 из 5 значений не находились - все со
+    словом-порядком или составной единицей после числа."""
+    assert verify._to_search_variants("$45 billion") == ["45 billion"]
+    assert verify._to_search_variants("$10 billion") == ["10 billion"]
+    assert verify._to_search_variants("8.5 million tons") == \
+        ["8.5 million tons", "8,5 million tons"]
+    assert verify._to_search_variants("1.3 percentage points") == \
+        ["1.3 percentage points", "1,3 percentage points"]
+
+
+def test_to_float_understands_magnitude_words():
+    assert verify._to_float("$45 billion") == 45e9
+    assert verify._to_float("8.5 million tons") == 8.5e6
+    assert verify._to_float("1.3 percentage points") == 1.3
+    assert verify._to_float("100,000 PLN") == 100000.0
+    # без числового ядра в начале - как и раньше, не парсится
+    assert verify._to_float("approximately 45") is None
+
+
+def test_to_float_handles_thousand_separator_with_decimal():
+    """Реальный прогон (после T9 fix 3): "15,019.5 thousand" - разделитель тысяч
+    И десятичная точка одновременно. Раньше это давало "15.019.5" (две точки,
+    float() падает) и число уходило в UNPARSED незаслуженно."""
+    assert verify._to_float("15,019.5 thousand") == 15_019_500.0
+    assert verify._to_search_variants("15,019.5 thousand") == \
+        ["15,019.5 thousand", "15019.5 thousand"]
 
 
 # ---------------------------------------------------------------- вставка ЦИФРЫ
@@ -83,9 +112,12 @@ def test_verify_drafts_no_model_header_still_gets_one():
 
 def test_denominator_is_pair_count_not_recognized_count():
     """Реальный кейс из прогона: FIGURES из трёх пар ("100,000 PLN", "2012",
-    "185 billion euros"), ни одна из первой и третьей не приводится к числу
-    (единица измерения в тексте). Раньше это тихо давало "1/1 found" вместо
-    честного отчёта - знаменатель занижался вместе с числом распознанных пар."""
+    "185 billion euros"). Раньше "1/1 found" вместо честного отчёта -
+    знаменатель занижался вместе с числом распознанных пар. Со значением/бодами
+    без совпадения "100,000 PLN" и "185 billion euros" теперь честно
+    NO_SOURCE_TEXT (T9 fix 3 научил их распознаваться как числа - см.
+    test_magnitude_words_now_findable_in_source ниже про сам поиск), "2012" -
+    по-прежнему YEAR и не входит в знаменатель."""
     pairs = charts.parse_figures(
         "100,000 PLN -> Statistics Poland; 2012 -> Statistics Poland; "
         "185 billion euros -> NBP")
@@ -93,16 +125,26 @@ def test_denominator_is_pair_count_not_recognized_count():
 
     level_a = verify.verify_figures_local(pairs, bodies=[], data_text="")
     statuses = {r["value"]: r["status"] for r in level_a}
-    assert statuses["100,000 PLN"] == "UNPARSED"
-    assert statuses["185 billion euros"] == "UNPARSED"
+    assert statuses["100,000 PLN"] == "NO_SOURCE_TEXT"
+    assert statuses["185 billion euros"] == "NO_SOURCE_TEXT"
     assert statuses["2012"] == "YEAR"
 
     report, downgrade, _ = verify._render(level_a, {})
     assert "2/2" not in report and "1/1" not in report   # не выдаёт себя за проверку
-    assert "0/2 found" in report
-    assert "2 unparsed" in report
     assert "1 year" in report          # год не входит в знаменатель, но заметен
-    assert "✅" not in report          # не даёт чистый чек, когда часть непроверена
+
+
+def test_magnitude_words_now_findable_in_source():
+    """T9 fix 3: "$45 billion"/"185 billion euros" структурно распознаются
+    parse_figures и ТЕПЕРЬ находятся в тексте источника словесной формой -
+    раньше падали в UNPARSED и поиск даже не пытался."""
+    pairs = [("185 billion euros", "NBP"), ("$45 billion", "CNBC")]
+    body = ("The fund raised 185 billion euros this year. Separately, "
+            "the company reported $45 billion in quarterly revenue.")
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    statuses = {r["value"]: r["status"] for r in level_a}
+    assert statuses["185 billion euros"] == "FOUND"
+    assert statuses["$45 billion"] == "FOUND"
 
 
 def test_denominator_all_found_is_still_clean_checkmark():
@@ -123,15 +165,27 @@ def test_denominator_year_only_excluded_entirely():
     assert downgrade is False
 
 
-def test_unparsed_does_not_force_downgrade_alone():
-    """UNPARSED - честно непроверено, но не то же самое, что найденная ошибка
-    (NOT_FOUND/MISMATCH). Verdict не понижается принудительно только из-за
-    единицы измерения, которую парсер не разобрал."""
-    pairs = [("100,000 PLN", "Statistics Poland")]
+def test_unparsed_forces_downgrade():
+    """T9 fix 6: непроверенное число - это не проверенное число. Раньше
+    UNPARSED-only черновик оставался чистым POST; теперь принудительно MAYBE,
+    как NOT_FOUND/MISMATCH."""
+    pairs = [("approximately 45 or so", "Statistics Poland")]
+    level_a = verify.verify_figures_local(pairs, bodies=[], data_text="")
+    assert level_a[0]["status"] == "UNPARSED"
+    report, downgrade, offending = verify._render(level_a, {})
+    assert downgrade is True
+    assert offending == ["approximately 45 or so"]
+    assert "unparsed" in report
+    assert "✅" not in report
+
+
+def test_unparsed_offending_lists_all_values_not_just_first():
+    pairs = [("approximately 45", "A"), ("roughly 90", "B")]
     level_a = verify.verify_figures_local(pairs, bodies=[], data_text="")
     _, downgrade, offending = verify._render(level_a, {})
-    assert downgrade is False
-    assert offending is None
+    assert downgrade is True
+    assert set(offending) == {"approximately 45", "roughly 90"}
+    assert "2 unparsed" in verify._render(level_a, {})[0]
 
 
 # ---------------------------------------------------------------- T9d: метрики прогона
@@ -162,6 +216,23 @@ def test_stats_verdicts_reflect_verifier_downgrade_not_raw_verdict():
     assert stats["verdicts"] == {"POST": 1, "MAYBE": 1, "SKIP": 1}
     assert stats["figures"]["found"] == 1
     assert stats["figures"]["not_found"] == 1
+
+
+def test_verify_drafts_check_first_lists_all_unparsed_values():
+    """T9 fix 6: unparsed-only черновик раньше оставался чистым POST. Теперь
+    верификатор сам понижает и перечисляет ВСЕ непроверенные значения в своей
+    аннотации, а не только первое. Значения структурно распознаются
+    parse_figures (начинаются с цифры), но не приводятся к числу даже с учётом
+    слов-порядков (T9 fix 3) - искажённый десятичный формат."""
+    draft = _draft_block(
+        "digest", "Body text.",
+        "3.4.5 million -> A; 1,2,3 -> A",
+        _ITEM_1_URL, verdict="POST")
+    out, stats = verify.verify_drafts(draft, selected=[], data_text="")
+    assert stats["verdicts"] == {"POST": 0, "MAYBE": 1, "SKIP": 0}
+    assert "VERDICT эффективно MAYBE" in out
+    assert '"3.4.5 million"' in out
+    assert '"1,2,3"' in out
 
 
 def test_stats_empty_when_format_unparseable():

@@ -66,18 +66,51 @@ def _domain(url: str) -> str:
         return url
 
 
-def _to_html(text: str) -> str:
+def _wrap_bare_domains(segment: str, domain_re: re.Pattern | None,
+                       domain_urls: dict[str, str]) -> str:
+    """Домены без "https://" (модель иногда путает "SOURCE: www.cnbc.com" с
+    URL - см. T9 fix 4) сами по себе не попадают под URL_RE, и Telegram решает
+    судьбу такого голого текста сам - обычно ссылкой на корень сайта, а не на
+    статью. Известные домены (из selected - те же, что уже видны в СЮЖЕТЫ)
+    оборачиваем в <a href> на конкретную статью явно, чтобы Telegram вообще
+    не трогал этот текст своим автолинкованием."""
+    if not domain_re:
+        return html.escape(segment)
+    out, last = [], 0
+    for m in domain_re.finditer(segment):
+        out.append(html.escape(segment[last:m.start()]))
+        domain = m.group()
+        url = domain_urls[domain]
+        out.append(f'<a href="{html.escape(url)}">{html.escape(domain)}</a>')
+        last = m.end()
+    out.append(html.escape(segment[last:]))
+    return "".join(out)
+
+
+def _domain_pattern(domain_urls: dict[str, str] | None) -> re.Pattern | None:
+    if not domain_urls:
+        return None
+    alts = "|".join(re.escape(d) for d in sorted(domain_urls, key=len, reverse=True))
+    return re.compile(rf"\b(?:{alts})\b")
+
+
+def _to_html(text: str, domain_urls: dict[str, str] | None = None) -> str:
     """Экранирует под parse_mode=HTML, URL оборачивает в <a href>. Текст ссылки —
     домен, а не весь URL: голый news.google.com/rss/articles/... километровой
-    длины делал сводку нечитаемой, даже будучи кликабельным (T9e)."""
+    длины делал сводку нечитаемой, даже будучи кликабельным (T9e).
+
+    domain_urls - {домен: URL конкретной статьи} из selected (main.py), для
+    случаев, когда модель в поле SOURCE черновика написала голый домен вместо
+    ссылки (T9 fix 4). Без этого параметра ведёт себя как раньше."""
+    domain_re = _domain_pattern(domain_urls)
     out, last = [], 0
     for m in URL_RE.finditer(text):
-        out.append(html.escape(text[last:m.start()]))
+        out.append(_wrap_bare_domains(text[last:m.start()], domain_re, domain_urls or {}))
         url = m.group()
         label = html.escape(_domain(url))
         out.append(f'<a href="{html.escape(url)}">{label}</a>')
         last = m.end()
-    out.append(html.escape(text[last:]))
+    out.append(_wrap_bare_domains(text[last:], domain_re, domain_urls or {}))
     return "".join(out)
 
 
@@ -96,12 +129,12 @@ def send_photo(path, caption: str = "") -> None:
         log.info("фото отправлено: %s", path)
 
 
-def send(text: str) -> None:
+def send(text: str, domain_urls: dict[str, str] | None = None) -> None:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat = os.environ["TELEGRAM_CHAT_ID"]
     for i, part in enumerate(_chunks(text), 1):
         r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                          json={"chat_id": chat, "text": _to_html(part),
+                          json={"chat_id": chat, "text": _to_html(part, domain_urls),
                                 "parse_mode": "HTML",
                                 "disable_web_page_preview": True},
                           timeout=30)

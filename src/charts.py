@@ -39,29 +39,37 @@ def _save(fig, name: str) -> pathlib.Path:
     return path
 
 
-def _footer(fig, source_label: str, c: dict) -> None:
-    fig.text(0.01, 0.02, f"Data: {source_label} | {date.today().strftime('%d.%m.%Y')}",
-              fontsize=8, color=c["neutral"])
+def _footer(fig, text: str, c: dict) -> None:
+    fig.text(0.01, 0.02, text, fontsize=8, color=c["neutral"])
 
 
-def market_overview(numbers: dict, theme: str = "dark") -> pathlib.Path | None:
-    """WIG20 и S&P 500 за ~45 дней, нормированные к 100 на первую дату.
+_WIG_KEY = "WIG20 TR (ETF)"    # см. numbers._DISPLAY_NAME - переименовано там (T9 fix 2)
+
+
+def market_overview(numbers: dict, market_source: dict | None = None,
+                    theme: str = "dark") -> pathlib.Path | None:
+    """WIG20 TR (ETF) и S&P 500 за ~45 дней, нормированные к 100 на первую дату.
 
     numbers - полный снимок из numbers.gather() (ещё с ключом "_series",
     main.py забирает его позже). Нет рядов - молча None, текстовая сводка
     уходит без картинки.
+
+    market_source - {symbol_name: "stooq"|"yfinance"} из numbers.gather()
+    (ключ "_market_source"), для честной подписи в подвале - раньше там всегда
+    стояло "Data: stooq", даже когда данные реально пришли от yfinance (T9 fix 1).
     """
+    market_source = market_source or {}
     series = numbers.get("_series") or {}
-    wig = series.get("wig20")
+    wig = series.get(_WIG_KEY)
     spx = series.get("sp500")
     if not wig or not spx or len(wig.get("close", [])) < 2 or len(spx.get("close", [])) < 2:
-        log.info("charts: нет рядов wig20/sp500 для market_overview")
+        log.info("charts: нет рядов %s/sp500 для market_overview", _WIG_KEY)
         return None
     try:
         with plt.rc_context(chartstyle.rc_params(theme)):
             c = chartstyle.colors(theme)
             fig, ax = plt.subplots()
-            for label, s, color in (("WIG20", wig, chartstyle.ACCENT),
+            for label, s, color in ((_WIG_KEY, wig, chartstyle.ACCENT),
                                      ("S&P 500", spx, chartstyle.NEUTRAL)):
                 closes = s["close"]
                 base = closes[0]
@@ -75,7 +83,11 @@ def market_overview(numbers: dict, theme: str = "dark") -> pathlib.Path | None:
             ax.set_title("Markets, last 45 days (rebased to 100)")
             ax.set_xticks([])
             ax.margins(x=0.14)
-            _footer(fig, "stooq", c)
+            sources = sorted({market_source[k] for k in (_WIG_KEY, "sp500")
+                             if k in market_source}) or ["unknown"]
+            footer = (f"Data: {'/'.join(sources)} | {date.today().strftime('%d.%m.%Y')} | "
+                     f"PL line is total return (incl. dividends), S&P 500 is price-only")
+            _footer(fig, footer, c)
             return _save(fig, f"market_{theme}.png")
     except Exception as exc:
         log.warning("market_overview упал: %s", exc)
@@ -188,7 +200,7 @@ def figures_chart(figures: list[tuple[str, str]] | None, title: str,
             ax.set_yticklabels(labels, fontsize=10)
             ax.set_title(title[:60] if title else "")
             ax.set_xticks([])
-            _footer(fig, "draft FIGURES", c)
+            _footer(fig, f"Data: draft FIGURES | {date.today().strftime('%d.%m.%Y')}", c)
             return _save(fig, f"figures_{theme}.png")
     except Exception as exc:
         log.warning("figures_chart упал: %s", exc)

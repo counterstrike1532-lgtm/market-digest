@@ -110,12 +110,28 @@ def yfinance_series(symbols: dict) -> tuple[dict, dict]:
     return out, series
 
 
+# "wig20" в конфиге - общий короткий хендл для fetch-слоя (stooq_symbols,
+# yfinance_symbols), но фактический инструмент, который сейчас реально отдаёт
+# данные (stooq мёртв, см. ГРАБЛИ) - ETFBW20TR.WA, пай TR-ETF, а не уровень
+# индекса. Цена пая (~80) и уровень WIG20 (~2500+) - разные по порядку числа;
+# оставь ключ "wig20" как есть, и число утечёт в FRESH DATA, откуда модель
+# процитирует его как "уровень WIG20" - заведомо неверная цифра под реальным
+# источником (T9 fix 2). Переименование - на выходе market_series(), поэтому
+# ЦИФРЫ/FRESH DATA/график получают верную подпись одним и тем же способом.
+_DISPLAY_NAME = {"wig20": "WIG20 TR (ETF)"}
+
+
+def _relabel(d: dict) -> dict:
+    return {_DISPLAY_NAME.get(k, k): v for k, v in d.items()}
+
+
 def market_series(data_cfg: dict) -> tuple[dict, dict, dict]:
     """Каскад для индексов: stooq первым (бесплатный, без ключа), yfinance —
     только для символов, которых stooq не отдал (антибот требует JS, см. ГРАБЛИ).
     Формат scalars/series идентичен stooq_series — main.py/charts.py подмены не
-    видят. Третье значение - source_map {symbol_name: "stooq"|"yfinance"}, только
-    для метрик прогона (T9d), в сводку/промпт не идёт."""
+    видят, кроме переименования по _DISPLAY_NAME. Третье значение - source_map
+    {symbol_name: "stooq"|"yfinance"}, для метрик прогона (T9d) и подписи
+    источника на графике (T9 fix 1), в сводку/промпт не идёт."""
     stooq_symbols = data_cfg.get("stooq_symbols", {})
     scalars, series = stooq_series(stooq_symbols)
     source_map = {name: "stooq" for name in scalars}
@@ -131,7 +147,7 @@ def market_series(data_cfg: dict) -> tuple[dict, dict, dict]:
             scalars.update(yf_scalars)
             series.update(yf_series_data)
             source_map.update({name: "yfinance" for name in yf_scalars})
-    return scalars, series, source_map
+    return _relabel(scalars), _relabel(series), _relabel(source_map)
 
 
 def _stale_marker(period_key: str, months_threshold: int = 3) -> str:

@@ -54,6 +54,30 @@ def parse_drafts(raw: str) -> list[dict]:
     return out
 
 
+# Порядковые слова-множители (англ. и польск.) - "$45 billion", "8.5 mln PLN".
+# Разворачивать до "45,000,000,000" не нужно (T9 fix 3): достаточно, что
+# число само по себе распознаётся как число, а искать в тексте источника
+# будем словесной формой ("45 billion"), как источник и пишет.
+_MAGNITUDE = {
+    "thousand": 1e3, "tys": 1e3,
+    "million": 1e6, "mln": 1e6,
+    "billion": 1e9, "mld": 1e9,
+    "trillion": 1e12,
+}
+
+_NUM_AND_SUFFIX = re.compile(r"^(\$?\d[\d,.%$]*)\s*(.*)$")
+
+
+def _split_value(value: str) -> tuple[str, str]:
+    """(числовое ядро, словесный хвост): "1.3 percentage points" -> ("1.3",
+    "percentage points"), "$45 billion" -> ("$45", "billion"). Не начинается
+    с цифры/$ - ядра нет, всё уходит в хвост (не распарсится дальше, честно)."""
+    m = _NUM_AND_SUFFIX.match(value.strip())
+    if not m:
+        return "", value.strip()
+    return m.group(1), m.group(2).strip()
+
+
 def _to_search_variants(value: str) -> list[str]:
     """Строковые варианты числа для посимвольного поиска: группа из 3 цифр после
     запятой - разделитель тысяч (английский формат), иначе запятая - десятичная
@@ -62,27 +86,46 @@ def _to_search_variants(value: str) -> list[str]:
     Для разделителя тысяч ищем ОБА варианта - "6,872" (как обычно и пишет
     источник) и "6872" (на случай, если источник запятую не ставит). Раньше
     искали только вариант без запятой, из-за чего число, буквально совпадающее
-    с текстом источника, помечалось NOT_FOUND."""
-    core = re.sub(r"\s+", "", value.replace("$", "").replace("%", ""))
-    if re.fullmatch(r"\d{1,3}(,\d{3})+", core):
-        return [core, core.replace(",", "")]
-    m = re.fullmatch(r"(\d+)[.,](\d+)", core)
-    if m:
-        whole, frac = m.groups()
-        return [f"{whole}.{frac}", f"{whole},{frac}"]
-    return [core]
+    с текстом источника, помечалось NOT_FOUND.
+
+    Хвост (единица/порядок слова, "billion", "PLN", "percentage points")
+    приклеивается назад с одним пробелом к каждому варианту числа - именно так
+    источник и пишет, "45 billion", а не слитно "45billion" (T9 fix 3)."""
+    num_part, suffix = _split_value(value)
+    core = re.sub(r"\s+", "", num_part.replace("$", "").replace("%", ""))
+    if re.fullmatch(r"\d+(,\d{3})+(\.\d+)?", core):
+        num_variants = [core, core.replace(",", "")]
+    else:
+        m = re.fullmatch(r"(\d+)[.,](\d+)", core)
+        if m:
+            whole, frac = m.groups()
+            num_variants = [f"{whole}.{frac}", f"{whole},{frac}"]
+        else:
+            num_variants = [core]
+    if not suffix:
+        return num_variants
+    return [f"{v} {suffix}" for v in num_variants]
 
 
 def _to_float(value: str) -> float | None:
-    core = re.sub(r"\s+", "", value.replace("$", "").replace("%", ""))
-    if re.fullmatch(r"\d{1,3}(,\d{3})+", core):
+    """Числа с тысячным разделителем И десятичной точкой одновременно
+    ("15,019.5") раньше ломали конвертацию: код проверял "либо тысячи, либо
+    десятичное" по отдельности, а сочетание обеих форм не матчило ни один из
+    паттернов - "15,019.5" превращалось в "15.019.5" (две точки, float() падал)
+    и число уходило в UNPARSED незаслуженно (найдено живым прогоном после
+    T9 fix 3, тот же класс проблемы - см. _MAGNITUDE выше)."""
+    num_part, suffix = _split_value(value)
+    core = re.sub(r"\s+", "", num_part.replace("$", "").replace("%", ""))
+    if re.fullmatch(r"\d+(,\d{3})*(\.\d+)?", core):
         core = core.replace(",", "")
-    else:
+    elif re.fullmatch(r"\d+,\d+", core):
         core = core.replace(",", ".")
     try:
-        return float(core)
+        base = float(core)
     except ValueError:
         return None
+    first_word = suffix.split()[0].lower().rstrip(".") if suffix else ""
+    return base * _MAGNITUDE.get(first_word, 1.0)
 
 
 _TEXT_NUM = re.compile(r"\d+(?:[.,]\d+)?")
@@ -215,61 +258,78 @@ def _verify_context_llm(candidates: list[dict]) -> dict[int, dict]:
         return {}
 
 
-def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, str | None]:
-    """Возвращает (строка отчёта ЦИФРЫ с эмодзи, downgrade_to_maybe, спорное значение).
+def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, list[str]]:
+    """Возвращает (строка отчёта ЦИФРЫ с эмодзи, downgrade_to_maybe, спорные значения).
 
     Знаменатель - число ПАР в FIGURES (countable), а не число распознанных как
     число значений. YEAR исключается из знаменателя явно (голый год - легитимно
     не проверяемое число), UNPARSED - нет: это реальная пара, просто без единицы
-    измерения, которую мы умеем сверять, и её обязаны показать честно (T9b)."""
+    измерения, которую мы умеем сверять, и её обязаны показать честно (T9b).
+
+    downgrade=True при ЛЮБОМ NOT_FOUND, MISMATCH или UNPARSED (T9 fix 6):
+    непроверенное число - это не проверенное число, POST с непроверенной цифрой
+    не может остаться чистым POST. offending перечисляет ВСЕ такие значения
+    сразу, не только первое найденное - иначе владелец узнаёт про остальные
+    только после ручной проверки первого."""
     if not level_a:
-        return "✅ verified (no figures used)", False, None
+        return "✅ verified (no figures used)", False, []
 
     countable = [r for r in level_a if r["status"] != "YEAR"]
     year_n = len(level_a) - len(countable)
     year_note = f" (+{year_n} year{'s' if year_n != 1 else ''} not counted)" if year_n else ""
 
     if not countable:
-        return f"✅ verified (no checkable figures{year_note})", False, None
+        return f"✅ verified (no checkable figures{year_note})", False, []
 
     not_found = [r for r in countable if r["status"] == "NOT_FOUND"]
-    if not_found:
-        r = not_found[0]
-        closest = f' (closest in text: "{r["closest"]}")' if r.get("closest") else ""
-        return f'⚠️ "{r["value"]}" not found in source{closest} - fix by hand', \
-            True, r["value"]
+    no_source = [r for r in countable if r["status"] == "NO_SOURCE_TEXT"]
+    unparsed = [r for r in countable if r["status"] == "UNPARSED"]
 
     mismatches = []
+    mismatched_values = set()
     for r in countable:
         if r["status"] != "FOUND":
             continue
         lb = level_b.get(r["value"])
         if lb and lb.get("verdict") == "MISMATCH":
             mismatches.append((r, lb))
+            mismatched_values.add(r["value"])
+
+    found = [r for r in countable
+             if r["status"] == "FOUND" and r["value"] not in mismatched_values]
+    denom = len(countable)
+
+    if no_source and not (found or not_found or mismatches or unparsed):
+        return f"❌ source text not fetched - figures are on you to verify{year_note}", \
+            False, []
+
+    offending = ([r["value"] for r in not_found] + [v for v in mismatched_values]
+                + [r["value"] for r in unparsed])
+    downgrade = bool(offending)
+
+    problems = []
+    if not_found:
+        r = not_found[0]
+        closest = f' (closest: "{r["closest"]}")' if r.get("closest") else ""
+        extra = f" +{len(not_found) - 1} more" if len(not_found) > 1 else ""
+        problems.append(f'"{r["value"]}" not found{closest}{extra}')
     if mismatches:
         r, lb = mismatches[0]
         why = (lb.get("why") or "").strip()
-        return f'⚠️ "{r["value"]}" context mismatch - {why}', True, r["value"]
+        extra = f" +{len(mismatches) - 1} more" if len(mismatches) > 1 else ""
+        problems.append(f'"{r["value"]}" context mismatch - {why}{extra}')
+    if unparsed:
+        vals = ", ".join(f'"{r["value"]}"' for r in unparsed)
+        problems.append(f"{len(unparsed)} unparsed ({vals})")
+    if no_source:
+        problems.append(f"{len(no_source)} from an unfetched source")
 
-    no_source = [r for r in countable if r["status"] == "NO_SOURCE_TEXT"]
-    unparsed = [r for r in countable if r["status"] == "UNPARSED"]
-    found = [r for r in countable if r["status"] == "FOUND"]
-    denom = len(countable)
-
-    if no_source and not found and not unparsed:
-        return "❌ source text not fetched - figures are on you to verify", False, None
-
-    if no_source or unparsed:
-        bits = []
-        if unparsed:
-            bits.append(f"{len(unparsed)} unparsed")
-        if no_source:
-            bits.append(f"{len(no_source)} from an unfetched source")
-        return (f"⚠️ {len(found)}/{denom} found, {', '.join(bits)}{year_note} "
-                f"- verify those by hand"), False, None
+    if problems:
+        return (f"⚠️ {len(found)}/{denom} found{year_note} - " + "; ".join(problems)
+                + " - fix/verify by hand"), downgrade, offending
 
     ctx_note = ", context ok" if level_b else ""
-    return f"✅ verified ({len(found)}/{denom} found{ctx_note}){year_note}", False, None
+    return f"✅ verified ({len(found)}/{denom} found{ctx_note}){year_note}", False, []
 
 
 _MODEL_DRAFT_HEADER = re.compile(r"^[ \t]*\**\s*DRAFT\s*\d*\s*\**[ \t]*:?[ \t]*$",
@@ -292,8 +352,9 @@ def _report_lines(b: dict) -> list[str]:
         return ["ЦИФРЫ: ⚠️ FIGURES не распарсился - проверь числа руками"]
     lines = [f"ЦИФРЫ: {b['_report']}"]
     if b["_downgrade"] and b["verdict"].strip().upper() == "POST":
+        values = ", ".join(f'"{v}"' for v in b["_offending"])
         lines.append(f'  ! верификатор: VERDICT эффективно MAYBE - '
-                    f'сверь "{b["_offending"]}" перед публикацией')
+                    f'сверь {values} перед публикацией')
     return lines
 
 

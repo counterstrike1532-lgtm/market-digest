@@ -106,3 +106,79 @@ def test_figures_chart_draws_for_clean_single_story_metrics(monkeypatch, tmp_pat
     path = charts.figures_chart(figures, title="Draft 1")
     assert path is not None
     assert path.exists()
+
+
+# ---------------------------------------------------------------- T9 fix 1/2: market_overview
+
+_WIG_SERIES = {"close": [80.0, 81.0, 82.0, 83.0, 84.0]}
+_SPX_SERIES = {"close": [5000.0, 5010.0, 5020.0, 5030.0, 5040.0]}
+
+
+def test_market_overview_requires_renamed_wig_key(monkeypatch, tmp_path):
+    """numbers.market_series() теперь отдаёт ключ "WIG20 TR (ETF)", не "wig20"
+    (T9 fix 2) - старый ключ график найти не должен, это признак несинхронной
+    подмены, а не повод рисовать неизвестно что."""
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    numbers = {"_series": {"wig20": _WIG_SERIES, "sp500": _SPX_SERIES}}
+    assert charts.market_overview(numbers, {}, theme="dark") is None
+
+
+def test_market_overview_draws_with_renamed_key(monkeypatch, tmp_path):
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    numbers = {"_series": {"WIG20 TR (ETF)": _WIG_SERIES, "sp500": _SPX_SERIES}}
+    path = charts.market_overview(numbers, {}, theme="dark")
+    assert path is not None
+    assert path.exists()
+
+
+def test_market_overview_line_label_is_wig_tr_etf(monkeypatch, tmp_path):
+    """Подпись линии на графике - "WIG20 TR (ETF)", не голый "WIG20" (T9 fix 2):
+    читатель не должен принять цену пая за уровень индекса."""
+    import matplotlib.axes
+
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    captured = []
+    orig = matplotlib.axes.Axes.annotate
+
+    def fake_annotate(self, text, *a, **kw):
+        captured.append(text)
+        return orig(self, text, *a, **kw)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "annotate", fake_annotate)
+    numbers = {"_series": {"WIG20 TR (ETF)": _WIG_SERIES, "sp500": _SPX_SERIES}}
+    charts.market_overview(numbers, {}, theme="dark")
+    assert any(t.startswith("WIG20 TR (ETF)") for t in captured)
+    assert not any(t.startswith("WIG20 ") and "TR" not in t for t in captured)
+
+
+def test_market_overview_footer_shows_actual_source(monkeypatch, tmp_path):
+    """Раньше подвал всегда писал "Data: stooq", даже когда данные пришли от
+    yfinance (T9 fix 1) - источник теперь берётся из того же market_source,
+    что и лог "рынки: yfinance (...)" в numbers.py."""
+    captured = {}
+
+    def fake_footer(fig, text, c):
+        captured["text"] = text
+
+    monkeypatch.setattr(charts, "_footer", fake_footer)
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    numbers = {"_series": {"WIG20 TR (ETF)": _WIG_SERIES, "sp500": _SPX_SERIES}}
+    market_source = {"WIG20 TR (ETF)": "yfinance", "sp500": "stooq"}
+    path = charts.market_overview(numbers, market_source, theme="dark")
+    assert path is not None
+    assert "yfinance" in captured["text"]
+    assert "stooq" in captured["text"]
+    assert "total return" in captured["text"]
+
+
+def test_market_overview_footer_falls_back_when_source_unknown(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_footer(fig, text, c):
+        captured["text"] = text
+
+    monkeypatch.setattr(charts, "_footer", fake_footer)
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    numbers = {"_series": {"WIG20 TR (ETF)": _WIG_SERIES, "sp500": _SPX_SERIES}}
+    charts.market_overview(numbers, None, theme="dark")
+    assert "unknown" in captured["text"]

@@ -29,6 +29,13 @@ log = logging.getLogger("digest")
 _PREFILTER_TAG_BONUS = {"poland_official": 1.0, "us_official": 1.0, "ai_primary": 1.0,
                         "eu_official": 0.6}
 
+# Цена пая ETFBW20TR.WA (~80) и уровень индекса WIG20 (~2500+) - разные по
+# порядку числа. Печатать голый "value" для этого ключа в ЦИФРЫ - провоцировать
+# ложную цитату "уровень WIG20 сейчас X" под настоящим именем (T9 fix 2).
+# Проценты изменения корректны в любом случае (это отношение close/close),
+# их печатаем как обычно.
+_LEVEL_HIDDEN = {"WIG20 TR (ETF)"}
+
 
 def heuristic_prefilter(items: list, hours: int, cap: int = 100) -> list:
     """Без LLM сужает список до cap самых перспективных по weight/tag/свежести/social."""
@@ -108,6 +115,27 @@ def first_draft_covers_one_story(drafts_text: str) -> bool:
     return len(urls) <= 1
 
 
+# Реальный прогон: "...energy transitions.- An AI-focused" (буллет приклеен к
+# концу предыдущего предложения, без переноса строки) и "forcing more
+# selling.This feedback loop" (новое предложение без пробела после точки -
+# DRAFT_PROMPT прямо запрещает это ("spikes.Quarterly" - proofing failure), но
+# модель иногда всё равно так пишет). Правим на рендере, не в промпте - см.
+# CLAUDE.md, промпты в этом ТЗ не трогаем (T9 fix 5).
+_GLUED_BULLET = re.compile(r"\.-(?=\s[A-Z])")
+_GLUED_SENTENCE = re.compile(r"\.(?=[A-Z][a-z])")
+
+
+def _fix_glued_punctuation(text: str) -> str:
+    """Точка+буллет без переноса строки -> перенос перед буллетом. Точка+новое
+    предложение без пробела -> пробел. Оба случая узко специфичны (буллет
+    должен начинаться с большой буквы через пробел-тире; предложение - с
+    большой буквы сразу после точки), поэтому не трогают десятичные дроби
+    ("$3.5 billion") и обычные диапазоны/минусы."""
+    text = _GLUED_BULLET.sub(".\n-", text)
+    text = _GLUED_SENTENCE.sub(". ", text)
+    return text
+
+
 def _oneline(text: str) -> str:
     """Однострочные поля (заголовок, угол, неочевидно) иногда приходят с сырым
     переводом строки из RSS-описания или из ответа модели - схлопываем в одну
@@ -126,7 +154,7 @@ def build_message(selected, data, drafts) -> str:
     if data:
         figures_lines = ["ЦИФРЫ"]
         for k, v in data.items():
-            bits = [str(v.get("value"))]
+            bits = [] if k in _LEVEL_HIDDEN else [str(v.get("value"))]
             for f, lbl in (("chg_1d_pct", "д"), ("chg_1m_pct", "мес"),
                            ("chg_30d_pct", "30д"), ("chg_1y_pct", "г")):
                 if f in v:
@@ -188,7 +216,7 @@ def main() -> int:
     market_chart = None
     if not args.no_charts:
         try:
-            market_chart = charts.market_overview(data, theme="dark")
+            market_chart = charts.market_overview(data, market_source, theme="dark")
         except Exception as exc:
             log.warning("market_overview упал: %s", exc)
     data.pop("_series", None)   # сырые ряды дальше по конвейеру не нужны
@@ -205,7 +233,7 @@ def main() -> int:
 
     log.info("--- черновики ---")
     style_text = STYLE.read_text(encoding="utf-8") if STYLE.exists() else ""
-    drafts = brain.draft(selected, data, style_text, n=args.drafts)
+    drafts = _fix_glued_punctuation(brain.draft(selected, data, style_text, n=args.drafts))
     draft_model = brain.last_model_used()
 
     figures_chart = None
@@ -230,6 +258,10 @@ def main() -> int:
 
     msg = build_message(selected, data, drafts)
     q = brain.quota_summary()
+    # домен -> URL конкретной статьи: модель иногда путает "SOURCE:" с голым
+    # доменом вместо ссылки - deliver._to_html подставляет реальный URL, чтобы
+    # Telegram не заавтолинковал его сам на корень сайта (T9 fix 4)
+    domain_urls = {s["item"].source: s["item"].url for s in selected}
 
     if args.dry:
         print("\n" + msg)
@@ -240,7 +272,7 @@ def main() -> int:
     else:
         if market_chart:
             deliver.send_photo(market_chart, "Рынки за месяц")
-        deliver.send(msg)
+        deliver.send(msg, domain_urls)
         if figures_chart:
             deliver.send_photo(figures_chart,
                                "График к черновику 1 — можно приложить к посту")

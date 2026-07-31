@@ -1,4 +1,4 @@
-"""deliver.py: HTML-экранирование и чанкинг под Telegram (T9e). Без сети -
+"""deliver.py: HTML-экранирование и чанкинг под Telegram (T9e, T9 fix 4). Без сети -
 send()/send_photo() не вызываются, тестируем только _to_html/_chunks."""
 from __future__ import annotations
 
@@ -104,3 +104,46 @@ def test_chunks_and_html_render_produce_valid_anchor_tags_at_boundaries():
         for m in re.finditer(r'<a href="([^"]*)">', html_part):
             href = m.group(1)
             assert href.startswith("https://") or href.startswith("http://")
+
+
+# ---------------------------------------------------------------- T9 fix 4: голый домен в SOURCE
+
+def test_to_html_wraps_bare_domain_known_from_selected():
+    """Модель иногда путает "SOURCE:" с голым доменом ("www.cnbc.com") вместо
+    URL - раньше это уходило в Telegram как обычный текст, и Telegram сам
+    линковал его на корень сайта. Известный домен (из selected) оборачиваем
+    в ссылку на конкретную статью явно."""
+    domain_urls = {"www.cnbc.com": "https://www.cnbc.com/id/100003114/some-article"}
+    text = "SOURCE: www.cnbc.com"
+    out = deliver._to_html(text, domain_urls)
+    assert '<a href="https://www.cnbc.com/id/100003114/some-article">www.cnbc.com</a>' in out
+    # текст ссылки - домен, не превращается в site root
+    assert "cnbc.com/id/100003114" in out
+
+
+def test_to_html_bare_domain_unknown_stays_plain_text():
+    """Домен, которого нет среди selected - не трогаем: угадывать URL не из чего."""
+    text = "SOURCE: www.somewhere-unrelated.com"
+    out = deliver._to_html(text, {"www.cnbc.com": "https://www.cnbc.com/id/1"})
+    assert "<a href=" not in out
+    assert "www.somewhere-unrelated.com" in out
+
+
+def test_to_html_without_domain_urls_behaves_as_before():
+    text = "SOURCE: www.cnbc.com"
+    assert deliver._to_html(text) == deliver._to_html(text, None) == deliver._to_html(text, {})
+
+
+def test_to_html_full_url_occurrence_not_touched_by_domain_pass():
+    """Домен внутри полноценного https://-URL уже обработан URL_RE - доменный
+    проход трогает только ГОЛЫЕ вхождения домена в тексте между ссылками, не
+    лезет внутрь уже свёрнутых <a href> совпадений."""
+    domain_urls = {"www.cnbc.com": "https://www.cnbc.com/id/other-article"}
+    text = ("See www.cnbc.com at https://www.cnbc.com/id/100003114/real-article "
+            "for details")
+    out = deliver._to_html(text, domain_urls)
+    assert out.count("<a href=") == 2
+    # голое упоминание - ссылка из domain_urls
+    assert 'href="https://www.cnbc.com/id/other-article">www.cnbc.com</a>' in out
+    # реальный URL в тексте - ссылка на него самого, не подменена доменной
+    assert 'href="https://www.cnbc.com/id/100003114/real-article"' in out

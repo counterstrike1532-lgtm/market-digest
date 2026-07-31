@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 
 from src import brain, collect, enrich, main, numbers, verify
 from src.collect import Item
-from src.main import filter_by_age, first_draft_covers_one_story
+from src.main import (build_message, filter_by_age, first_draft_covers_one_story,
+                      _fix_glued_punctuation)
 
 
 def _item(age_days=None, published_known=True):
@@ -46,6 +47,59 @@ def test_filter_by_age_mixed_batch():
     unknown = _item(age_days=999, published_known=False)
     result = filter_by_age([fresh, stale, unknown], max_age_days=7)
     assert result == [fresh, unknown]
+
+
+# ---------------------------------------------------------------- T9 fix 5: слипание строк
+
+def test_fix_glued_punctuation_bullet_glued_to_prior_sentence():
+    text = "I looked at energy transitions.- An AI-focused fund is doing X."
+    fixed = _fix_glued_punctuation(text)
+    assert "transitions.\n- An AI-focused" in fixed
+    assert ".- An" not in fixed
+
+
+def test_fix_glued_punctuation_missing_space_between_sentences():
+    text = "This is forcing more selling.This feedback loop keeps going."
+    fixed = _fix_glued_punctuation(text)
+    assert "selling. This feedback loop" in fixed
+    assert ".This" not in fixed
+
+
+def test_fix_glued_punctuation_leaves_decimals_alone():
+    text = "The company raised $3.5 billion in the round, up 12.5% year over year."
+    assert _fix_glued_punctuation(text) == text
+
+
+def test_fix_glued_punctuation_leaves_well_formed_text_alone():
+    text = "First sentence. Second sentence.\n- A bullet point.\n- Another one."
+    assert _fix_glued_punctuation(text) == text
+
+
+def test_fix_glued_punctuation_leaves_negative_number_after_period_alone():
+    """Дефис как минус после точки - не буллет, следующий символ цифра, не
+    заглавная буква: не трогаем."""
+    text = "Profit fell.-5% for the quarter."
+    assert _fix_glued_punctuation(text) == text
+
+
+# ---------------------------------------------------------------- T9 fix 2: уровень WIG20 TR
+
+def test_build_message_hides_level_for_wig20_tr_etf():
+    """Цена пая ETFBW20TR.WA (~80) - не уровень индекса WIG20 (~2500+). В ЦИФРЫ
+    печатаем только проценты изменения, голое value не выводим (T9 fix 2)."""
+    data = {
+        "WIG20 TR (ETF)": {"value": 80.13, "chg_1d_pct": 0.46, "chg_1m_pct": 10.16,
+                           "as_of": "2026-07-31"},
+        "sp500": {"value": 7437.63, "chg_1d_pct": 1.66, "as_of": "2026-07-30"},
+    }
+    msg = build_message(selected=[], data=data, drafts="")
+    lines = msg.splitlines()
+    wig_line = next(l for l in lines if l.strip().startswith("WIG20 TR (ETF):"))
+    sp_line = next(l for l in lines if l.strip().startswith("sp500:"))
+    assert "80.13" not in wig_line
+    assert "+0.46%" in wig_line and "+10.16%" in wig_line
+    # sp500 - настоящий уровень индекса, печатать его как есть можно и нужно
+    assert "7437.63" in sp_line
 
 
 # ---------------------------------------------------------------- T9f: один сюжет ли
@@ -119,7 +173,7 @@ def test_main_send_run_writes_metrics_record(monkeypatch, tmp_path):
                         lambda: {"total": 2, "successful": 2, "quota_refused": 0})
 
     sent = []
-    monkeypatch.setattr("src.deliver.send", lambda text: sent.append(text))
+    monkeypatch.setattr("src.deliver.send", lambda text, domain_urls=None: sent.append(text))
     monkeypatch.setattr("src.deliver.send_photo", lambda *a, **kw: None)
 
     monkeypatch.setattr("sys.argv", ["main.py", "--no-charts"])
