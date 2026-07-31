@@ -216,13 +216,14 @@ def test_market_series_falls_back_to_yfinance_for_missing_symbol(monkeypatch, ca
     monkeypatch.setattr(numbers, "yfinance_series", fake_yfinance)
 
     with caplog.at_level("INFO"):
-        scalars, series = numbers.market_series({
+        scalars, series, source_map = numbers.market_series({
             "stooq_symbols": {"wig20": "wig20", "sp500": "^spx"},
             "yfinance_symbols": {"wig20": "WIG20.WA", "sp500": "^GSPC"},
         })
 
     assert scalars["wig20"]["value"] == 2000.0
     assert scalars["sp500"]["value"] == 5000.0
+    assert source_map == {"wig20": "stooq", "sp500": "yfinance"}
     assert "yfinance" in caplog.text
     assert "stooq" in caplog.text.lower()
 
@@ -237,16 +238,17 @@ def test_market_series_does_not_call_yfinance_when_stooq_fully_succeeds(monkeypa
     monkeypatch.setattr(numbers, "stooq_series", fake_stooq)
     monkeypatch.setattr(numbers, "yfinance_series", boom)
 
-    scalars, series = numbers.market_series({"stooq_symbols": {"wig20": "wig20"}})
+    scalars, series, source_map = numbers.market_series({"stooq_symbols": {"wig20": "wig20"}})
     assert scalars == {"wig20": {"value": 2000.0}}
+    assert source_map == {"wig20": "stooq"}
 
 
 def test_market_series_both_sources_fail_skips_gracefully(monkeypatch):
     monkeypatch.setattr(numbers, "stooq_series", lambda symbols: ({}, {}))
     monkeypatch.setattr(numbers, "yfinance_series", lambda symbols: ({}, {}))
 
-    scalars, series = numbers.market_series({
+    scalars, series, source_map = numbers.market_series({
         "stooq_symbols": {"wig20": "wig20"},
         "yfinance_symbols": {"wig20": "WIG20.WA"},
     })
-    assert scalars == {} and series == {}
+    assert scalars == {} and series == {} and source_map == {}

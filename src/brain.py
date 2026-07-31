@@ -24,6 +24,14 @@ _requests_made = 0
 _successful_calls = 0    # реально вернувшие пригодный текст
 _quota_refusals = 0      # HTTP 429 с "PerDay" - дневной лимит модели исчерпан
 _day_exhausted: set[str] = set()   # модели с исчерпанной дневной квотой в этом прогоне
+_last_model: str | None = None     # какая модель ответила на последний успешный _call (T9d)
+
+
+def last_model_used() -> str | None:
+    """Модель, реально вернувшая текст в последнем успешном _call(). main.py читает
+    это сразу после brain.draft() - до того, как verify.py сделает свой запрос
+    и перезапишет значение своим ответом."""
+    return _last_model
 
 
 def requests_made() -> int:
@@ -48,7 +56,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
     из-за чего JSON обрывается. Но Gemini 3 может запрещать полное отключение —
     тогда параметр снимается автоматически.
     """
-    global _requests_made, _successful_calls, _quota_refusals
+    global _requests_made, _successful_calls, _quota_refusals, _last_model
     key = os.environ["GEMINI_API_KEY"]
     last = "неизвестно"
 
@@ -127,6 +135,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                     log.warning("%s: ответ обрезан по лимиту токенов", model)
                 if text.strip():
                     _successful_calls += 1
+                    _last_model = model
                     return text
                 last = f"{model}: пустой ответ ({cand.get('finishReason')})"
                 log.warning(last)

@@ -275,15 +275,54 @@ def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, s
 def _report_lines(b: dict) -> list[str]:
     if b.get("_parse_failed"):
         return ["ЦИФРЫ: ⚠️ FIGURES не распарсился - проверь числа руками"]
-    report, downgrade, offending = _render(b["_level_a"], b["_level_b"])
-    lines = [f"ЦИФРЫ: {report}"]
-    if downgrade and b["verdict"].strip().upper() == "POST":
+    lines = [f"ЦИФРЫ: {b['_report']}"]
+    if b["_downgrade"] and b["verdict"].strip().upper() == "POST":
         lines.append(f'  ! верификатор: VERDICT эффективно MAYBE - '
-                    f'сверь "{offending}" перед публикацией')
+                    f'сверь "{b["_offending"]}" перед публикацией')
     return lines
 
 
-def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> str:
+def _empty_stats() -> dict:
+    return {"drafted": 0, "verdicts": {"POST": 0, "MAYBE": 0, "SKIP": 0},
+           "figures": {"found": 0, "not_found": 0, "mismatch": 0,
+                       "unparsed": 0, "no_source": 0}}
+
+
+def _stats_from_blocks(blocks: list[dict]) -> dict:
+    """Метрики прогона (T9d): вердикты С УЧЁТОМ понижения верификатором (не
+    сырой VERDICT черновика) и статусы цифр по всем блокам сразу. Годы (status
+    YEAR) не считаются - это не проверяемое число, см. verify_figures_local."""
+    stats = _empty_stats()
+    stats["drafted"] = len(blocks)
+    for b in blocks:
+        v = b["verdict"].strip().upper()
+        if v in stats["verdicts"]:
+            if b.get("_downgrade") and v == "POST":
+                v = "MAYBE"
+            stats["verdicts"][v] += 1
+
+        if b.get("_parse_failed"):
+            continue
+        for r in b["_level_a"]:
+            status = r["status"]
+            if status == "YEAR":
+                continue
+            if status == "FOUND":
+                lb = b["_level_b"].get(r["value"])
+                key = "mismatch" if lb and lb.get("verdict") == "MISMATCH" else "found"
+            elif status == "NOT_FOUND":
+                key = "not_found"
+            elif status == "UNPARSED":
+                key = "unparsed"
+            elif status == "NO_SOURCE_TEXT":
+                key = "no_source"
+            else:
+                continue
+            stats["figures"][key] += 1
+    return stats
+
+
+def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> tuple[str, dict]:
     """Точка входа. Дописывает под каждым черновиком строку "ЦИФРЫ: ..." и, если
     хоть одно число NOT_FOUND или MISMATCH, явную пометку о принудительном
     понижении VERDICT до MAYBE - саму строку VERDICT черновика не трогает, только
@@ -303,7 +342,7 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> str
 
     if not blocks:
         log.warning("verify: не удалось разобрать черновики по формату - цифры не проверены")
-        return drafts_text
+        return drafts_text, _empty_stats()
 
     for b in blocks:
         raw_figures = b["figures"].strip()
@@ -339,6 +378,11 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> str
         b["_level_b"] = {c["value"]: level_b_raw[c["id"]]
                          for c in candidates
                          if c["draft_idx"] == i and c["id"] in level_b_raw}
+        if not b["_parse_failed"]:
+            b["_report"], b["_downgrade"], b["_offending"] = \
+                _render(b["_level_a"], b["_level_b"])
+
+    stats = _stats_from_blocks(blocks)
 
     out_parts, pos = [], 0
     for i, b in enumerate(blocks, 1):
@@ -353,4 +397,4 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> str
         out_parts.append("\n" + "\n".join(_report_lines(b)))
         pos = m.end()
     out_parts.append(drafts_text[pos:])
-    return "".join(out_parts)
+    return "".join(out_parts), stats

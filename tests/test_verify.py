@@ -55,7 +55,7 @@ def test_verify_drafts_inserts_headers_across_dashes_separator():
         + "\n\n---\n\n"
         + _draft_block("A", "Second body.", "none used", _ITEM_2_URL)
     )
-    out = verify.verify_drafts(raw, selected=[], data_text="")
+    out, stats = verify.verify_drafts(raw, selected=[], data_text="")
 
     assert "DRAFT 1 (digest)" in out
     assert "DRAFT 2 (A)" in out
@@ -67,13 +67,16 @@ def test_verify_drafts_inserts_headers_across_dashes_separator():
     assert "ЦИФРЫ: ✅ verified (no figures used)" in out
     # аннотация первого черновика идёт до разделителя, не после
     assert out.index("ЦИФРЫ", out.index("DRAFT 1")) < idx_sep
+    assert stats["drafted"] == 2
+    assert stats["verdicts"]["SKIP"] == 2
 
 
 def test_verify_drafts_no_model_header_still_gets_one():
     raw = _draft_block("digest-short", "Only body.", "none used", _ITEM_1_URL)
-    out = verify.verify_drafts(raw, selected=[], data_text="")
+    out, stats = verify.verify_drafts(raw, selected=[], data_text="")
     assert out.count("DRAFT 1") == 1
     assert "SHAPE: digest-short" in out
+    assert stats["drafted"] == 1
 
 
 # ---------------------------------------------------------------- T9b: денаминатор
@@ -129,3 +132,40 @@ def test_unparsed_does_not_force_downgrade_alone():
     _, downgrade, offending = verify._render(level_a, {})
     assert downgrade is False
     assert offending is None
+
+
+# ---------------------------------------------------------------- T9d: метрики прогона
+
+def test_stats_verdicts_reflect_verifier_downgrade_not_raw_verdict():
+    """Черновик со своим VERDICT: POST, у которого верификатор находит
+    NOT_FOUND число, должен попасть в счётчик MAYBE, а не POST - метрики
+    считают эффективный вердикт, а не то, что написала модель."""
+    from types import SimpleNamespace
+
+    data_text = "- money.pl metric: 6,872 (some source)"
+    draft_ok = _draft_block("digest", "All good here.", "6,872 (Money.pl)",
+                            _ITEM_1_URL, verdict="POST")
+    draft_bad = _draft_block("A", "Something else.", "999,999 (Money.pl)",
+                             _ITEM_2_URL, verdict="POST")
+    draft_skip = _draft_block("digest-short", "Skip this.", "none used",
+                              "https://example.com/story3", verdict="SKIP")
+    raw = "\n\n".join([draft_ok, draft_bad, draft_skip])
+
+    # тело статьи 2 без фигурирующего числа - иначе пустое тело даёт
+    # NO_SOURCE_TEXT, а не NOT_FOUND (это две разные, недвижимые статусы)
+    selected = [{"item": SimpleNamespace(url=_ITEM_2_URL),
+                "body": "This article talks about something unrelated entirely."}]
+
+    _, stats = verify.verify_drafts(raw, selected=selected, data_text=data_text)
+
+    assert stats["drafted"] == 3
+    assert stats["verdicts"] == {"POST": 1, "MAYBE": 1, "SKIP": 1}
+    assert stats["figures"]["found"] == 1
+    assert stats["figures"]["not_found"] == 1
+
+
+def test_stats_empty_when_format_unparseable():
+    stats = verify._empty_stats()
+    assert stats["drafted"] == 0
+    assert sum(stats["verdicts"].values()) == 0
+    assert sum(stats["figures"].values()) == 0

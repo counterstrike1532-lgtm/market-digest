@@ -12,10 +12,11 @@ from datetime import datetime, timezone, timedelta
 
 import yaml
 
-from . import brain, charts, collect, deliver, enrich, numbers, verify
+from . import brain, charts, collect, deliver, enrich, metrics, numbers, verify
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SEEN = ROOT / "state" / "seen.json"
+METRICS = ROOT / "state" / "metrics.json"
 STYLE = ROOT / "style" / "my_posts.md"
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s",
@@ -143,6 +144,7 @@ def main() -> int:
 
     seen = load_seen()
     fresh = [i for i in items if i.key not in seen]
+    after_dedup = len(fresh)
     log.info("новых (не видели раньше): %d из %d", len(fresh), len(items))
     if not fresh:
         log.info("нечего показывать, выходим")
@@ -156,6 +158,7 @@ def main() -> int:
 
     log.info("--- цифры ---")
     data = numbers.gather(cfg)
+    market_source = data.pop("_market_source", {})
 
     market_chart = None
     if not args.no_charts:
@@ -178,6 +181,7 @@ def main() -> int:
     log.info("--- черновики ---")
     style_text = STYLE.read_text(encoding="utf-8") if STYLE.exists() else ""
     drafts = brain.draft(selected, data, style_text, n=args.drafts)
+    draft_model = brain.last_model_used()
 
     figures_chart = None
     if not args.no_charts:
@@ -188,12 +192,15 @@ def main() -> int:
             log.warning("figures_chart упал: %s", exc)
 
     log.info("--- верификация цифр ---")
+    draft_stats = verify._empty_stats()
     try:
-        drafts = verify.verify_drafts(drafts, selected, brain.format_data_block(data))
+        drafts, draft_stats = verify.verify_drafts(drafts, selected,
+                                                    brain.format_data_block(data))
     except Exception as exc:
         log.warning("verify_drafts упал: %s", exc)
 
     msg = build_message(selected, data, drafts)
+    q = brain.quota_summary()
 
     if args.dry:
         print("\n" + msg)
@@ -213,7 +220,14 @@ def main() -> int:
             seen[s["item"].key] = now
         save_seen(seen)
 
-    q = brain.quota_summary()
+        metrics.append(METRICS, metrics.build_record(
+            collected=len(items), after_dedup=after_dedup, after_freshness=len(fresh),
+            prefiltered=len(candidates), ranked=len(selected),
+            drafted=draft_stats["drafted"], verdicts=draft_stats["verdicts"],
+            figures=draft_stats["figures"], gemini_successful=q["successful"],
+            gemini_quota_refused=q["quota_refused"], draft_model=draft_model,
+            market_source=market_source))
+
     log.info("расход квоты Gemini: %d всего (успешных %d, отказов квоты %d)",
              q["total"], q["successful"], q["quota_refused"])
     log.info("готово")

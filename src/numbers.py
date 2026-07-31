@@ -110,12 +110,15 @@ def yfinance_series(symbols: dict) -> tuple[dict, dict]:
     return out, series
 
 
-def market_series(data_cfg: dict) -> tuple[dict, dict]:
+def market_series(data_cfg: dict) -> tuple[dict, dict, dict]:
     """Каскад для индексов: stooq первым (бесплатный, без ключа), yfinance —
     только для символов, которых stooq не отдал (антибот требует JS, см. ГРАБЛИ).
-    Формат вывода идентичен stooq_series — main.py/charts.py подмены не видят."""
+    Формат scalars/series идентичен stooq_series — main.py/charts.py подмены не
+    видят. Третье значение - source_map {symbol_name: "stooq"|"yfinance"}, только
+    для метрик прогона (T9d), в сводку/промпт не идёт."""
     stooq_symbols = data_cfg.get("stooq_symbols", {})
     scalars, series = stooq_series(stooq_symbols)
+    source_map = {name: "stooq" for name in scalars}
     missing = [name for name in stooq_symbols if name not in scalars]
     if missing:
         yf_symbols = data_cfg.get("yfinance_symbols", {})
@@ -127,7 +130,8 @@ def market_series(data_cfg: dict) -> tuple[dict, dict]:
                         ", ".join(sorted(yf_scalars)))
             scalars.update(yf_scalars)
             series.update(yf_series_data)
-    return scalars, series
+            source_map.update({name: "yfinance" for name in yf_scalars})
+    return scalars, series, source_map
 
 
 def _stale_marker(period_key: str, months_threshold: int = 3) -> str:
@@ -208,16 +212,20 @@ def fred_series(series: dict) -> dict:
 
 def gather(cfg: dict) -> dict:
     """Формат вывода не меняется: снимок плоский, per-symbol записи как раньше.
-    Единственное добавление — ключ "_series" с сырыми рядами stooq для графиков
-    (main.py забирает его до того, как data уйдёт в сводку/промпт черновиков)."""
+    Служебные ключи "_series" (сырые ряды для графиков) и "_market_source"
+    (какой источник отдал каждый индекс, для метрик T9d) main.py забирает
+    до того, как data уйдёт в сводку/промпт черновиков."""
     d = cfg.get("data", {})
     snap = {}
     snap.update(nbp_fx(d.get("nbp_currencies", [])))
-    market_scalars, market_series_data = market_series(d)
+    market_scalars, market_series_data, market_source = market_series(d)
     snap.update(market_scalars)
     if market_series_data:
         snap["_series"] = market_series_data
+    if market_source:
+        snap["_market_source"] = market_source
     snap.update(eurostat_hicp(d.get("eurostat_hicp", [])))
     snap.update(fred_series(d.get("fred_series", {})))
-    log.info("цифр собрано: %d", len(snap) - (1 if "_series" in snap else 0))
+    non_service_keys = sum(1 for k in snap if not k.startswith("_"))
+    log.info("цифр собрано: %d", non_service_keys)
     return snap
