@@ -1,0 +1,31 @@
+[
+{
+"date": "2026-07-31T22:16:07.614623+00:00",
+"collected": 206,
+"after_dedup": 196,
+"after_freshness": 196,
+"prefiltered": 100,
+"ranked": 4,
+"drafted": 3,
+"verdicts": {
+"POST": 3,
+"MAYBE": 0,
+"SKIP": 0
+},
+"figures": {
+"found": 3,
+"not_found": 0,
+"mismatch": 0,
+"unparsed": 10,
+"no_source": 0
+},
+"gemini_successful": 3,
+"gemini_quota_refused": 1,
+"draft_model": "gemini-3.6-flash",
+"market_source": {
+"wig20": "yfinance",
+"sp500": "yfinance",
+"nasdaq": "yfinance"
+}
+}
+]
