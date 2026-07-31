@@ -2,7 +2,7 @@ name: news digest
 
 on:
   schedule:
-    - cron: "0 5 * * 1-5"      # 07:00 Варшава летом, 06:00 зимой. Указывать в UTC!
+    - cron: "17 5 * * 1-5"      # 07:17 Варшава летом, 06:17 зимой. Минута не :00 - меньше шанс дропа планировщиком GitHub
   workflow_dispatch:            # кнопка "Run workflow" для ручного запуска
     inputs:
       hours:
