@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from src import brain, collect, enrich, main, numbers, verify
 from src.collect import Item
-from src.main import filter_by_age
+from src.main import filter_by_age, first_draft_covers_one_story
 
 
 def _item(age_days=None, published_known=True):
@@ -46,6 +46,35 @@ def test_filter_by_age_mixed_batch():
     unknown = _item(age_days=999, published_known=False)
     result = filter_by_age([fresh, stale, unknown], max_age_days=7)
     assert result == [fresh, unknown]
+
+
+# ---------------------------------------------------------------- T9f: один сюжет ли
+
+def _draft_with_source(source_field: str) -> str:
+    return (
+        "SHAPE: digest\n"
+        "BODY: text.\n"
+        "FIGURES: none used\n"
+        f"SOURCE: {source_field}\n"
+        "WHY_THIS_ONE: reason\n"
+        "VERDICT: SKIP\n"
+        "WHY: no edge\n"
+        "CHECK_FIRST: -"
+    )
+
+
+def test_first_draft_covers_one_story_single_url():
+    text = _draft_with_source("https://example.com/story1")
+    assert first_draft_covers_one_story(text) is True
+
+
+def test_first_draft_covers_one_story_multiple_urls_comma_separated():
+    text = _draft_with_source("https://example.com/story1, https://example.com/story2")
+    assert first_draft_covers_one_story(text) is False
+
+
+def test_first_draft_covers_one_story_no_match_is_conservative_false():
+    assert first_draft_covers_one_story("garbage, no SOURCE field at all") is False
 
 
 # ---------------------------------------------------------------- T9d: сквозной прогон

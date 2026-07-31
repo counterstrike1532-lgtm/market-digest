@@ -131,14 +131,35 @@ def _kind(value: str) -> str:
     return "num"
 
 
+# Подпись бара должна называть ПОКАЗАТЕЛЬ ("occupancy rate"), а не то, кто его
+# сообщил ("BIG InfoMonitor report", "CNBC article", "Source [3]"). Реальный
+# случай (T9f): 7 чисел из FIGURES трёх РАЗНЫХ сюжетов слились в один график,
+# и подписями стали как раз имена источников, повторённые по 2-3 раза.
+_CITATION_LABEL = re.compile(
+    r"\b(report|article|press release|filing|study|statement|according to)\b"
+    r"|^source\s*(\[\s*\d+\s*\])?\.?$", re.IGNORECASE)
+
+
+def _looks_like_citation(label: str) -> bool:
+    return bool(_CITATION_LABEL.search(label.strip()))
+
+
 def figures_chart(figures: list[tuple[str, str]] | None, title: str,
                   theme: str = "light") -> pathlib.Path | None:
     """2-5 именованных значений ОДНОЙ единицы измерения с источником -> горизонтальные бары.
 
-    Всё остальное (меньше 2, больше 5, число не распарсилось, смешанные единицы)
-    -> None молча.
+    Всё остальное (меньше 2, больше 5, число не распарсилось, смешанные единицы,
+    подпись выглядит как имя источника, а не показателя, один и тот же источник
+    процитирован больше одного раза - явный признак, что слиты числа из разных
+    сюжетов) -> None молча. Сомнение = None (T8a, ужесточено в T9f): лучше прогон
+    без графика, чем график, который врёт о структуре данных.
     """
     if not figures or not (2 <= len(figures) <= 5):
+        return None
+    sources = [source for _, source in figures]
+    if len(set(sources)) < len(sources):
+        return None
+    if any(_looks_like_citation(source) for source in sources):
         return None
     parsed = []
     for value, source in figures:

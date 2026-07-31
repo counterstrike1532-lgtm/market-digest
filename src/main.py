@@ -96,6 +96,18 @@ def first_draft_figures(drafts_text: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+def first_draft_covers_one_story(drafts_text: str) -> bool:
+    """DRAFT 1 - это digest (2-3 сюжета сразу, см. DRAFT_PROMPT), а не single -
+    его FIGURES легко смешивает числа из разных сюжетов. figures_chart не умеет
+    видеть, из какого сюжета каждая пара - надёжнее просто не рисовать график,
+    когда SOURCE черновика перечисляет больше одной ссылки (T9f)."""
+    m = re.search(r"SOURCE:\s*(.*?)\n\s*WHY_THIS_ONE:", drafts_text, re.S)
+    if not m:
+        return False
+    urls = [u.strip() for u in re.split(r"[,\n]", m.group(1)) if u.strip()]
+    return len(urls) <= 1
+
+
 def _oneline(text: str) -> str:
     """Однострочные поля (заголовок, угол, неочевидно) иногда приходят с сырым
     переводом строки из RSS-описания или из ответа модели - схлопываем в одну
@@ -199,8 +211,12 @@ def main() -> int:
     figures_chart = None
     if not args.no_charts:
         try:
-            pairs = charts.parse_figures(first_draft_figures(drafts))
-            figures_chart = charts.figures_chart(pairs, title="Черновик 1", theme="light")
+            if first_draft_covers_one_story(drafts):
+                pairs = charts.parse_figures(first_draft_figures(drafts))
+                figures_chart = charts.figures_chart(pairs, title="Черновик 1", theme="light")
+            else:
+                log.info("figures_chart: черновик 1 покрывает больше одного "
+                        "сюжета - график пропущен")
         except Exception as exc:
             log.warning("figures_chart упал: %s", exc)
 
