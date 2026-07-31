@@ -96,36 +96,49 @@ def first_draft_figures(drafts_text: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+def _oneline(text: str) -> str:
+    """Однострочные поля (заголовок, угол, неочевидно) иногда приходят с сырым
+    переводом строки из RSS-описания или из ответа модели - схлопываем в одну
+    строку, иначе он ломает межстрочные отступы сводки (T9e)."""
+    return " ".join((text or "").split())
+
+
 def build_message(selected, data, drafts) -> str:
+    """Секции собираются списком и склеиваются "\\n\\n" явно - гарантированная
+    пустая строка между ними (и между сюжетами) не зависит от того, сколько
+    условных строк добавил конкретный сюжет. Раньше отступ держался на побочном
+    эффекте f"\\n{i}. ..." внутри "\\n".join(lines) - хрупко (T9e)."""
     today = datetime.now(timezone.utc).strftime("%d.%m.%Y")
-    lines = [f"СВОДКА {today}", ""]
+    sections = [f"СВОДКА {today}"]
 
     if data:
-        lines.append("ЦИФРЫ")
+        figures_lines = ["ЦИФРЫ"]
         for k, v in data.items():
             bits = [str(v.get("value"))]
             for f, lbl in (("chg_1d_pct", "д"), ("chg_1m_pct", "мес"),
                            ("chg_30d_pct", "30д"), ("chg_1y_pct", "г")):
                 if f in v:
                     bits.append(f"{v[f]:+.2f}% {lbl}")
-            lines.append(f"  {k}: {'  '.join(bits)}   [{v.get('as_of','')}]")
-        lines.append("")
+            figures_lines.append(f"  {k}: {'  '.join(bits)}   [{v.get('as_of','')}]")
+        sections.append("\n".join(figures_lines))
 
-    lines.append(f"СЮЖЕТЫ ({len(selected)})")
+    story_blocks = [f"СЮЖЕТЫ ({len(selected)})"]
     for i, s in enumerate(selected, 1):
         it = s["item"]
         date_str = it.published[:10] if it.published_known else "дата неизвестна"
-        lines.append(f"\n{i}. [{s.get('score')}/10] {it.title}")
-        lines.append(f"   {it.source}, {date_str} — {it.url}")
+        story_lines = [f"{i}. [{s.get('score')}/10] {_oneline(it.title)}",
+                      f"   {it.source}, {date_str} — {it.url}"]
         if s.get("angle"):
-            lines.append(f"   угол: {s['angle']}")
+            story_lines.append(f"   угол: {_oneline(s['angle'])}")
         if s.get("why_nonobvious"):
-            lines.append(f"   неочевидно: {s['why_nonobvious']}")
+            story_lines.append(f"   неочевидно: {_oneline(s['why_nonobvious'])}")
         if "verified" in s and not s["verified"]:
-            lines.append("   ! текст статьи не догружен — цифры в угле не проверены")
+            story_lines.append("   ! текст статьи не догружен — цифры в угле не проверены")
+        story_blocks.append("\n".join(story_lines))
+    sections.append("\n\n".join(story_blocks))
 
-    lines += ["", "=" * 30, "", "ЧЕРНОВИКИ", "", drafts]
-    return "\n".join(lines)
+    sections += ["=" * 30, "ЧЕРНОВИКИ\n\n" + drafts]
+    return "\n\n".join(sections)
 
 
 def main() -> int:

@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import time
+from urllib.parse import urlparse
 
 import requests
 
@@ -19,18 +20,37 @@ LIMIT = 3900
 URL_RE = re.compile(r"https?://\S+")
 
 
+def _split_avoiding_urls(block: str, limit: int) -> tuple[str, str]:
+    """Режет block на (head, rest) на границе limit, но не посреди URL.
+
+    news.google.com/rss/articles/... легко тянет на 200-400 символов без единого
+    пробела - наивный разрез "по последнему переводу строки перед limit" рано или
+    поздно попадает внутрь такой ссылки (переноса рядом просто нет). Тогда
+    "голая" половина URL без "http" в начале уезжает бы в следующий кусок как
+    обычный текст, а Telegram — по T9e — красит её как попало. Если предложенная
+    граница попадает внутрь совпадения URL_RE, сдвигаем её на начало этого URL —
+    вся ссылка целиком уходит в следующий кусок, а не рвётся."""
+    cut = block.rfind("\n", 0, limit)
+    cut = cut if cut > 0 else limit
+    for m in URL_RE.finditer(block):
+        if m.start() < cut < m.end():
+            cut = m.start()
+            break
+    if cut <= 0:
+        cut = limit          # сама ссылка длиннее limit - резать больше негде
+    return block[:cut], block[cut:]
+
+
 def _chunks(text: str) -> list[str]:
     out, cur = [], ""
     for block in text.split("\n\n"):
         if len(cur) + len(block) + 2 > LIMIT:
             if cur:
                 out.append(cur)
-            # блок сам по себе длиннее лимита — режем по строкам
+            # блок сам по себе длиннее лимита — режем, не разрывая URL
             while len(block) > LIMIT:
-                cut = block.rfind("\n", 0, LIMIT)
-                cut = cut if cut > 0 else LIMIT
-                out.append(block[:cut])
-                block = block[cut:]
+                head, block = _split_avoiding_urls(block, LIMIT)
+                out.append(head)
             cur = block
         else:
             cur = f"{cur}\n\n{block}" if cur else block
@@ -39,13 +59,23 @@ def _chunks(text: str) -> list[str]:
     return out
 
 
+def _domain(url: str) -> str:
+    try:
+        return urlparse(url).netloc or url
+    except ValueError:
+        return url
+
+
 def _to_html(text: str) -> str:
-    """Экранирует под parse_mode=HTML, URL оборачивает в <a href> явно."""
+    """Экранирует под parse_mode=HTML, URL оборачивает в <a href>. Текст ссылки —
+    домен, а не весь URL: голый news.google.com/rss/articles/... километровой
+    длины делал сводку нечитаемой, даже будучи кликабельным (T9e)."""
     out, last = [], 0
     for m in URL_RE.finditer(text):
         out.append(html.escape(text[last:m.start()]))
-        url = html.escape(m.group())
-        out.append(f'<a href="{url}">{url}</a>')
+        url = m.group()
+        label = html.escape(_domain(url))
+        out.append(f'<a href="{html.escape(url)}">{label}</a>')
         last = m.end()
     out.append(html.escape(text[last:]))
     return "".join(out)

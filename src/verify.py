@@ -272,6 +272,21 @@ def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, s
     return f"✅ verified ({len(found)}/{denom} found{ctx_note}){year_note}", False, None
 
 
+_MODEL_DRAFT_HEADER = re.compile(r"^[ \t]*\**\s*DRAFT\s*\d*\s*\**[ \t]*:?[ \t]*$",
+                                 re.IGNORECASE)
+
+
+def _strip_model_header(segment: str) -> str:
+    """Модель иногда сама печатает "DRAFT n" прямо перед SHAPE: - рендерер всегда
+    подписывает заголовок сам, в каноническом формате "DRAFT n (shape)", поэтому
+    чужой заголовок вырезается, а не дублируется. Раньше он просто дописывался
+    следом без разделителя - "DRAFT 2DRAFT 2 (A)" (T9e)."""
+    lines = segment.rstrip().splitlines()
+    if lines and _MODEL_DRAFT_HEADER.match(lines[-1]):
+        lines.pop()
+    return "\n".join(lines).rstrip()
+
+
 def _report_lines(b: dict) -> list[str]:
     if b.get("_parse_failed"):
         return ["ЦИФРЫ: ⚠️ FIGURES не распарсился - проверь числа руками"]
@@ -390,8 +405,14 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> tup
         # заголовок "DRAFT n" печатает рендерер, не модель: в одном прогоне модель
         # сама подписала черновики "DRAFT 1/2/3", в другом - нет, промпт этого не
         # требует буквально. Нумерация не должна зависеть от того, вставит ли
-        # модель такую строку в конкретном ответе.
-        out_parts.append(drafts_text[pos:m.start()])
+        # модель такую строку в конкретном ответе - свою, если есть, вырезаем.
+        segment = _strip_model_header(drafts_text[pos:m.start()])
+        if segment:
+            out_parts.append(segment + "\n\n")
+        elif i > 1:
+            # гарантируем пустую строку между черновиками, даже если в сырых
+            # данных модели её не было - иначе соседние черновики слипаются (T9e)
+            out_parts.append("\n\n")
         out_parts.append(f"DRAFT {i} ({b['shape'] or '?'})\n")
         out_parts.append(drafts_text[m.start():m.end()])
         out_parts.append("\n" + "\n".join(_report_lines(b)))

@@ -169,3 +169,39 @@ def test_stats_empty_when_format_unparseable():
     assert stats["drafted"] == 0
     assert sum(stats["verdicts"].values()) == 0
     assert sum(stats["figures"].values()) == 0
+
+
+# ---------------------------------------------------------------- T9e: заголовки DRAFT
+
+def test_verify_drafts_dedups_model_printed_header():
+    """Модель сама напечатала "DRAFT 2" перед SHAPE: - раньше рендерер дописывал
+    свой заголовок следом без разделителя ("DRAFT 2DRAFT 2 (A)"). Теперь чужой
+    заголовок вырезается, остаётся ровно один - в каноническом формате."""
+    raw = (
+        _draft_block("digest", "First body.", "none used", _ITEM_1_URL)
+        + "\n\nDRAFT 2\n"
+        + _draft_block("A", "Second body.", "none used", _ITEM_2_URL)
+    )
+    out, _ = verify.verify_drafts(raw, selected=[], data_text="")
+    assert "DRAFT 2DRAFT 2" not in out
+    assert out.count("DRAFT 2") == 1
+    assert "DRAFT 2 (A)" in out
+
+
+def test_verify_drafts_dedups_header_with_no_blank_line_before_it():
+    """Тот же кейс, но модель не оставила пустую строку перед своим "DRAFT 2" -
+    самый жёсткий вариант "слипания"."""
+    raw = (
+        _draft_block("digest", "First body.", "none used", _ITEM_1_URL)
+        + "\nDRAFT 2\n"
+        + _draft_block("A", "Second body.", "none used", _ITEM_2_URL)
+    )
+    out, _ = verify.verify_drafts(raw, selected=[], data_text="")
+    assert "DRAFT 2DRAFT 2" not in out
+    assert out.count("DRAFT 2") == 1
+
+
+def test_strip_model_header_leaves_non_header_content_alone():
+    assert verify._strip_model_header("\n\n---\n\n") == "\n\n---"
+    assert verify._strip_model_header("\n\nDRAFT 3\n") == ""
+    assert verify._strip_model_header("") == ""
