@@ -52,8 +52,72 @@ def test_to_float_handles_thousand_separator_with_decimal():
     И десятичная точка одновременно. Раньше это давало "15.019.5" (две точки,
     float() падает) и число уходило в UNPARSED незаслуженно."""
     assert verify._to_float("15,019.5 thousand") == 15_019_500.0
+
+
+def test_search_variants_thousand_separator_with_decimal_polish_form():
+    """Боевой прогон 01.08.2026: "15,019.5 thousand" помечено NOT_FOUND, хотя
+    в источнике то же число польской записью - "15019,5" (запятая = десятичный
+    разделитель, разряды слитно, без разделителя). Раньше для комбинации
+    "разделитель тысяч + десятичная точка" польский вариант не генерировался
+    вовсе - только английская форма (с запятой-тысяч и без неё)."""
     assert verify._to_search_variants("15,019.5 thousand") == \
-        ["15,019.5 thousand", "15019.5 thousand"]
+        ["15,019.5 thousand", "15019.5 thousand", "15019,5 thousand"]
+
+    pairs = [("15,019.5 thousand", "GUS")]
+    body = "Population declined by 15019,5 thousand people over the year, GUS said."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "FOUND"
+
+
+# ---------------------------------------------------------------- уровень b: пейлоад для LLM
+
+def test_sentence_containing_keeps_full_decimal_value():
+    """Боевой прогон 01.08.2026: ответы модели вида "The rate was 4.60%, not 4"
+    во всех прогонах - признак того, что в пейлоад уровня b уходит обрубленное
+    число. Причина: поиск конца предложения начинался с начала needle, а первая
+    "." в "4.60" - это её собственная десятичная точка, не конец предложения.
+    Урезанный до "...4." текст уходил в LLM вместо целой фразы с "4.60%"."""
+    text = "The central bank said the rate was 4.60%, unchanged from last quarter."
+    variants = verify._to_search_variants("4.60%")
+    sentence = verify._sentence_containing(text, variants)
+    assert "4.60%" in sentence
+    assert sentence == text
+
+    # тот же класс бага на других значениях из боевого прогона
+    text2 = "GDP fell by 19.9% year over year, the statistics office reported."
+    assert "19.9%" in verify._sentence_containing(text2, verify._to_search_variants("19.9%"))
+
+    text3 = "Inflation rose 0.2% in July compared with the prior month."
+    assert "0.2%" in verify._sentence_containing(text3, verify._to_search_variants("0.2%"))
+
+
+def test_verify_drafts_level_b_payload_preserves_full_figures_value():
+    """Пейлоад уровня b строится из draft_sentence/source_fragment, извлечённых
+    посимвольным поиском по value из FIGURES - value само по себе не искажается
+    промежуточной нормализацией нигде на этом пути. Проверяем на моке brain._call,
+    что фраза, отправленная в LLM, содержит исходное значение "4.60%" целиком,
+    а не обрезанное "4"."""
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    body = "The central bank said the rate was 4.60%, unchanged from last quarter."
+    draft = _draft_block("digest", "Central bank held rates at 4.60% again.",
+                         "4.60% -> NBP", _ITEM_1_URL, verdict="POST")
+    selected = [{"item": SimpleNamespace(url=_ITEM_1_URL), "body": body}]
+
+    captured = {}
+
+    def fake_call(prompt, **kwargs):
+        captured["prompt"] = prompt
+        return '[{"id": 0, "verdict": "MATCH", "why": "ok"}]'
+
+    with patch("src.brain._call", side_effect=fake_call):
+        verify.verify_drafts(draft, selected=selected, data_text="")
+
+    assert "prompt" in captured, "уровень b не был вызван - нечего проверять"
+    draft_line = next(l for l in captured["prompt"].splitlines() if l.startswith("draft:"))
+    assert "4.60%" in draft_line
+    assert 'draft: "Central bank held rates at 4.60%' in draft_line
 
 
 # ---------------------------------------------------------------- вставка ЦИФРЫ

@@ -94,7 +94,16 @@ def _to_search_variants(value: str) -> list[str]:
     num_part, suffix = _split_value(value)
     core = re.sub(r"\s+", "", num_part.replace("$", "").replace("%", ""))
     if re.fullmatch(r"\d+(,\d{3})+(\.\d+)?", core):
-        num_variants = [core, core.replace(",", "")]
+        no_sep = core.replace(",", "")
+        num_variants = [core, no_sep]
+        if "." in no_sep:
+            # Тысячи без разделителя И десятичная точка одновременно
+            # ("15,019.5" -> "15019.5") - это ещё не польская запись того же
+            # числа. Источник в польском тексте пишет разряды слитно и
+            # десятичную часть через запятую: "15019,5". Раньше этот вариант
+            # не генерировался вовсе, и число, буквально присутствующее в
+            # тексте, помечалось NOT_FOUND (боевой прогон 01.08.2026).
+            num_variants.append(no_sep.replace(".", ","))
     else:
         m = re.fullmatch(r"(\d+)[.,](\d+)", core)
         if m:
@@ -205,7 +214,13 @@ def _sentence_containing(text: str, needle_variants: list[str]) -> str:
         idx = text.find(v)
         if idx != -1:
             start = text.rfind(".", 0, idx)
-            end = text.find(".", idx)
+            # Искать конец предложения НАЧИНАЯ ПОСЛЕ самого needle, не с его
+            # начала - у десятичного числа ("4.60") первая же "." это его
+            # собственная точка, а не конец предложения. Раньше поиск начинался
+            # с idx и обрывал "сюжет" сразу после "4.", отправляя в LLM обрубок
+            # "...4." вместо "...4.60%..." - модель честно сверяла "4" с
+            # исходником и репортила MISMATCH на пустом месте.
+            end = text.find(".", idx + len(v))
             start = start + 1 if start != -1 else 0
             end = end + 1 if end != -1 else len(text)
             return text[start:end].strip()
