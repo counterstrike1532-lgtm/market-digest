@@ -22,39 +22,44 @@ class FakeResponse:
             raise RuntimeError(f"HTTP {self.status_code}")
 
 
-# ---------------------------------------------------------------- _stale_marker
+# ---------------------------------------------------------------- T10f: _hicp_age_days
 
-def test_stale_marker_flags_old_period():
+def test_hicp_age_days_computes_from_first_of_month():
     today = date.today()
-    y, m = today.year, today.month - 5
+    y, m = today.year, today.month - 2
     while m <= 0:
         m += 12
         y -= 1
     key = f"{y:04d}-{m:02d}"
-    result = numbers._stale_marker(key, months_threshold=3)
-    assert "старше" in result
-    assert "5 мес" in result
+    expected = (today - date(y, m, 1)).days
+    assert numbers._hicp_age_days(key) == expected
 
 
-def test_stale_marker_recent_period_is_clean():
-    key = date.today().strftime("%Y-%m")
-    assert numbers._stale_marker(key, months_threshold=3) == ""
-
-
-def test_stale_marker_bad_format_is_clean():
-    assert numbers._stale_marker("not-a-period") == ""
-    assert numbers._stale_marker("") == ""
+def test_hicp_age_days_bad_format_is_none():
+    assert numbers._hicp_age_days("not-a-period") is None
+    assert numbers._hicp_age_days("") is None
 
 
 # ---------------------------------------------------------------- eurostat_hicp
 
+def _period_key(months_ago: int) -> str:
+    today = date.today()
+    y, m = today.year, today.month - months_ago
+    while m <= 0:
+        m += 12
+        y -= 1
+    return f"{y:04d}-{m:02d}"
+
+
 def test_eurostat_hicp_single_time_period(monkeypatch):
-    """T=1: один период на весь ответ, как обычно с lastTimePeriod=1."""
+    """T=1: один период на весь ответ, как обычно с lastTimePeriod=1. Период
+    свежий (текущий месяц) - строка попадает в out без плашки-предупреждения
+    (T10f: протухшее теперь не печатается вовсе, а не помечается)."""
+    key = _period_key(0)
     payload = {
         "dimension": {
             "geo": {"category": {"index": {"PL": 0, "DE": 1}}},
-            "time": {"category": {"index": {"2026-05": 0},
-                                  "label": {"2026-05": "2026M05"}}},
+            "time": {"category": {"index": {key: 0}, "label": {key: "2026M05"}}},
         },
         "value": {"0": 3.2, "1": 2.1},
     }
@@ -62,29 +67,31 @@ def test_eurostat_hicp_single_time_period(monkeypatch):
                         lambda *a, **kw: FakeResponse(200, json_data=payload))
     out = numbers.eurostat_hicp(["PL", "DE"])
     assert out["HICP PL"]["value"] == 3.2
-    assert out["HICP PL"]["as_of"].startswith("2026M05")
+    assert out["HICP PL"]["as_of"] == "2026M05"
+    assert "старше" not in out["HICP PL"]["as_of"]
     assert out["HICP DE"]["value"] == 2.1
 
 
 def test_eurostat_hicp_two_time_periods_no_crosstalk(monkeypatch):
     """T=2: несколько периодов в ответе - значение и период должны декодироваться
     из одной и той же позиции для каждой geo, без обмена между geo/периодами."""
+    key_old, key_new = _period_key(1), _period_key(0)
     payload = {
         "dimension": {
             "geo": {"category": {"index": {"PL": 0, "DE": 1}}},
-            "time": {"category": {"index": {"2026-04": 0, "2026-05": 1},
-                                  "label": {"2026-04": "2026M04", "2026-05": "2026M05"}}},
+            "time": {"category": {"index": {key_old: 0, key_new: 1},
+                                  "label": {key_old: "OLD", key_new: "2026M05"}}},
         },
-        # разреженный ответ: только (PL, 2026-05) pos=1 и (DE, 2026-05) pos=3
+        # разреженный ответ: только (PL, key_new) pos=1 и (DE, key_new) pos=3
         "value": {"1": 3.5, "3": 2.2},
     }
     monkeypatch.setattr(numbers.requests, "get",
                         lambda *a, **kw: FakeResponse(200, json_data=payload))
     out = numbers.eurostat_hicp(["PL", "DE"])
     assert out["HICP PL"]["value"] == 3.5
-    assert out["HICP PL"]["as_of"].startswith("2026M05")
+    assert out["HICP PL"]["as_of"] == "2026M05"
     assert out["HICP DE"]["value"] == 2.2
-    assert out["HICP DE"]["as_of"].startswith("2026M05")
+    assert out["HICP DE"]["as_of"] == "2026M05"
 
 
 def test_eurostat_hicp_network_error_returns_empty(monkeypatch):
@@ -93,6 +100,44 @@ def test_eurostat_hicp_network_error_returns_empty(monkeypatch):
 
     monkeypatch.setattr(numbers.requests, "get", boom)
     assert numbers.eurostat_hicp(["PL"]) == {}
+
+
+def test_eurostat_hicp_stale_period_dropped_entirely(monkeypatch, caplog):
+    """T10f: период старше 60 дней (8 месяцев, как в боевом прогоне) - блок
+    вообще не попадает в out, факт пропуска виден в логе с периодом."""
+    key = _period_key(8)
+    payload = {
+        "dimension": {
+            "geo": {"category": {"index": {"DE": 0, "PL": 1}}},
+            "time": {"category": {"index": {key: 0}, "label": {key: "2025M12"}}},
+        },
+        "value": {"0": 2.0, "1": 2.5},
+    }
+    monkeypatch.setattr(numbers.requests, "get",
+                        lambda *a, **kw: FakeResponse(200, json_data=payload))
+    import logging
+    with caplog.at_level(logging.INFO):
+        out = numbers.eurostat_hicp(["DE", "PL"])
+    assert out == {}
+    assert key in caplog.text
+    assert "DE" in caplog.text
+
+
+def test_eurostat_hicp_fresh_period_kept_without_marker(monkeypatch):
+    """Свежий период (30 дней) - блок печатается, без плашки-предупреждения."""
+    key = _period_key(1)
+    payload = {
+        "dimension": {
+            "geo": {"category": {"index": {"PL": 0}}},
+            "time": {"category": {"index": {key: 0}, "label": {key: "FRESH"}}},
+        },
+        "value": {"0": 2.5},
+    }
+    monkeypatch.setattr(numbers.requests, "get",
+                        lambda *a, **kw: FakeResponse(200, json_data=payload))
+    out = numbers.eurostat_hicp(["PL"], max_age_days=60)
+    assert out["HICP PL"]["value"] == 2.5
+    assert out["HICP PL"]["as_of"] == "FRESH"
 
 
 # ---------------------------------------------------------------- stooq_series

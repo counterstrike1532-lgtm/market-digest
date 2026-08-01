@@ -150,18 +150,22 @@ def market_series(data_cfg: dict) -> tuple[dict, dict, dict]:
     return _relabel(scalars), _relabel(series), _relabel(source_map)
 
 
-def _stale_marker(period_key: str, months_threshold: int = 3) -> str:
-    """period_key в формате "YYYY-MM". Не распарсился — молча "" (ничего не утверждаем)."""
+def _hicp_age_days(period_key: str) -> int | None:
+    """period_key в формате "YYYY-MM" (первое число месяца - HICP это месячная
+    серия, точнее числа тут нет). Не распарсился - None (не утверждаем возраст,
+    который не смогли посчитать)."""
     m = re.fullmatch(r"(\d{4})-(\d{2})", period_key or "")
     if not m:
-        return ""
+        return None
     y, mo = int(m.group(1)), int(m.group(2))
-    now = date.today()
-    months_old = (now.year - y) * 12 + (now.month - mo)
-    return f" — старше {months_old} мес!" if months_old >= months_threshold else ""
+    try:
+        period_start = date(y, mo, 1)
+    except ValueError:
+        return None
+    return (date.today() - period_start).days
 
 
-def eurostat_hicp(geos: list[str]) -> dict:
+def eurostat_hicp(geos: list[str], max_age_days: int = 60) -> dict:
     """Годовая инфляция HICP. Официальный Eurostat API, без ключа.
 
     JSON-stat кодирует "value" плоским индексом по ВСЕМ измерениям сразу;
@@ -171,7 +175,12 @@ def eurostat_hicp(geos: list[str]) -> dict:
     период "list(...)[0]" один на все geo - если сервер вернул больше одного
     периода (или под другую geo давность отличается), значения и период тихо
     расходились. Теперь период и значение декодируются из одного и того же pos
-    для каждой geo независимо - подмены нет по построению."""
+    для каждой geo независимо - подмены нет по построению.
+
+    Период старше max_age_days - запись вообще не попадает в out (T10f): декабрьский
+    HICP в августе не объясняет ни ставки NBP, ни депозитные ставки банков, а честная
+    плашка-предупреждение на бесполезном числе всё равно занимает место в сводке.
+    Факт пропуска - в лог, с периодом, чтобы не потерялся молча."""
     out = {}
     try:
         r = requests.get(
@@ -190,11 +199,13 @@ def eurostat_hicp(geos: list[str]) -> dict:
             i_geo, i_time = divmod(int(pos), n_time)
             geo_code = rev_geo.get(i_geo, "?")
             period_key = rev_time.get(i_time, "?")
+            age_days = _hicp_age_days(period_key)
+            if age_days is not None and age_days > max_age_days:
+                log.info("HICP %s пропущен - период %s старше %d дней (%d)",
+                         geo_code, period_key, max_age_days, age_days)
+                continue
             period_label = time_label.get(period_key, period_key)
-            out[f"HICP {geo_code}"] = {
-                "value": val, "unit": "% г/г",
-                "as_of": f"{period_label}{_stale_marker(period_key)}",
-            }
+            out[f"HICP {geo_code}"] = {"value": val, "unit": "% г/г", "as_of": period_label}
     except Exception as exc:
         log.warning("Eurostat упал: %s", exc)
     return out
