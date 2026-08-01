@@ -245,20 +245,22 @@ def test_yfinance_series_exception_is_caught(monkeypatch):
     assert scalars == {} and series == {}
 
 
-def test_market_series_falls_back_to_yfinance_for_missing_symbol(monkeypatch, caplog):
-    """stooq отдал wig20, но не sp500 - фолбэк должен добрать только sp500
-    через yfinance и явно залогировать источник."""
-    def fake_stooq(symbols):
+def test_market_series_falls_back_to_stooq_for_missing_symbol(monkeypatch, caplog):
+    """T10g fix 3: yfinance первым, stooq - только фолбэк на то, чего yfinance
+    не отдал (было наоборот - stooq первым стабильно давал JS-заглушку по
+    всем тикерам). yfinance отдал wig20, но не sp500 - фолбэк должен добрать
+    только sp500 через stooq и явно залогировать источник."""
+    def fake_yfinance(symbols):
         return ({"wig20": {"value": 2000.0, "as_of": "2026-06-05"}},
                {"wig20": {"dates": _DATES_5, "close": _CLOSES_5}})
 
-    def fake_yfinance(symbols):
-        assert symbols == {"sp500": "^GSPC"}
+    def fake_stooq(symbols):
+        assert symbols == {"sp500": "^spx"}
         return ({"sp500": {"value": 5000.0, "as_of": "2026-06-05"}},
                {"sp500": {"dates": _DATES_5, "close": _CLOSES_5}})
 
-    monkeypatch.setattr(numbers, "stooq_series", fake_stooq)
     monkeypatch.setattr(numbers, "yfinance_series", fake_yfinance)
+    monkeypatch.setattr(numbers, "stooq_series", fake_stooq)
 
     with caplog.at_level("INFO"):
         scalars, series, source_map = numbers.market_series({
@@ -270,24 +272,24 @@ def test_market_series_falls_back_to_yfinance_for_missing_symbol(monkeypatch, ca
     # это цена пая TR-ETF, а не уровень индекса (T9 fix 2)
     assert scalars["WIG20 TR (ETF)"]["value"] == 2000.0
     assert scalars["sp500"]["value"] == 5000.0
-    assert source_map == {"WIG20 TR (ETF)": "stooq", "sp500": "yfinance"}
-    assert "yfinance" in caplog.text
-    assert "stooq" in caplog.text.lower()
+    assert source_map == {"WIG20 TR (ETF)": "yfinance", "sp500": "stooq"}
+    assert "stooq" in caplog.text
+    assert "yfinance" in caplog.text.lower()
 
 
-def test_market_series_does_not_call_yfinance_when_stooq_fully_succeeds(monkeypatch):
-    def fake_stooq(symbols):
+def test_market_series_does_not_call_stooq_when_yfinance_fully_succeeds(monkeypatch):
+    def fake_yfinance(symbols):
         return ({"wig20": {"value": 2000.0}}, {"wig20": {"dates": [], "close": []}})
 
     def boom(symbols):
-        raise AssertionError("yfinance не должен вызываться, если stooq отдал всё")
+        raise AssertionError("stooq не должен вызываться, если yfinance отдал всё")
 
-    monkeypatch.setattr(numbers, "stooq_series", fake_stooq)
-    monkeypatch.setattr(numbers, "yfinance_series", boom)
+    monkeypatch.setattr(numbers, "yfinance_series", fake_yfinance)
+    monkeypatch.setattr(numbers, "stooq_series", boom)
 
-    scalars, series, source_map = numbers.market_series({"stooq_symbols": {"wig20": "wig20"}})
+    scalars, series, source_map = numbers.market_series({"yfinance_symbols": {"wig20": "WIG20.WA"}})
     assert scalars == {"WIG20 TR (ETF)": {"value": 2000.0}}
-    assert source_map == {"WIG20 TR (ETF)": "stooq"}
+    assert source_map == {"WIG20 TR (ETF)": "yfinance"}
 
 
 def test_market_series_both_sources_fail_skips_gracefully(monkeypatch):

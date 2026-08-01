@@ -1,16 +1,18 @@
-# Usage:  .\run.ps1 verify   |   .\run.ps1 dry   |   .\run.ps1 send
+# Usage:  .\run.ps1 verify   |   .\run.ps1 dry   |   .\run.ps1 send   |   .\run.ps1 test
 #         .\run.ps1 score draft.txt   |   .\run.ps1 score draft.txt -Deep
+#         .\run.ps1 dry -NoCharts     |   .\run.ps1 send -NoCharts
 # ASCII only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet("verify","dry","send","models","score")]
+    [ValidateSet("verify","dry","send","models","score","test")]
     [string]$Mode,
 
     [Parameter(Mandatory=$false)]
     [string]$Path,
 
-    [switch]$Deep
+    [switch]$Deep,
+    [switch]$NoCharts
 )
 
 $py = ".\.venv\Scripts\python.exe"
@@ -19,8 +21,9 @@ if (-not (Test-Path $py)) {
     exit 1
 }
 
-# score without -Deep is local-only and needs no API key
-$needsSecrets = ($Mode -ne "verify") -and (($Mode -ne "score") -or $Deep)
+# score without -Deep is local-only and needs no API key; test runs pytest on
+# mocks only, never touches Gemini or the network (see tests/ conventions)
+$needsSecrets = ($Mode -ne "verify") -and ($Mode -ne "test") -and (($Mode -ne "score") -or $Deep)
 
 if ($needsSecrets) {
     if (-not (Test-Path "secrets.ps1")) {
@@ -52,8 +55,17 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 switch ($Mode) {
     "verify" { & $py -m src.verify_feeds }
     "models" { & $py -m src.list_models }
-    "dry"    { & $py -m src.main --dry --hours 48 }
-    "send"   { & $py -m src.main --hours 48 }
+    "test"   { & $py -m pytest }
+    "dry"    {
+        $dryArgs = @("-m", "src.main", "--dry", "--hours", "48")
+        if ($NoCharts) { $dryArgs += "--no-charts" }
+        & $py @dryArgs
+    }
+    "send"   {
+        $sendArgs = @("-m", "src.main", "--hours", "48")
+        if ($NoCharts) { $sendArgs += "--no-charts" }
+        & $py @sendArgs
+    }
     "score"  {
         $scoreArgs = @()
         if ($Path) { $scoreArgs += $Path }

@@ -126,27 +126,30 @@ def _relabel(d: dict) -> dict:
 
 
 def market_series(data_cfg: dict) -> tuple[dict, dict, dict]:
-    """Каскад для индексов: stooq первым (бесплатный, без ключа), yfinance —
-    только для символов, которых stooq не отдал (антибот требует JS, см. ГРАБЛИ).
-    Формат scalars/series идентичен stooq_series — main.py/charts.py подмены не
-    видят, кроме переименования по _DISPLAY_NAME. Третье значение - source_map
-    {symbol_name: "stooq"|"yfinance"}, для метрик прогона (T9d) и подписи
-    источника на графике (T9 fix 1), в сводку/промпт не идёт."""
-    stooq_symbols = data_cfg.get("stooq_symbols", {})
-    scalars, series = stooq_series(stooq_symbols)
-    source_map = {name: "stooq" for name in scalars}
-    missing = [name for name in stooq_symbols if name not in scalars]
+    """Каскад для индексов: yfinance первым, stooq - только для символов,
+    которых yfinance не отдал, как исторический фолбэк (T10g fix 3). Раньше
+    было наоборот - stooq первым стабильно отдавал JS-заглушку (антибот
+    требует JS, см. ГРАБЛИ) по всем трём тикерам, три впустую потраченных
+    запроса и ~3.5с на каждый прогон, прежде чем каскад вообще добирался до
+    yfinance. Формат scalars/series идентичен stooq_series - main.py/charts.py
+    подмены не видят, кроме переименования по _DISPLAY_NAME. Третье значение -
+    source_map {symbol_name: "yfinance"|"stooq"}, для метрик прогона (T9d) и
+    подписи источника на графике (T9 fix 1), в сводку/промпт не идёт."""
+    yf_symbols = data_cfg.get("yfinance_symbols", {})
+    scalars, series = yfinance_series(yf_symbols)
+    source_map = {name: "yfinance" for name in scalars}
+    missing = [name for name in yf_symbols if name not in scalars]
     if missing:
-        yf_symbols = data_cfg.get("yfinance_symbols", {})
-        targets = {name: yf_symbols[name] for name in missing if name in yf_symbols}
+        stooq_symbols = data_cfg.get("stooq_symbols", {})
+        targets = {name: stooq_symbols[name] for name in missing if name in stooq_symbols}
         if targets:
-            yf_scalars, yf_series_data = yfinance_series(targets)
-            if yf_scalars:
-                log.info("рынки: yfinance (stooq недоступен) - %s",
-                        ", ".join(sorted(yf_scalars)))
-            scalars.update(yf_scalars)
-            series.update(yf_series_data)
-            source_map.update({name: "yfinance" for name in yf_scalars})
+            stooq_scalars, stooq_series_data = stooq_series(targets)
+            if stooq_scalars:
+                log.info("рынки: stooq (yfinance недоступен) - %s",
+                        ", ".join(sorted(stooq_scalars)))
+            scalars.update(stooq_scalars)
+            series.update(stooq_series_data)
+            source_map.update({name: "stooq" for name in stooq_scalars})
     return _relabel(scalars), _relabel(series), _relabel(source_map)
 
 

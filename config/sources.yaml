@@ -57,17 +57,17 @@ freshness:
 # ---------- Цифры для аналитики ----------
 data:
   nbp_currencies: [usd, eur, chf]        # api.nbp.pl, без ключа
-  stooq_symbols:                          # stooq.pl CSV, без ключа (T9c: обычно мёртв - антибот требует JS)
-    wig20: wig20
-    sp500: ^spx
-    nasdaq: ^ndq
-  yfinance_symbols:                       # фолбэк для символов, которых stooq не отдал (T9c)
+  yfinance_symbols:                       # каскад первым (T10g fix 3), без ключа
     # WIG20.WA у Yahoo почти без дневной истории (1 бар даже на period=3mo) —
     # ETFBW20TR.WA (Beta ETF WIG20TR, физически реплицирует индекс) даёт полный
     # дневной ряд и на практике даёт корректные % изменения по WIG20.
     wig20: ETFBW20TR.WA
     sp500: "^GSPC"
     nasdaq: "^IXIC"
+  stooq_symbols:                          # исторический фолбэк (T9c: обычно мёртв - антибот требует JS)
+    wig20: wig20
+    sp500: ^spx
+    nasdaq: ^ndq
   eurostat_hicp: [PL, DE, EA19]           # годовая инфляция, без ключа
   fred_series:                            # нужен бесплатный ключ FRED (опционально)
     fed_funds: DFF

@@ -53,6 +53,39 @@ def test_call_success_counts_one_request(monkeypatch):
     assert q == {"total": 1, "successful": 1, "quota_refused": 0}
 
 
+def test_call_success_logs_which_model_answered(monkeypatch, caplog):
+    """T10g: расход квоты в логе уже был, а имени отработавшей модели не было -
+    "не 3.1-lite ли это была" не на что ответить, не заглянув в код. Пишем имя
+    при каждом успешном вызове, не только в brain.last_model_used()."""
+    monkeypatch.setattr(brain, "MODELS", ["gemini-3.5-flash", "gemini-3.6-flash"])
+    monkeypatch.setattr(brain.requests, "post", lambda *a, **kw: _ok("some text"))
+
+    import logging
+    with caplog.at_level(logging.INFO):
+        brain._call("prompt")
+
+    assert "gemini-3.5-flash" in caplog.text
+
+
+def test_call_success_logs_second_model_after_first_fails(monkeypatch, caplog):
+    """Отработавшая модель не всегда первая в списке - лог должен называть ту,
+    что реально ответила, не первую по порядку."""
+    monkeypatch.setattr(brain, "MODELS", ["gemini-3.5-flash", "gemini-3.6-flash"])
+
+    def fake_post(url, **kw):
+        if "gemini-3.5-flash" in url:
+            return FakeResponse(404)
+        return _ok("some text")
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+
+    import logging
+    with caplog.at_level(logging.INFO):
+        brain._call("prompt")
+
+    assert "gemini-3.6-flash: ответ получен" in caplog.text
+
+
 def test_call_429_per_day_falls_through_to_next_model(monkeypatch):
     monkeypatch.setattr(brain, "MODELS", ["gemini-3.5-flash", "gemini-3.6-flash"])
     seq = [

@@ -136,6 +136,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                 if text.strip():
                     _successful_calls += 1
                     _last_model = model
+                    log.info("%s: ответ получен (%d симв.)", model, len(text))
                     return text
                 last = f"{model}: пустой ответ ({cand.get('finishReason')})"
                 log.warning(last)
@@ -343,20 +344,28 @@ mechanism, honesty about limits of the data - those are different things.
 === FIRST PERSON: ONLY FOR WORK ACTUALLY DONE ===
 A digest item or the single post can be written in first person, but ONLY for something he
 verifiably did with the material in front of him: read a primary source, pulled a specific
-figure from it, compared two numbers, computed a ratio or delta. NEVER claim observation,
-monitoring, research, or access he did not have - no "I tracked this play out", "I've been
-following this", "I noticed this developing". A false claim about his own work is worse than
-a fabricated number: a number can be checked against the source, a claim about what he
-personally did cannot - and if it's ever caught out, it costs more than the post.
+figure from it. NEVER claim analytical work he did not do - comparing figures, running the
+numbers, computing a ratio, reading a report cover to cover, attending an event. The
+comparison or mechanism can still be the point of the post; it just cannot be framed as
+something he personally performed - state it about the numbers themselves, not about his own
+activity. NEVER claim observation, monitoring, research, or access he did not have - no "I
+tracked this play out", "I've been following this", "I noticed this developing". A false
+claim about his own work is worse than a fabricated number: a number can be checked against
+the source, a claim about what he personally did cannot - and if it's ever caught out, it
+costs more than the post.
 
   GOOD: "I pulled these figures from Statistics Poland."
-  GOOD: "I compared the two figures Rolls-Royce reported this quarter."
+  GOOD: "These two numbers sit oddly next to each other."
+  BAD:  "I compared these figures from the RynekPierwotny report, and the difference is
+        striking."
+  BAD:  "I ran the numbers and the gap is striking."
+  BAD:  "I read the report and here's what stood out."
   BAD:  "I tracked this mechanism play out at Situational Awareness."
   BAD:  "I have been following this story for weeks."
 
-If a story gives him nothing of his own to do - he only read it, nothing to pull or compare -
-write about it impersonally. Do not force a first-person claim where there is nothing real
-to claim.
+If a story gives him nothing of his own to do - he only read it, nothing to pull - write
+about it impersonally. Do not force a first-person claim where there is nothing real to
+claim.
 
 === NUMBERS: HARD RULE ===
 Use a figure ONLY if it appears verbatim in that story's SOURCE TEXT below, or in the
