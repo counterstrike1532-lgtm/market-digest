@@ -1,0 +1,124 @@
+СВОДКА 01.08.2026
+
+ЦИФРЫ
+  PLN/USD: 3.7425  +0.38% 30д   [2026-07-31]
+  PLN/EUR: 4.3128  +1.02% 30д   [2026-07-31]
+  PLN/CHF: 4.6429  +0.62% 30д   [2026-07-31]
+  WIG20 TR (ETF): +0.33% д  +10.01% мес   [2026-07-31]
+  sp500: 7489.72  +0.70% д  -1.45% мес   [2026-07-31]
+  nasdaq: 25373.85  +1.00% д  -6.32% мес   [2026-07-31]
+  HICP DE: 2.0   [2025-12 — старше 8 мес!]
+  HICP EA19: 1.9   [2025-12 — старше 8 мес!]
+  HICP PL: 2.5   [2025-12 — старше 8 мес!]
+
+СЮЖЕТЫ (6)
+
+1. [8/10] Dunaj wysycha, elektrownia jądrowa staje. Węgry wyłączą Paks w weekend?
+   www.bankier.pl, 2026-08-01 — https://www.bankier.pl/wiadomosc/Dunaj-wysycha-elektrownia-jadrowa-staje-Wegry-wylacza-Paks-w-weekend-9176727.html?utm_source=RSS&utm_medium=RSS&utm_campaign=Wiadomosci
+   угол: River-cooled nuclear plants face operational shutdowns during summer droughts, forcing CEE grid operators to rely on expensive peak-load gas generation.
+   неочевидно: It highlights how climate-induced physical risks directly translate into power grid instability and merchant power price volatility in Central Europe.
+
+2. [8/10] Wielka płyta zagrozi deweloperom? Tysiące odziedziczonych mieszkań trafi na sprzedaż
+   www.bankier.pl, 2026-08-01 — https://www.bankier.pl/wiadomosc/Wielka-plyta-zagrozi-deweloperom-Tysiace-odziedziczonych-mieszkan-trafia-na-sprzedaz-9176697.html?utm_source=RSS&utm_medium=RSS&utm_campaign=Wiadomosci
+   угол: Demographic decline will flood the Polish housing market with inherited panel-block apartments, undermining developer pricing power in secondary cities.
+   неочевидно: It challenges the 'permanent housing shortage' narrative by introducing a massive, non-developer supply shock from generational wealth transfers.
+
+3. [7/10] Bank Millennium obniża stawkę standardową. To teraz 0,50% na koncie oszczędnościowym
+   www.bankier.pl, 2026-08-01 — https://www.bankier.pl/wiadomosc/Kolejna-obnizka-oprocentowania-w-Banku-Millennium-Tym-razem-dotyczy-stawki-standardowej-9176304.html?utm_source=RSS&utm_medium=RSS&utm_campaign=Wiadomosci
+   угол: Bank Millennium cutting its standard savings rate to 0.50% reflects Polish banks' aggressive management of deposit betas to protect net interest margins.
+   неочевидно: It shows how banks quietly lower funding costs on sticky retail deposits even before official central bank rate cuts materialize.
+
+4. [7/10] Mężczyźni "dopłacają" do emerytur kobiet? O tym się nie mówi [OPINIA]
+   www.money.pl, 2026-08-01 — https://www.money.pl/finanse/mezczyzni-doplacaja-do-emerytur-kobiet-o-tym-sie-nie-mowi-opinia-7312364596259200a.html
+   угол: Poland's gender-differentiated retirement age combined with unisex life expectancy tables creates a structural wealth transfer from men to women.
+   неочевидно: It explains the actuarial mechanics of how lower retirement ages for women dilute the pension capital accumulated by male contributors.
+
+5. [6/10] Polska sprowadza coraz więcej gazu. Dania i USA na czele dostawców
+   www.bankier.pl, 2026-08-01 — https://www.bankier.pl/wiadomosc/Polska-sprowadza-coraz-wiecej-gazu-Dania-i-USA-na-czele-dostawcow-9176695.html?utm_source=RSS&utm_medium=RSS&utm_campaign=Wiadomosci
+   угол: Poland's 23% year-on-year gas import increase highlights the growing fiscal burden of replacing cheap pipeline gas with expensive LNG.
+   неочевидно: It exposes the structural premium Poland pays for energy security, impacting heavy industry competitiveness and trade balances.
+
+6. [6/10] Situational Awareness vs. Long-Term Capital Management: A side-by-side comparison
+   feeds.content.dowjones.io, 2026-07-31 — https://www.marketwatch.com/story/situational-awareness-vs-long-term-capital-management-a-side-by-side-comparison-e3e047b7?mod=mw_rss_topstories
+   угол: Comparing modern AI-driven leverage risks to the LTCM collapse highlights how systemic liquidity mismatches persist despite advanced risk modeling.
+   неочевидно: It draws parallels between historical fixed-income arbitrage failures and current highly-leveraged algorithmic momentum strategies.
+   ! текст статьи не догружен — цифры в угле не проверены
+
+==============================
+
+ЧЕРНОВИКИ
+
+DRAFT 1 (digest)
+SHAPE: digest
+BODY: A few recent data releases and market updates that caught my eye:
+
+- Demographic shift in Polish housing. In 2025, Poland recorded 406,000 deaths against only 134,000 new developer apartments. As generational wealth transfers pick up, 80,000 to 120,000 inherited apartments could hit the market annually, challenging developer pricing power.
+
+- Bank Millennium cut its standard savings account rate to 0.50% starting August 1, 2026. This shows how banks protect their net interest margins by aggressively lowering rates on sticky retail deposits before the central bank even cuts official rates.
+
+- Polish gas imports rose 23% in 2025 to 213.5 TWh, with LNG making up 42.9% of that volume. This shift highlights the growing cost of energy security as expensive maritime LNG replaces cheaper pipeline gas.
+FIGURES:
+- 2025 -> Story [2] and [5] source text
+- 406,000 -> Story [2] source text ("406 tys.")
+- 134,000 -> Story [2] source text ("134 tys.")
+- 80,000 to 120,000 -> Story [2] source text ("80-120 tys.")
+- 0.50% -> Story [3] source text ("0,50 proc.")
+- August 1, 2026 -> Story [3] source text ("1 sierpnia 2026 r.")
+- 23% -> Story [5] source text ("23 proc.")
+- 213.5 TWh -> Story [5] source text ("213,5 TWh")
+- 42.9% -> Story [5] source text ("42,9 proc.")
+SOURCE: https://www.bankier.pl/wiadomosc/Wielka-plyta-zagrozi-deweloperom-Tysiace-odziedziczonych-mieszkan-trafia-na-sprzedaz-9176697.html, https://www.bankier.pl/wiadomosc/Kolejna-obnizka-oprocentowania-w-Banku-Millennium-Tym-razem-dotyczy-stawki-standardowej-9176304.html, https://www.bankier.pl/wiadomosc/Polska-sprowadza-coraz-wiecej-gazu-Dania-i-USA-na-czele-dostawcow-9176695.html
+WHY_THIS_ONE: Combines Polish demographic macro, banking sector margin management, and energy import dynamics into a clean student-level market update.
+VERDICT: POST
+WHY: All three stories deal with fundamental micro and macro concepts (supply/demand, deposit beta, and import substitution) that a finance student can easily defend.
+CHECK_FIRST: -
+ЦИФРЫ: ⚠️ 1/6 found (+1 year not counted) - "406,000" not found (closest: "2026") +1 more; "0.50%" context mismatch - The source does not mention the year 2026. +2 more - fix/verify by hand
+  ! верификатор: VERDICT эффективно MAYBE - сверь "406,000", "134,000", "23%", "0.50%", "213.5 TWh" перед публикацией
+
+DRAFT 2 (digest-short)
+SHAPE: digest-short
+BODY: Poland recorded 406,000 deaths in 2025 against 134,000 new developer apartments. Generational wealth transfers could bring 80,000 to 120,000 inherited flats to the market annually, hurting developer pricing power.
+
+Bank Millennium cut its standard savings rate to 0.50% on August 1, 2026. Banks are lowering funding costs on quiet retail deposits to protect their net interest margins before official rate cuts.
+
+Polish gas imports rose 23% in 2025 to 213.5 TWh. Replacing pipeline imports with LNG, which made up 42.9% of the total, increases the structural fiscal burden of energy security.
+FIGURES:
+- 406,000 -> Story [2] source text ("406 tys.")
+- 2025 -> Story [2] and [5] source text
+- 134,000 -> Story [2] source text ("134 tys.")
+- 80,000 to 120,000 -> Story [2] source text ("80-120 tys.")
+- 0.50% -> Story [3] source text ("0,50 proc.")
+- August 1, 2026 -> Story [3] source text ("1 sierpnia 2026 r.")
+- 23% -> Story [5] source text ("23 proc.")
+- 213.5 TWh -> Story [5] source text ("213,5 TWh")
+- 42.9% -> Story [5] source text ("42,9 proc.")
+SOURCE: https://www.bankier.pl/wiadomosc/Wielka-plyta-zagrozi-deweloperom-Tysiace-odziedziczonych-mieszkan-trafia-na-sprzedaz-9176697.html, https://www.bankier.pl/wiadomosc/Kolejna-obnizka-oprocentowania-w-Banku-Millennium-Tym-razem-dotyczy-stawki-standardowej-9176304.html, https://www.bankier.pl/wiadomosc/Polska-sprowadza-coraz-wiecej-gazu-Dania-i-USA-na-czele-dostawcow-9176695.html
+WHY_THIS_ONE: A condensed version of the same market roundup for readers who prefer direct data without introductory filler.
+VERDICT: POST
+WHY: Delivers high-density data on Polish macro and corporate actions without decorative language.
+CHECK_FIRST: -
+ЦИФРЫ: ⚠️ 2/6 found (+1 year not counted) - "406,000" not found (closest: "2026") +1 more; "0.50%" context mismatch - The source does not mention the year 2026. +1 more - fix/verify by hand
+  ! верификатор: VERDICT эффективно MAYBE - сверь "406,000", "134,000", "23%", "0.50%" перед публикацией
+
+DRAFT 3 (C)
+SHAPE: C
+BODY: Many buyers and developers believe that Poland faces a permanent housing shortage that will keep property prices climbing forever. The supply of new builds cannot keep up with demand, so prices must rise.
+
+But a massive demographic supply shock is coming from outside the developer market.
+
+In 2025, Poland recorded 406,000 deaths. In contrast, developers completed only 134,000 new apartments. I compared these figures from the RynekPierwotny report, and the difference is striking. Even if only 20% to 30% of those estates are eventually sold or rented out by heirs, that still brings 80,000 to 120,000 apartments to the market every year.
+
+This secondary supply, mostly older panel-block apartments, is nearly equal to what developers build annually. The structural shortage narrative ignores this massive, non-developer pipeline that will inevitably dilute pricing power in secondary cities.
+FIGURES:
+- 2025 -> Story [2] source text
+- 406,000 -> Story [2] source text ("406 tys.")
+- 134,000 -> Story [2] source text ("134 tys.")
+- 20% to 30% -> Story [2] source text ("20-30 proc.")
+- 80,000 to 120,000 -> Story [2] source text ("80-120 tys.")
+SOURCE: https://www.bankier.pl/wiadomosc/Wielka-plyta-zagrozi-deweloperom-Tysiace-odziedziczonych-mieszkan-trafia-na-sprzedaz-9176697.html
+WHY_THIS_ONE: Challenges the dominant real estate narrative using a logical, data-backed supply-side argument that does not require deep real estate expertise to defend.
+VERDICT: POST
+WHY: The comparison between deaths and completions is simple, mathematically sound, and directly addresses a major macroeconomic theme in Poland.
+CHECK_FIRST: Verify the official GUS 2025 completions and mortality data to ensure RynekPierwotny's cited figures do not have any hidden definitions or revisions.
+ЦИФРЫ: ⚠️ 0/2 found (+1 year not counted) - "406,000" not found (closest: "2025") +1 more - fix/verify by hand
+  ! верификатор: VERDICT эффективно MAYBE - сверь "406,000", "134,000" перед публикацией

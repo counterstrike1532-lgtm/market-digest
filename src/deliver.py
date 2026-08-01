@@ -1,4 +1,6 @@
-"""Отправка в Телегу. Режем на куски по 4000 символов (лимит Telegram).
+"""Отправка в Телегу. Режем на куски по ~3500 символов (запас до лимита Telegram
+4096) - только по границам блок/абзац/предложение, никогда по счётчику символов
+посреди текста (T10a).
 
 parse_mode=HTML и явный <a href> вокруг ссылок - иначе Telegram сам решает, что
 считать URL при автолинковании plain-текста, и иногда склеивает ссылку со
@@ -16,8 +18,19 @@ from urllib.parse import urlparse
 import requests
 
 log = logging.getLogger(__name__)
-LIMIT = 3900
+TELEGRAM_LIMIT = 4096
+LIMIT = 3500          # целевой размер куска - запас на служебные строки до TELEGRAM_LIMIT
 URL_RE = re.compile(r"https?://\S+")
+
+# Границы дробления по убыванию приоритета - блок (пустая строка), абзац
+# (одиночный перевод строки), предложение. Все три - lookbehind/lookahead
+# нулевой ширины: re.split ничего не поглощает, поэтому "".join(parts) == text
+# всегда, при любом количестве вложенных уровней дробления (T10a). Резать по
+# счётчику символов посреди текста запрещено требованиями T10a - счётчик
+# решает только, где ОСТАНОВИТЬ накопление уже готовых кусков.
+_BLOCK_SPLIT = re.compile(r"(?<=\n\n)")
+_LINE_SPLIT = re.compile(r"(?<=\n)")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])(?=\s+[A-ZА-ЯЁ0-9])")
 
 
 def _split_avoiding_urls(block: str, limit: int) -> tuple[str, str]:
@@ -41,19 +54,73 @@ def _split_avoiding_urls(block: str, limit: int) -> tuple[str, str]:
     return block[:cut], block[cut:]
 
 
-def _chunks(text: str) -> list[str]:
+def _fits(text: str, domain_urls: dict[str, str] | None) -> bool:
+    """Кусок годится в одно сообщение Telegram, только если проходит ОБЕ
+    проверки: сырая длина <= LIMIT (читаемый целевой размер) и длина ПОСЛЕ
+    _to_html <= TELEGRAM_LIMIT (настоящий предел API). <a href> вокруг
+    каждого URL и html.escape() кавычек в FIGURES добавляют символы, которых
+    в сыром тексте не было - кусок 3329 сырых символов после рендера дорастал
+    до 3973 из 4096, запас в 123 символа, а не гарантия. Раньше проверялась
+    только сырая длина (T10a review)."""
+    return len(text) <= LIMIT and len(_to_html(text, domain_urls)) <= TELEGRAM_LIMIT
+
+
+def _pieces_within_limit(text: str, domain_urls: dict[str, str] | None = None) -> list[str]:
+    """text -> куски, каждый из которых уже проходит _fits (см. выше) - неделимая
+    единица дальше. Порядок попыток: блок -> абзац -> предложение -> (если и
+    предложение не помещается - как правило, из-за одного длинного URL)
+    жёсткий разрез, не разрывающий сам URL. На каждом уровне используется
+    только та граница, которая реально нашлась внутри text (parts > 1) -
+    иначе спускаемся на уровень ниже. Инвариант: "".join(_pieces_within_limit(t))
+    == t всегда, потому что _BLOCK_SPLIT/_LINE_SPLIT/_SENTENCE_SPLIT нулевой
+    ширины (ничего не поглощают), а _split_avoiding_urls доказанно сохраняет
+    все символы (head + rest == text). Проверка через _fits, а не через голую
+    длину - иначе кусок, который умещается в LIMIT сырых символов, но набит
+    ссылками (и после _to_html вырастает за TELEGRAM_LIMIT), вообще не делится:
+    ранняя проверка "длина <= limit" срабатывала до того, как код успевал
+    заглянуть внутрь блока (T10a review)."""
+    if _fits(text, domain_urls):
+        return [text]
+    for split_re in (_BLOCK_SPLIT, _LINE_SPLIT, _SENTENCE_SPLIT):
+        parts = [p for p in split_re.split(text) if p]
+        if len(parts) > 1:
+            out = []
+            for p in parts:
+                out.extend(_pieces_within_limit(p, domain_urls))
+            return out
+    # ни блока, ни абзаца, ни предложения внутри нет - жёсткий разрез, не
+    # разрывающий URL. Он метит по сырой длине (limit), а не по _fits, поэтому
+    # уменьшаем limit и повторяем, пока полученный head сам не пройдёт _fits -
+    # частокол коротких ссылок вплотную друг к другу раздувается на _to_html
+    # быстрее, чем растёт сырая длина, и один проход на полный LIMIT мог отдать
+    # head, который сам за TELEGRAM_LIMIT (T10a review).
+    limit = LIMIT
+    while True:
+        head, rest = _split_avoiding_urls(text, limit)
+        if _fits(head, domain_urls) or limit <= 200:
+            break
+        limit -= 200
+    if not rest:
+        return [head]
+    return [head] + _pieces_within_limit(rest, domain_urls)
+
+
+def _chunks(text: str, domain_urls: dict[str, str] | None = None) -> list[str]:
+    """Группирует неделимые куски (см. _pieces_within_limit) в сообщения
+    Telegram жадно, не превышая _fits. Куски внутри группы просто
+    конкатенируются - разделители (пустые строки, переносы) уже являются
+    частью самих кусков, отдельно склеивать их не нужно и нельзя (иначе
+    "".join(_chunks(text)) != text)."""
+    if not text:
+        return []
     out, cur = [], ""
-    for block in text.split("\n\n"):
-        if len(cur) + len(block) + 2 > LIMIT:
-            if cur:
-                out.append(cur)
-            # блок сам по себе длиннее лимита — режем, не разрывая URL
-            while len(block) > LIMIT:
-                head, block = _split_avoiding_urls(block, LIMIT)
-                out.append(head)
-            cur = block
+    for piece in _pieces_within_limit(text, domain_urls):
+        candidate = cur + piece
+        if cur and not _fits(candidate, domain_urls):
+            out.append(cur)
+            cur = piece
         else:
-            cur = f"{cur}\n\n{block}" if cur else block
+            cur = candidate
     if cur:
         out.append(cur)
     return out
@@ -132,7 +199,7 @@ def send_photo(path, caption: str = "") -> None:
 def send(text: str, domain_urls: dict[str, str] | None = None) -> None:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat = os.environ["TELEGRAM_CHAT_ID"]
-    for i, part in enumerate(_chunks(text), 1):
+    for i, part in enumerate(_chunks(text, domain_urls), 1):
         r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
                           json={"chat_id": chat, "text": _to_html(part, domain_urls),
                                 "parse_mode": "HTML",
