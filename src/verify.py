@@ -78,6 +78,47 @@ def _split_value(value: str) -> tuple[str, str]:
     return m.group(1), m.group(2).strip()
 
 
+_THOUSAND_SEPS = (" ", " ", " ")          # пробел, НБСП, узкий НБСП
+_MAGNITUDE_WORDS = (("tys.", 1_000), ("mln", 1_000_000), ("mld", 1_000_000_000))
+
+
+def _group_thousands(whole: str, sep: str) -> str:
+    """"406000" -> "406 000" (или другим разделителем) - разряды по 3 цифры
+    справа налево, последняя (левая) группа может быть короче."""
+    parts = []
+    s = whole
+    while len(s) > 3:
+        parts.insert(0, s[-3:])
+        s = s[:-3]
+    parts.insert(0, s)
+    return sep.join(parts)
+
+
+def _polish_thousand_forms(no_sep: str) -> list[str]:
+    """no_sep - число без разделителя тысяч, "." - десятичная точка (английская
+    форма), если есть. Возвращает польские формы того же числа: разряды
+    пробелом / неразрывным пробелом (U+00A0) / узким неразрывным (U+202F) с
+    десятичной запятой ("406 000", "15 019,5"), и для круглых целых - словесный
+    порядок величины (tys./mln/mld): "406000" -> "406 tys." (T10c req 2)."""
+    if "." in no_sep:
+        whole, frac = no_sep.split(".", 1)
+        dec_part = f",{frac}"
+    else:
+        whole, frac = no_sep, None
+        dec_part = ""
+
+    out = []
+    if len(whole) > 3:
+        out.extend(_group_thousands(whole, sep) + dec_part for sep in _THOUSAND_SEPS)
+
+    if frac is None and whole.isdigit():
+        n = int(whole)
+        for word, mag in _MAGNITUDE_WORDS:
+            if n and n % mag == 0:
+                out.append(f"{n // mag} {word}")
+    return out
+
+
 def _to_search_variants(value: str) -> list[str]:
     """Строковые варианты числа для посимвольного поиска: группа из 3 цифр после
     запятой - разделитель тысяч (английский формат), иначе запятая - десятичная
@@ -88,10 +129,20 @@ def _to_search_variants(value: str) -> list[str]:
     искали только вариант без запятой, из-за чего число, буквально совпадающее
     с текстом источника, помечалось NOT_FOUND.
 
+    Дополнительно (T10c req 2): польские формы разрядов (пробел/НБСП/узкий
+    НБСП) и словесный порядок величины (tys./mln/mld) для круглых чисел -
+    "406,000" по-польски источник пишет "406 tys.", не "406,000" ни в каком
+    варианте разделителя. Это второй эшелон, после прямой цитаты из FIGURES
+    (см. _quoted_source_form) - но нужен и сам по себе, когда цитаты нет.
+
     Хвост (единица/порядок слова, "billion", "PLN", "percentage points")
     приклеивается назад с одним пробелом к каждому варианту числа - именно так
-    источник и пишет, "45 billion", а не слитно "45billion" (T9 fix 3)."""
+    источник и пишет, "45 billion", а не слитно "45billion" (T9 fix 3). "%"
+    приклеен без пробела к числу в исходном значении и в _NUM_AND_SUFFIX
+    попадает в числовое ядро, а не в хвост - явно выделяем его и добавляем
+    польскую форму "23 proc." рядом с "23%" (T10c req 2)."""
     num_part, suffix = _split_value(value)
+    is_percent = num_part.endswith("%")
     core = re.sub(r"\s+", "", num_part.replace("$", "").replace("%", ""))
     if re.fullmatch(r"\d+(,\d{3})+(\.\d+)?", core):
         no_sep = core.replace(",", "")
@@ -104,6 +155,7 @@ def _to_search_variants(value: str) -> list[str]:
             # не генерировался вовсе, и число, буквально присутствующее в
             # тексте, помечалось NOT_FOUND (боевой прогон 01.08.2026).
             num_variants.append(no_sep.replace(".", ","))
+        num_variants += _polish_thousand_forms(no_sep)
     else:
         m = re.fullmatch(r"(\d+)[.,](\d+)", core)
         if m:
@@ -111,9 +163,16 @@ def _to_search_variants(value: str) -> list[str]:
             num_variants = [f"{whole}.{frac}", f"{whole},{frac}"]
         else:
             num_variants = [core]
-    if not suffix:
+            num_variants += _polish_thousand_forms(core)
+
+    tails = []
+    if is_percent:
+        tails += ["%", " proc."]
+    if suffix:
+        tails.append(f" {suffix}")
+    if not tails:
         return num_variants
-    return [f"{v} {suffix}" for v in num_variants]
+    return [v + t for v in num_variants for t in tails]
 
 
 def _to_float(value: str) -> float | None:
@@ -141,11 +200,20 @@ _TEXT_NUM = re.compile(r"\d+(?:[.,]\d+)?")
 
 
 def _closest_in_text(target: float, text: str) -> str | None:
-    """Ближайшее по значению число из текста - для подсказки владельцу при NOT_FOUND."""
+    """Ближайшее по значению число из текста - для подсказки владельцу при
+    NOT_FOUND, но только того же порядка величины (в пределах x10 в любую
+    сторону). "closest: 2026" для цели 406000 - шум, не подсказка: год и
+    число тысяч не могут быть опечаткой друг друга. Не нашлось ничего
+    сопоставимого по порядку - None, а не первое попавшееся число (T10c req 5)."""
+    if not target:
+        return None
     best, best_diff = None, None
     for m in _TEXT_NUM.finditer(text):
         f = _to_float(m.group())
-        if f is None:
+        if not f:
+            continue
+        ratio = f / target
+        if not (0.1 <= ratio <= 10):
             continue
         diff = abs(f - target)
         if best_diff is None or diff < best_diff:
@@ -167,6 +235,16 @@ def bodies_for_source(source_field: str, selected: list[dict]) -> list[str]:
 
 
 _BARE_YEAR = re.compile(r"^(19|20)\d{2}$")
+_QUOTED = re.compile(r'"([^"]+)"')
+
+
+def _quoted_source_form(source: str) -> str | None:
+    """Фрагмент в кавычках из поля FIGURES ("406 tys.") - модель уже указала,
+    в какой форме число стоит в источнике. Посимвольный поиск этой цитаты -
+    первый и самый дешёвый и надёжный эшелон проверки, до любой реконструкции
+    форм (T10c req 1)."""
+    m = _QUOTED.search(source)
+    return m.group(1) if m else None
 
 
 def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
@@ -174,12 +252,21 @@ def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
     """Уровень a. Каждая запись: {value, source, status, matched_in?, closest?}.
     status: FOUND | NOT_FOUND | NO_SOURCE_TEXT | UNPARSED | YEAR.
 
+    Порядок поиска (T10c req 1-2): сначала цитата из FIGURES, если она есть
+    ("406 tys.") - её пишет сама модель, форма источника дана прямо в тексте.
+    Не нашлось цитаты или она не совпала - реконструированные формы значения
+    (_to_search_variants: польские разряды, tys./mln/mld, "23 proc." для
+    "23%"). Цитата проверяется ДО проверки "приводится ли value к float" -
+    диапазон ("80,000 to 120,000") или дата ("August 1, 2026") не приводятся
+    к одному числу, но с цитатой всё равно могут быть найдены посимвольно.
+
     UNPARSED - значение структурно распозналось как пара (value, source), но не
-    приводится к числу (единица измерения в тексте: "$200 billion", "100,000 PLN").
-    Раньше такая пара просто не долетала до этой функции - parse_figures молча
-    ронял её на этапе регулярки, и знаменатель в отчёте занижался без следа (T9b).
-    Голый год ("2012") - YEAR, не считается проверяемым числом вовсе и не входит
-    в знаменатель, но это видно в отчёте отдельной пометкой."""
+    приводится к числу и цитата не нашлась. Раньше такая пара (а также пары
+    вроде диапазонов/дат, которые charts.parse_figures вообще не распознавал
+    структурно) не долетала до этой функции - знаменатель в отчёте занижался
+    без следа (T9b, T10c req 3). Голый год ("2012") - YEAR, не считается
+    проверяемым числом вовсе и не входит в знаменатель, но это видно в отчёте
+    отдельной пометкой."""
     if not pairs:
         return []
     combined_body = "\n".join(b for b in bodies if b)
@@ -188,41 +275,81 @@ def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
         if _BARE_YEAR.fullmatch(value.strip()):
             out.append({"value": value, "source": source, "status": "YEAR"})
             continue
-        if _to_float(value) is None:
-            out.append({"value": value, "source": source, "status": "UNPARSED"})
-            continue
-        variants = _to_search_variants(value)
+
+        quote = _quoted_source_form(source)
+        variants = ([quote] if quote else []) + _to_search_variants(value)
+
         if any(v in data_text for v in variants):
             out.append({"value": value, "source": source, "status": "FOUND",
                        "matched_in": "data"})
             continue
-        if not combined_body:
-            out.append({"value": value, "source": source, "status": "NO_SOURCE_TEXT"})
-            continue
-        if any(v in combined_body for v in variants):
+        if combined_body and any(v in combined_body for v in variants):
             out.append({"value": value, "source": source, "status": "FOUND",
                        "matched_in": "body"})
             continue
+
+        if _to_float(value) is None:
+            out.append({"value": value, "source": source, "status": "UNPARSED"})
+            continue
+        if not combined_body:
+            out.append({"value": value, "source": source, "status": "NO_SOURCE_TEXT"})
+            continue
         target = _to_float(value)
-        closest = _closest_in_text(target, combined_body) if target is not None else None
+        closest = _closest_in_text(target, combined_body)
         out.append({"value": value, "source": source, "status": "NOT_FOUND", "closest": closest})
     return out
+
+
+def _is_decimal_dot(text: str, pos: int) -> bool:
+    """"." на позиции pos - десятичная точка числа (окружена цифрами с обеих
+    сторон), не конец предложения."""
+    before = text[pos - 1] if pos > 0 else ""
+    after = text[pos + 1] if pos + 1 < len(text) else ""
+    return before.isdigit() and after.isdigit()
+
+
+def _sentence_start(text: str, idx: int) -> int:
+    """Начало предложения, содержащего позицию idx - ищем "." назад от idx,
+    пропуская десятичные точки ПРЕДЫДУЩИХ чисел. T9 починил границу конца
+    (см. _sentence_end), начало оставалось кривым: "GDP grew 3.5 percent and
+    inflation hit 4.60%." при поиске "4.60%" - text.rfind(".", 0, idx) цеплялся
+    за точку в "3.5" (она же последняя "." перед idx), обрывая фрагмент
+    серединой предыдущего предложения - "5 percent and inflation hit 4.60%."
+    вместо "GDP grew 3.5 percent and inflation hit 4.60%." (T10c req 4)."""
+    pos = idx
+    while True:
+        dot = text.rfind(".", 0, pos)
+        if dot == -1:
+            return 0
+        if _is_decimal_dot(text, dot):
+            pos = dot
+            continue
+        return dot + 1
+
+
+def _sentence_end(text: str, idx: int) -> int:
+    """Симметрично _sentence_start: ищем "." вперёд от idx, пропуская
+    десятичные точки СЛЕДУЮЩИХ чисел в том же предложении."""
+    pos = idx
+    while True:
+        dot = text.find(".", pos)
+        if dot == -1:
+            return len(text)
+        if _is_decimal_dot(text, dot):
+            pos = dot + 1
+            continue
+        return dot + 1
 
 
 def _sentence_containing(text: str, needle_variants: list[str]) -> str:
     for v in needle_variants:
         idx = text.find(v)
         if idx != -1:
-            start = text.rfind(".", 0, idx)
-            # Искать конец предложения НАЧИНАЯ ПОСЛЕ самого needle, не с его
-            # начала - у десятичного числа ("4.60") первая же "." это его
-            # собственная точка, а не конец предложения. Раньше поиск начинался
-            # с idx и обрывал "сюжет" сразу после "4.", отправляя в LLM обрубок
-            # "...4." вместо "...4.60%..." - модель честно сверяла "4" с
-            # исходником и репортила MISMATCH на пустом месте.
-            end = text.find(".", idx + len(v))
-            start = start + 1 if start != -1 else 0
-            end = end + 1 if end != -1 else len(text)
+            start = _sentence_start(text, idx)
+            # Конец ищем НАЧИНАЯ ПОСЛЕ самого needle, не с его начала - у
+            # десятичного числа ("4.60") первая же "." это его собственная
+            # точка, а не конец предложения (T9).
+            end = _sentence_end(text, idx + len(v))
             return text[start:end].strip()
     return text[:200].strip()
 
@@ -454,13 +581,29 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> tup
         for r in b["_level_a"]:
             if r["status"] != "FOUND" or r.get("matched_in") != "body":
                 continue          # FRESH DATA уже верифицирован по построению
-            variants = _to_search_variants(r["value"])
-            fragment = _fragment_around(combined_body, variants)
+            # фрагмент источника ищем теми же вариантами, что нашли значение в
+            # verify_figures_local (с цитатой из FIGURES, если она есть) -
+            # иначе матч, найденный только по цитате, здесь не находился бы
+            # вовсе, и candidate тихо терялся (T10c).
+            quote = _quoted_source_form(r["source"])
+            source_variants = ([quote] if quote else []) + _to_search_variants(r["value"])
+            fragment = _fragment_around(combined_body, source_variants)
             if not fragment:
+                continue
+            # предложение черновика ищем английскими вариантами value - BODY
+            # черновика пишет модель по-английски (DRAFT_PROMPT), польская
+            # цитата там искать нечего. Если значения в BODY дословно нет,
+            # _sentence_containing тихо откатится на первые 200 символов текста -
+            # случайное предложение, не имеющее отношения к этой цифре, уйдёт
+            # в LLM как "то самое" и получит MISMATCH не по делу (боевой прогон:
+            # претензия про год приклеилась к "0.50%" - разъезжающаяся пара).
+            # Не находится дословно - не строим кандидата вовсе (T10c req 6).
+            draft_variants = _to_search_variants(r["value"])
+            if not any(v in b["body"] for v in draft_variants):
                 continue
             candidates.append({
                 "id": len(candidates), "draft_idx": i, "value": r["value"],
-                "draft_sentence": _sentence_containing(b["body"], variants),
+                "draft_sentence": _sentence_containing(b["body"], draft_variants),
                 "source_fragment": fragment,
             })
 

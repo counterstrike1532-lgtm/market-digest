@@ -62,6 +62,57 @@ def test_parse_figures_multiline_bullet_format():
     ]
 
 
+# ---------------------------------------------------------------- T10c: диапазоны и даты в FIGURES
+
+def test_parse_figures_keeps_numeric_range_with_to():
+    """Боевой прогон 01.08.2026: "80,000 to 120,000" не начинается с "->" сразу
+    после первого числа (второе число внутри значения) - раньше вся строка
+    молча выпадала из pairs, занижая знаменатель верификатора без следа."""
+    text = '- 80,000 to 120,000 -> Story [2] source text ("80-120 tys.")'
+    assert charts.parse_figures(text) == [
+        ("80,000 to 120,000", 'Story [2] source text ("80-120 tys.")'),
+    ]
+
+
+def test_parse_figures_keeps_percent_range_with_to():
+    text = '- 20% to 30% -> Story [2] source text ("20-30 proc.")'
+    assert charts.parse_figures(text) == [
+        ("20% to 30%", 'Story [2] source text ("20-30 proc.")'),
+    ]
+
+
+def test_parse_figures_keeps_month_name_led_date():
+    """"August 1, 2026" не начинается с цифры/$ - value-регексп раньше требовал
+    цифру в начале, вся строка выпадала."""
+    text = '- August 1, 2026 -> Story [3] source text ("1 sierpnia 2026 r.")'
+    assert charts.parse_figures(text) == [
+        ("August 1, 2026", 'Story [3] source text ("1 sierpnia 2026 r.")'),
+    ]
+
+
+def test_parse_figures_real_draft1_all_nine_pairs():
+    """Регрессия целиком: все девять пар FIGURES реального DRAFT 1 прогона
+    01.08.2026 распознаются структурно - ни одна не теряется на этапе regex,
+    какой бы ни была её судьба дальше в verify.py (T10c req 3)."""
+    text = (
+        '- 2025 -> Story [2] and [5] source text\n'
+        '- 406,000 -> Story [2] source text ("406 tys.")\n'
+        '- 134,000 -> Story [2] source text ("134 tys.")\n'
+        '- 80,000 to 120,000 -> Story [2] source text ("80-120 tys.")\n'
+        '- 0.50% -> Story [3] source text ("0,50 proc.")\n'
+        '- August 1, 2026 -> Story [3] source text ("1 sierpnia 2026 r.")\n'
+        '- 23% -> Story [5] source text ("23 proc.")\n'
+        '- 213.5 TWh -> Story [5] source text ("213,5 TWh")\n'
+        '- 42.9% -> Story [5] source text ("42,9 proc.")'
+    )
+    pairs = charts.parse_figures(text)
+    assert len(pairs) == 9
+    assert [v for v, _ in pairs] == [
+        "2025", "406,000", "134,000", "80,000 to 120,000", "0.50%",
+        "August 1, 2026", "23%", "213.5 TWh", "42.9%",
+    ]
+
+
 # ---------------------------------------------------------------- T9f: figures_chart
 
 def test_figures_chart_refuses_seven_numbers_from_three_stories(tmp_path, monkeypatch):

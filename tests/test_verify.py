@@ -12,9 +12,11 @@ def test_search_variants_polish_decimal_comma():
 
 
 def test_search_variants_thousand_separator_both_forms():
-    assert set(verify._to_search_variants("6,872")) == {"6,872", "6872"}
+    # T10c req 2 добавил польские формы разрядов (пробел/НБСП) поверх этих
+    # двух базовых - assertOf на подмножество, не на точное совпадение списка
+    assert set(verify._to_search_variants("6,872")) >= {"6,872", "6872"}
     # источник без запятой-разделителя тысяч — вариант без запятой это уже сам value
-    assert verify._to_search_variants("6872") == ["6872"]
+    assert "6872" in verify._to_search_variants("6872")
 
 
 def test_search_variants_dollar_billion():
@@ -24,7 +26,7 @@ def test_search_variants_dollar_billion():
 
 
 def test_search_variants_pln_thousand():
-    assert verify._to_search_variants("100,000 PLN") == ["100,000 PLN", "100000 PLN"]
+    assert set(verify._to_search_variants("100,000 PLN")) >= {"100,000 PLN", "100000 PLN"}
 
 
 def test_search_variants_magnitude_words_real_run_examples():
@@ -60,8 +62,8 @@ def test_search_variants_thousand_separator_with_decimal_polish_form():
     разделитель, разряды слитно, без разделителя). Раньше для комбинации
     "разделитель тысяч + десятичная точка" польский вариант не генерировался
     вовсе - только английская форма (с запятой-тысяч и без неё)."""
-    assert verify._to_search_variants("15,019.5 thousand") == \
-        ["15,019.5 thousand", "15019.5 thousand", "15019,5 thousand"]
+    assert set(verify._to_search_variants("15,019.5 thousand")) >= \
+        {"15,019.5 thousand", "15019.5 thousand", "15019,5 thousand"}
 
     pairs = [("15,019.5 thousand", "GUS")]
     body = "Population declined by 15019,5 thousand people over the year, GUS said."
@@ -118,6 +120,68 @@ def test_verify_drafts_level_b_payload_preserves_full_figures_value():
     draft_line = next(l for l in captured["prompt"].splitlines() if l.startswith("draft:"))
     assert "4.60%" in draft_line
     assert 'draft: "Central bank held rates at 4.60%' in draft_line
+
+
+def test_verify_drafts_skips_level_b_candidate_when_value_absent_from_draft_body():
+    """T10c req 6: если значения из FIGURES нет дословно в BODY черновика,
+    _sentence_containing раньше тихо откатывалась на первые 200 символов -
+    случайное предложение уходило в LLM как "то самое" и получало MISMATCH не
+    по делу (боевой прогон: претензия про год приклеилась к "0.50%" - пара
+    "предложение черновика / фрагмент источника" разъехалась). Теперь такой
+    кандидат просто не строится - лучше не проверить уровнем b, чем проверить
+    не то."""
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    # источник (combined_body) содержит и число, и польскую цитату - matched_in
+    # будет "body". Но BODY черновика ссылается на цифру ОКРУГЛЁННО ("half a
+    # percent"), не дословно "0.50%" - _sentence_containing не нашла бы её.
+    source_body = "Bank obnizyl oprocentowanie do 0,50 proc. od sierpnia."
+    draft = _draft_block(
+        "digest", "The bank quietly cut its savings rate by about half a percent.",
+        '0.50% -> Story [1] source text ("0,50 proc.")', _ITEM_1_URL, verdict="POST")
+    selected = [{"item": SimpleNamespace(url=_ITEM_1_URL), "body": source_body}]
+
+    captured = {}
+
+    def fake_call(prompt, **kwargs):
+        captured["prompt"] = prompt
+        return '[{"id": 0, "verdict": "MATCH", "why": "ok"}]'
+
+    with patch("src.brain._call", side_effect=fake_call):
+        verify.verify_drafts(draft, selected=selected, data_text="")
+
+    assert "prompt" not in captured, (
+        "уровень b не должен вызываться - значение не найдено дословно в BODY, "
+        "пара 'предложение черновика / фрагмент источника' была бы разъехавшейся")
+
+
+def test_verify_drafts_level_b_fragment_uses_quote_when_only_quote_matches():
+    """Значение найдено в статье ТОЛЬКО через цитату из FIGURES (числовая форма
+    "406,000" в польском тексте не встречается вовсе, только "406 tys.") -
+    fragment_around для уровня b раньше искала теми же вариантами БЕЗ цитаты и
+    ничего не находила, кандидат тихо терялся. Теперь цитата используется и
+    здесь тоже, кандидат строится (T10c)."""
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    source_body = "W 2025 roku zmarlo 406 tys. osob w calej Polsce, podal GUS."
+    draft = _draft_block(
+        "digest", "In 2025, Poland recorded 406,000 deaths, GUS reported.",
+        '406,000 -> Story [1] source text ("406 tys.")', _ITEM_1_URL, verdict="POST")
+    selected = [{"item": SimpleNamespace(url=_ITEM_1_URL), "body": source_body}]
+
+    captured = {}
+
+    def fake_call(prompt, **kwargs):
+        captured["prompt"] = prompt
+        return '[{"id": 0, "verdict": "MATCH", "why": "ok"}]'
+
+    with patch("src.brain._call", side_effect=fake_call):
+        verify.verify_drafts(draft, selected=selected, data_text="")
+
+    assert "prompt" in captured, "кандидат должен был построиться через цитату"
+    assert "406 tys." in captured["prompt"]
 
 
 # ---------------------------------------------------------------- вставка ЦИФРЫ
@@ -250,6 +314,135 @@ def test_unparsed_offending_lists_all_values_not_just_first():
     assert downgrade is True
     assert set(offending) == {"approximately 45", "roughly 90"}
     assert "2 unparsed" in verify._render(level_a, {})[0]
+
+
+# ---------------------------------------------------------------- T10c: цитата, знаменатель, граница
+#
+# Боевой прогон 01.08.2026: FIGURES из девяти пар давало "1/6 found", хотя все
+# числа реально есть в источнике - модель сама указала их польскую форму в
+# скобках ("406 tys.", "0,50 proc." и т.д.), верификатор искал только
+# английскую. Причины по коду (не по гипотезе): (1) поиск не использовал
+# цитату из FIGURES вообще - только реконструкцию английских форм; (2) знамен-
+# атель занижался, потому что charts.parse_figures молча ронял диапазоны
+# ("80,000 to 120,000") и даты словом-месяцем ("August 1, 2026") ещё на этапе
+# регулярки, до того как verify.py вообще их увидел.
+
+def test_quote_from_figures_found_first_polish_thousand_word():
+    pairs = [("406,000", 'Story [2] source text ("406 tys.")')]
+    body = "W 2025 roku zmarlo 406 tys. osob w calej Polsce."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "FOUND"
+
+
+def test_quote_from_figures_found_percent_polish_form():
+    pairs = [("0.50%", 'Story [3] source text ("0,50 proc.")')]
+    body = "Bank obnizyl oprocentowanie konta do 0,50 proc. od sierpnia."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "FOUND"
+
+
+def test_quote_from_figures_found_decimal_unit():
+    pairs = [("213.5 TWh", 'Story [5] source text ("213,5 TWh")')]
+    body = "Import gazu do Polski osiagnal 213,5 TWh w 2025 roku."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "FOUND"
+
+
+def test_quote_from_figures_found_percent_proc():
+    pairs = [("23%", 'Story [5] source text ("23 proc.")')]
+    body = "Import gazu wzrosl o 23 proc. w porownaniu z rokiem poprzednim."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "FOUND"
+
+
+def test_denominator_counts_all_nine_figures_pairs_not_dropped_ones():
+    """Девять пар FIGURES из настоящего DRAFT 1 (боевой прогон 01.08.2026) -
+    знаменатель обязан быть 9 минус год ("2025"), то есть 8, а не 6. Раньше
+    charts.parse_figures молча ронял диапазон ("80,000 to 120,000") и дату
+    словом-месяцем ("August 1, 2026") на этапе регулярки - они не долетали
+    даже до verify.py, и знаменатель занижался без следа (T10c req 3)."""
+    figures_text = (
+        '- 2025 -> Story [2] and [5] source text\n'
+        '- 406,000 -> Story [2] source text ("406 tys.")\n'
+        '- 134,000 -> Story [2] source text ("134 tys.")\n'
+        '- 80,000 to 120,000 -> Story [2] source text ("80-120 tys.")\n'
+        '- 0.50% -> Story [3] source text ("0,50 proc.")\n'
+        '- August 1, 2026 -> Story [3] source text ("1 sierpnia 2026 r.")\n'
+        '- 23% -> Story [5] source text ("23 proc.")\n'
+        '- 213.5 TWh -> Story [5] source text ("213,5 TWh")\n'
+        '- 42.9% -> Story [5] source text ("42,9 proc.")'
+    )
+    pairs = charts.parse_figures(figures_text)
+    assert len(pairs) == 9              # ни одна пара не потерялась в парсинге
+
+    level_a = verify.verify_figures_local(pairs, bodies=[], data_text="")
+    countable = [r for r in level_a if r["status"] != "YEAR"]
+    assert len(countable) == 8          # 9 пар минус 1 год, не минус диапазон/дату тоже
+
+
+def test_sentence_start_boundary_symmetric_with_end():
+    """T9 починил конец границы предложения (десятичная точка САМОГО needle не
+    обрывает поиск), начало оставалось кривым: text.rfind(".", 0, idx) цеплялся
+    за точку ПРЕДЫДУЩЕГО числа в том же тексте. "GDP grew 3.5 percent and
+    inflation hit 4.60%." при поиске "4.60%" раньше давало фрагмент "5 percent
+    and inflation hit 4.60%." - обрывок с середины предыдущего числа, а не
+    начало предложения (T10c req 4)."""
+    text = "GDP grew 3.5 percent and inflation hit 4.60%."
+    sentence = verify._sentence_containing(text, verify._to_search_variants("4.60%"))
+    assert sentence == text
+    assert not sentence.startswith("5 percent")
+
+
+def test_closest_not_shown_when_no_similar_magnitude():
+    """Число не в источнике и ничего похожего по порядку величины рядом -
+    NOT_FOUND без строки "closest": предлагать 2026 как "ближайшее" к 406000 -
+    шум, не подсказка (T10c req 5)."""
+    pairs = [("406,000", "Story [2] source text")]
+    body = "The report was published in 2026 and covers the prior fiscal year."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "NOT_FOUND"
+    assert level_a[0].get("closest") is None
+
+    report, _, _ = verify._render(level_a, {})
+    assert "closest" not in report
+
+
+def test_closest_still_shown_when_same_order_of_magnitude():
+    """Гейт по порядку величины не должен полностью убить полезные подсказки -
+    число того же порядка (в пределах x10) всё ещё предлагается."""
+    pairs = [("406,000", "Story [2] source text")]
+    body = "The report counted 410,000 people in the same category."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "NOT_FOUND"
+    assert level_a[0]["closest"] == "410,000"
+
+
+def test_real_run_regression_draft1_finds_at_least_8_of_9():
+    """Регрессия целиком: FIGURES и реалистичный текст источника (польские формы
+    цифр, как их реально пишут bankier.pl/GUS) черновика 1 прогона 01.08.2026
+    дают минимум 8 FOUND из 9 пар (T10c acceptance)."""
+    figures_text = (
+        '- 2025 -> Story [2] and [5] source text\n'
+        '- 406,000 -> Story [2] source text ("406 tys.")\n'
+        '- 134,000 -> Story [2] source text ("134 tys.")\n'
+        '- 80,000 to 120,000 -> Story [2] source text ("80-120 tys.")\n'
+        '- 0.50% -> Story [3] source text ("0,50 proc.")\n'
+        '- August 1, 2026 -> Story [3] source text ("1 sierpnia 2026 r.")\n'
+        '- 23% -> Story [5] source text ("23 proc.")\n'
+        '- 213.5 TWh -> Story [5] source text ("213,5 TWh")\n'
+        '- 42.9% -> Story [5] source text ("42,9 proc.")'
+    )
+    pairs = charts.parse_figures(figures_text)
+    body = (
+        "W 2025 roku zmarlo 406 tys. osob, a deweloperzy oddali do uzytku tylko "
+        "134 tys. mieszkan. Nawet 80-120 tys. mieszkan moze trafic na rynek wtorny "
+        "rocznie. Bank Millennium obnizyl oprocentowanie standardowego konta do "
+        "0,50 proc. od 1 sierpnia 2026 r. Import gazu do Polski wzrosl o 23 proc. "
+        "w 2025 roku, do 213,5 TWh, z czego LNG stanowilo 42,9 proc."
+    )
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    found = sum(1 for r in level_a if r["status"] == "FOUND")
+    assert found >= 8
 
 
 # ---------------------------------------------------------------- T9d: метрики прогона

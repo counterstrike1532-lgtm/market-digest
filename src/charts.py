@@ -26,7 +26,19 @@ _OUT_DIR = pathlib.Path(tempfile.gettempdir()) / "newsbot_charts"
 # ("billion", "PLN", "billion euros") — модель часто пишет "$200 billion", а не
 # голое число. Слова не в числовом ядре: жадный числовой класс без \s не даёт
 # им проглотить пробел перед словом, а \s+ в расширении требует его обратно.
-_VALUE = r"\$?\d[\d,.%$]*(?:\s+[A-Za-z][\w.]*){0,3}"
+_NUM_VALUE = r"\$?\d[\d,.%$]*(?:\s+[A-Za-z][\w.]*){0,3}"
+
+# Диапазон ("80,000 to 120,000", "20% to 30%") и дата словом-месяцем
+# ("August 1, 2026") раньше вообще не матчились _VALUE (число-диапазон не
+# начинается с "->" сразу после первого числа, дата не начинается с цифры) -
+# вся строка FIGURES молча выпадала из pairs, и знаменатель верификатора
+# оказывался меньше настоящего числа пар (9 пар -> 7 распознанных -> 6
+# countable вместо 8, T10c req 3). Не обязаны привестись к float (см.
+# verify._to_float) - обязаны только не теряться на этапе парсинга.
+_MONTH = (r"(?:January|February|March|April|May|June|July|August|"
+         r"September|October|November|December)")
+_DATE_VALUE = rf"{_MONTH}\s+\d{{1,2}},?\s+\d{{4}}"
+_VALUE = rf"(?:{_DATE_VALUE}|{_NUM_VALUE}(?:\s+to\s+{_NUM_VALUE})?)"
 _FIGURE_PAREN = re.compile(rf"^(?P<value>{_VALUE})\s*\(\s*(?P<source>[^()]+?)\s*\)$")
 _FIGURE_ARROW = re.compile(rf"^(?P<value>{_VALUE})\s*(?:->|—|-)\s*(?P<source>\S.*)$")
 
