@@ -8,9 +8,9 @@ from datetime import datetime, timedelta, timezone
 
 from src import brain, collect, deliver, enrich, main, numbers, verify
 from src.collect import Item
-from src.main import (build_domain_urls, build_message, filter_by_age,
-                      first_draft_covers_one_story, render_draft_message,
-                      render_summary, _fix_glued_punctuation, _word_count)
+from src.main import (build_domain_urls, build_message, draft_card, filter_by_age,
+                      found_figure_pairs, quote_card_args, render_draft_message,
+                      render_summary, stat_card_rows, _fix_glued_punctuation, _word_count)
 
 
 def _item(age_days=None, published_known=True):
@@ -102,35 +102,6 @@ def test_build_message_hides_level_for_wig20_tr_etf():
     assert "+0.46%" in wig_line and "+10.16%" in wig_line
     # sp500 - настоящий уровень индекса, печатать его как есть можно и нужно
     assert "7437.63" in sp_line
-
-
-# ---------------------------------------------------------------- T9f: один сюжет ли
-
-def _draft_with_source(source_field: str) -> str:
-    return (
-        "SHAPE: digest\n"
-        "BODY: text.\n"
-        "FIGURES: none used\n"
-        f"SOURCE: {source_field}\n"
-        "WHY_THIS_ONE: reason\n"
-        "VERDICT: SKIP\n"
-        "WHY: no edge\n"
-        "CHECK_FIRST: -"
-    )
-
-
-def test_first_draft_covers_one_story_single_url():
-    text = _draft_with_source("https://example.com/story1")
-    assert first_draft_covers_one_story(text) is True
-
-
-def test_first_draft_covers_one_story_multiple_urls_comma_separated():
-    text = _draft_with_source("https://example.com/story1, https://example.com/story2")
-    assert first_draft_covers_one_story(text) is False
-
-
-def test_first_draft_covers_one_story_no_match_is_conservative_false():
-    assert first_draft_covers_one_story("garbage, no SOURCE field at all") is False
 
 
 # ---------------------------------------------------------------- T10b: URL после дедупа
@@ -373,6 +344,121 @@ def test_digest_log_receives_full_report_with_figures(monkeypatch, tmp_path, cap
     assert "6,872" in full_log
     assert "FIGURES" in full_log
     assert "WHY_THIS_ONE" in full_log
+
+
+# ---------------------------------------------------------------- T10e: картинка к черновику
+
+def test_found_figure_pairs_excludes_not_found():
+    level_a = [
+        {"value": "406,000", "source": 'Story [1] ("406 tys.")', "status": "FOUND"},
+        {"value": "999", "source": 'Story [1] ("999")', "status": "NOT_FOUND"},
+    ]
+    block = {
+        "figures": '- 406,000 -> Story [1] ("406 tys.")\n- 999 -> Story [1] ("999")',
+        "_level_a": level_a,
+    }
+    pairs = found_figure_pairs(block)
+    assert pairs == [("406,000", 'Story [1] ("406 tys.")')]
+
+
+def test_stat_card_rows_only_found_capped_at_three():
+    level_a = [{"value": str(i), "source": f"src {i}", "status": "FOUND"} for i in range(4)]
+    level_a.append({"value": "bad", "source": "src bad", "status": "NOT_FOUND"})
+    block = {"body": "0 1 2 3 bad appear here in this sentence today.", "_level_a": level_a}
+    rows = stat_card_rows(block)
+    assert len(rows) == 3
+    assert all(v in {"0", "1", "2", "3"} for v, _ in rows)
+    assert "bad" not in [v for v, _ in rows]
+
+
+def test_stat_card_rows_two_of_three_when_one_not_found():
+    level_a = [
+        {"value": "406,000", "source": "x", "status": "FOUND"},
+        {"value": "0.50%", "source": "y", "status": "FOUND"},
+        {"value": "213.5 TWh", "source": "z", "status": "NOT_FOUND"},
+    ]
+    block = {"body": "406,000 people and 0.50% rate were both mentioned today.",
+            "_level_a": level_a}
+    rows = stat_card_rows(block)
+    assert len(rows) == 2
+
+
+def test_quote_card_args_uses_first_sentence_and_domain():
+    block = {"body": "DDM understates banks with low payout. Second sentence here.",
+            "source": "https://www.bankier.pl/wiadomosc/x"}
+    sentence, source = quote_card_args(block)
+    assert sentence == "DDM understates banks with low payout."
+    assert source == "www.bankier.pl"
+
+
+def test_draft_card_uses_figures_chart_for_draft_three_only(monkeypatch):
+    """figures_chart вызывается для черновика 3 и не вызывается для 1/2 (T10e) -
+    перенацелено с DRAFT 1 (T9f), DRAFT 1/2 теперь получают карточку."""
+    calls = []
+    monkeypatch.setattr("src.charts.figures_chart",
+                        lambda *a, **kw: calls.append("figures_chart") or "chart.png")
+    monkeypatch.setattr("src.charts.stat_card",
+                        lambda *a, **kw: calls.append("stat_card") or "stat.png")
+    monkeypatch.setattr("src.charts.quote_card",
+                        lambda *a, **kw: calls.append("quote_card") or "quote.png")
+
+    level_a = [{"value": "1", "source": "x", "status": "FOUND"}]
+    block = {"body": "1 is mentioned here today.", "figures": "1 -> x", "source": "https://a.com",
+            "shape": "digest", "_level_a": level_a}
+
+    draft_card(block, 1)
+    draft_card(block, 2)
+    draft_card(block, 3)
+
+    assert calls.count("figures_chart") == 1
+    assert calls == ["stat_card", "stat_card", "figures_chart"]
+
+
+def test_draft_card_falls_back_to_quote_card_when_nothing_found(monkeypatch):
+    monkeypatch.setattr("src.charts.stat_card", lambda *a, **kw: (_ for _ in ()).throw(
+        AssertionError("stat_card must not be called with zero FOUND rows")))
+    monkeypatch.setattr("src.charts.quote_card", lambda *a, **kw: "quote.png")
+
+    block = {"body": "Nothing verifiable here today.", "figures": "999 -> x",
+            "source": "https://a.com", "shape": "digest",
+            "_level_a": [{"value": "999", "source": "x", "status": "NOT_FOUND"}]}
+    result = draft_card(block, 1)
+    assert result == "quote.png"
+
+
+def test_draft_image_failure_does_not_crash_main_run(monkeypatch, tmp_path):
+    """Падение matplotlib не роняет прогон - draft_card падает, main() продолжает,
+    черновик всё равно уходит текстом (T10e)."""
+    seen_path = tmp_path / "seen.json"
+    metrics_path = tmp_path / "metrics.json"
+    monkeypatch.setattr(main, "SEEN", seen_path)
+    monkeypatch.setattr(main, "METRICS", metrics_path)
+
+    item = Item(title="Test story", url="https://example.com/story1",
+               source="example.com", tag="misc",
+               published=datetime.now(timezone.utc).isoformat())
+    monkeypatch.setattr(collect, "collect_all", lambda cfg, hours: [item])
+    monkeypatch.setattr(numbers, "gather", lambda cfg: {})
+    selected = [{"item": item, "score": 8, "angle": "x", "why_nonobvious": "x",
+                "body": "", "verified": False}]
+    monkeypatch.setattr(brain, "rank", lambda candidates, top_n: selected)
+    monkeypatch.setattr(enrich, "enrich", lambda selected, limit: 0)
+    monkeypatch.setattr(brain, "draft", lambda *a, **kw: _CANNED_DRAFT)
+    monkeypatch.setattr(brain, "last_model_used", lambda: "gemini-3.5-flash")
+    monkeypatch.setattr(brain, "quota_summary",
+                        lambda: {"total": 1, "successful": 1, "quota_refused": 0})
+    monkeypatch.setattr(main, "draft_card",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("matplotlib exploded")))
+
+    sent = []
+    monkeypatch.setattr("src.deliver.send", lambda text, domain_urls=None: sent.append(text))
+    monkeypatch.setattr("src.deliver.send_photo", lambda *a, **kw: None)
+
+    monkeypatch.setattr("sys.argv", ["main.py"])
+    rc = main.main()
+
+    assert rc == 0
+    assert sent, "деliver.send должен был вызваться, несмотря на упавшую картинку"
 
 
 # ---------------------------------------------------------------- T9d: сквозной прогон

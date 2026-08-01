@@ -10,6 +10,7 @@ import logging
 import pathlib
 import re
 import tempfile
+import textwrap
 from datetime import date
 
 import matplotlib
@@ -257,4 +258,78 @@ def figures_chart(figures: list[tuple[str, str]] | None, title: str,
             return _save(fig, f"figures_{theme}.png")
     except Exception as exc:
         log.warning("figures_chart упал: %s", exc)
+        return None
+
+
+def stat_card(rows: list[tuple[str, str]], title: str, subtitle: str,
+              theme: str = "dark") -> pathlib.Path | None:
+    """Карточка-типографика для дайджест-черновиков (T10e): до 3 строк "число +
+    короткая фраза", ничего не утверждает про связь между числами (в отличие
+    от figures_chart) - поэтому числа из разных сюжетов законно уживаются на
+    одной карточке. Одна раскладка, без вариантов - заготовка мысли, не
+    публикуемый ассет, финальный график владелец делает сам.
+
+    rows - уже отфильтрованы вызывающим кодом (main.py) до статуса FOUND по
+    верификатору: сюда попадает не более 3 пар, само значение и его форма
+    здесь не проверяются заново."""
+    rows = (rows or [])[:3]
+    if not rows:
+        return None
+    try:
+        with plt.rc_context(chartstyle.rc_params(theme)):
+            c = chartstyle.colors(theme)
+            fig, ax = plt.subplots()
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+            n = len(rows)
+            band = 1.0 / n
+            for i, (value, phrase) in enumerate(rows):
+                y_top = 1.0 - band * i
+                y_center = y_top - band / 2
+                ax.text(0.0, y_center + band * 0.16, str(value), fontsize=28,
+                       fontweight="semibold", color=c["accent"], ha="left", va="center")
+                ax.text(0.0, y_center - band * 0.22, str(phrase)[:80], fontsize=13,
+                       color=c["fg"], ha="left", va="center")
+                if i < n - 1:
+                    ax.axhline(y_top - band, color=c["grid"], alpha=0.10, linewidth=1)
+
+            chartstyle.titles(fig, ax, subtitle or "", title or "", c)
+            chartstyle.footer(fig, f"Data: draft FIGURES | {date.today().strftime('%d.%m.%Y')}", c)
+            fig.subplots_adjust(left=0.09, right=0.96, top=0.80, bottom=0.12)
+            return _save(fig, f"stat_{theme}.png")
+    except Exception as exc:
+        log.warning("stat_card упал: %s", exc)
+        return None
+
+
+def quote_card(sentence: str, source: str, theme: str = "dark") -> pathlib.Path | None:
+    """Фолбэк stat_card (T10e): одна сильная фраза черновика типографикой плюс
+    источник - когда проверенных (FOUND) чисел не осталось вовсе. Пустая
+    фраза - None, а не пустая карточка."""
+    sentence = (sentence or "").strip()
+    if not sentence:
+        return None
+    try:
+        with plt.rc_context(chartstyle.rc_params(theme)):
+            c = chartstyle.colors(theme)
+            fig, ax = plt.subplots()
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+            wrapped = textwrap.fill(sentence, width=38)
+            ax.text(0.5, 0.58, wrapped, fontsize=21, fontweight="semibold",
+                   color=c["fg"], ha="center", va="center", linespacing=1.45)
+            if source:
+                ax.text(0.5, 0.14, source[:60], fontsize=12, color=c["muted"],
+                       ha="center", va="center")
+
+            fig.subplots_adjust(left=0.10, right=0.90, top=0.92, bottom=0.10)
+            return _save(fig, f"quote_{theme}.png")
+    except Exception as exc:
+        log.warning("quote_card упал: %s", exc)
         return None

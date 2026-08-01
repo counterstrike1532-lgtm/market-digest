@@ -159,6 +159,75 @@ def test_figures_chart_draws_for_clean_single_story_metrics(monkeypatch, tmp_pat
     assert path.exists()
 
 
+# ---------------------------------------------------------------- T10e: stat_card / quote_card
+
+def test_stat_card_three_found_numbers_draws(monkeypatch, tmp_path):
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    rows = [
+        ("406,000", "Deaths recorded in Poland in 2025, GUS data."),
+        ("0.50%", "New Bank Millennium standard savings rate."),
+        ("213.5 TWh", "Polish gas imports, up 23% year over year."),
+    ]
+    path = charts.stat_card(rows, title="Draft 1", subtitle="digest", theme="dark")
+    assert path is not None
+    assert path.exists()
+
+
+def test_stat_card_two_rows_when_one_of_three_not_found(monkeypatch, tmp_path):
+    """Строку с NOT_FOUND отфильтровывает вызывающий код (main.py) до вызова -
+    stat_card рисует ровно то, что ему передали, без собственной проверки."""
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    rows = [("406,000", "a"), ("0.50%", "b")]     # третья (NOT_FOUND) уже отфильтрована
+    path = charts.stat_card(rows, title="Draft 1", subtitle="digest", theme="dark")
+    assert path is not None
+    assert path.exists()
+
+
+def test_stat_card_caps_at_three_rows(monkeypatch, tmp_path):
+    """Больше 3 пар не падает и не пытается нарисовать все - берёт rows[:3].
+    Поведение проверяем по факту непустого результата, не по числу строк на
+    растровом PNG (не парсим изображение)."""
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    rows = [(str(i), f"phrase {i}") for i in range(5)]
+    path = charts.stat_card(rows, title="t", subtitle="s", theme="dark")
+    assert path is not None
+
+
+def test_stat_card_empty_rows_returns_none():
+    assert charts.stat_card([], title="t", subtitle="s", theme="dark") is None
+    assert charts.stat_card(None, title="t", subtitle="s", theme="dark") is None
+
+
+def test_quote_card_draws_with_sentence_and_source(monkeypatch, tmp_path):
+    """Ноль FOUND -> quote_card, не пустая карточка."""
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    path = charts.quote_card(
+        "DDM structurally understates banks with low payout ratios.",
+        "bankier.pl", theme="dark")
+    assert path is not None
+    assert path.exists()
+
+
+def test_quote_card_empty_sentence_returns_none():
+    assert charts.quote_card("", "bankier.pl", theme="dark") is None
+    assert charts.quote_card("   ", "bankier.pl", theme="dark") is None
+
+
+def test_quote_card_works_without_source(monkeypatch, tmp_path):
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    path = charts.quote_card("A strong sentence with no source attached.", "", theme="dark")
+    assert path is not None
+
+
+def test_stat_card_and_quote_card_survive_matplotlib_failure(monkeypatch):
+    """Падение matplotlib не роняет прогон - try/except внутри, None наружу (T10e)."""
+    def boom(*a, **kw):
+        raise RuntimeError("matplotlib exploded")
+    monkeypatch.setattr(charts.plt, "subplots", boom)
+    assert charts.stat_card([("1", "a")], title="t", subtitle="s") is None
+    assert charts.quote_card("sentence", "source") is None
+
+
 # ---------------------------------------------------------------- T9 fix 1/2: market_overview
 
 _WIG_SERIES = {"close": [80.0, 81.0, 82.0, 83.0, 84.0]}

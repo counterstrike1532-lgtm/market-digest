@@ -9,6 +9,7 @@ import pathlib
 import re
 import sys
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlparse
 
 import yaml
 
@@ -96,23 +97,62 @@ def save_seen(seen: dict) -> None:
     SEEN.write_text(json.dumps(seen, indent=0, sort_keys=True), encoding="utf-8")
 
 
-def first_draft_figures(drafts_text: str) -> str:
-    """Текст FIGURES-поля первого черновика (draft #1 - без сигнала вроде VERDICT
-    "лучший" тут просто первый по порядку). Не нашлось - пустая строка."""
-    m = re.search(r"FIGURES:\s*(.*?)\n\s*SOURCE:", drafts_text, re.S)
-    return m.group(1).strip() if m else ""
+def found_figure_pairs(block: dict) -> list[tuple[str, str]]:
+    """Пары (value, source) из FIGURES черновика со статусом FOUND по
+    верификатору - единственные, которым разрешено попасть на картинку.
+    Картинка расходится по ленте без контекста, планка для неё выше, чем для
+    текста - тот же принцип, что в T8a (T10e)."""
+    found_values = {r["value"] for r in block.get("_level_a", []) if r["status"] == "FOUND"}
+    pairs = charts.parse_figures(block.get("figures", "")) or []
+    return [(v, s) for v, s in pairs if v in found_values]
 
 
-def first_draft_covers_one_story(drafts_text: str) -> bool:
-    """DRAFT 1 - это digest (2-3 сюжета сразу, см. DRAFT_PROMPT), а не single -
-    его FIGURES легко смешивает числа из разных сюжетов. figures_chart не умеет
-    видеть, из какого сюжета каждая пара - надёжнее просто не рисовать график,
-    когда SOURCE черновика перечисляет больше одной ссылки (T9f)."""
-    m = re.search(r"SOURCE:\s*(.*?)\n\s*WHY_THIS_ONE:", drafts_text, re.S)
-    if not m:
-        return False
-    urls = [u.strip() for u in re.split(r"[,\n]", m.group(1)) if u.strip()]
-    return len(urls) <= 1
+def stat_card_rows(block: dict) -> list[tuple[str, str]]:
+    """(значение, короткая фраза) для stat_card - только FOUND по верификатору
+    (T10e), не более 3. Фраза - предложение BODY, где значение встречается,
+    обрезанное до короткой строки; verify._sentence_containing/_to_search_variants
+    уже делают эту работу для уровня b, переиспользуем их же."""
+    body = block.get("body", "")
+    rows = []
+    for r in block.get("_level_a", []):
+        if r["status"] != "FOUND":
+            continue
+        variants = verify._to_search_variants(r["value"])
+        phrase = _oneline(verify._sentence_containing(body, variants))
+        if len(phrase) > 70:
+            phrase = phrase[:67].rstrip() + "..."
+        rows.append((r["value"], phrase))
+        if len(rows) == 3:
+            break
+    return rows
+
+
+def quote_card_args(block: dict) -> tuple[str, str]:
+    """(фраза, источник) для quote_card - фолбэк, когда FOUND-чисел не осталось.
+    Фраза - первое предложение BODY, источник - домен первой ссылки SOURCE."""
+    body = block.get("body", "").strip()
+    sentence = re.split(r"(?<=[.!?])\s+", body, maxsplit=1)[0] if body else ""
+    urls = [u.strip() for u in re.split(r"[,\n]", block.get("source", "")) if u.strip()]
+    source = urlparse(urls[0]).netloc if urls else ""
+    return sentence, source
+
+
+def draft_card(block: dict, num: int, theme: str = "dark"):
+    """Картинка к одному черновику (T10e): график (DRAFT 3, single) утверждает
+    связь между числами одного сюжета - тут заново перенацеленный figures_chart.
+    Карточка (DRAFT 1/2, дайджесты) ничего не утверждает - числа разных
+    сюжетов на ней сосуществуют законно. Ошибка отрисовки не валит прогон:
+    вызывающий код (main()) уже оборачивает это в try/except, здесь - только
+    выбор типа картинки."""
+    if num == 3:
+        pairs = found_figure_pairs(block)
+        return charts.figures_chart(pairs, title=f"Черновик {num}", theme=theme)
+    rows = stat_card_rows(block)
+    if rows:
+        return charts.stat_card(rows, title=f"Черновик {num}",
+                                subtitle=block.get("shape") or "", theme=theme)
+    sentence, source = quote_card_args(block)
+    return charts.quote_card(sentence, source, theme=theme)
 
 
 # Реальный прогон: "...energy transitions.- An AI-focused" (буллет приклеен к
@@ -376,18 +416,6 @@ def main() -> int:
     drafts = _fix_glued_punctuation(brain.draft(selected, data, style_text, n=args.drafts))
     draft_model = brain.last_model_used()
 
-    figures_chart = None
-    if not args.no_charts:
-        try:
-            if first_draft_covers_one_story(drafts):
-                pairs = charts.parse_figures(first_draft_figures(drafts))
-                figures_chart = charts.figures_chart(pairs, title="Черновик 1", theme="light")
-            else:
-                log.info("figures_chart: черновик 1 покрывает больше одного "
-                        "сюжета - график пропущен")
-        except Exception as exc:
-            log.warning("figures_chart упал: %s", exc)
-
     log.info("--- верификация цифр ---")
     draft_stats = verify._empty_stats()
     draft_blocks = []
@@ -406,27 +434,41 @@ def main() -> int:
     summary_msg = render_summary(selected, data)
     draft_msgs = [render_draft_message(b, i) for i, b in enumerate(draft_blocks, 1)]
 
+    # Картинка к каждому черновику (T10e): DRAFT 3 (single) - перенацеленный
+    # figures_chart, DRAFT 1/2 (дайджесты) - stat_card, quote_card как фолбэк,
+    # когда FOUND-чисел не осталось. Только числа со статусом FOUND от
+    # верификатора попадают на картинку - планка выше, чем для текста.
+    draft_images = [None] * len(draft_blocks)
+    if not args.no_charts:
+        for i, b in enumerate(draft_blocks):
+            try:
+                draft_images[i] = draft_card(b, i + 1, theme="dark")
+            except Exception as exc:
+                log.warning("картинка к черновику %d упала: %s", i + 1, exc)
+
     q = brain.quota_summary()
     domain_urls = build_domain_urls(selected)
 
     if args.dry:
         print("\n" + summary_msg)
-        for dm in draft_msgs:
+        for i, dm in enumerate(draft_msgs):
             print("\n" + "-" * 30)
             print(dm)
+            if draft_images[i]:
+                print(f"[картинка к черновику {i + 1}] {draft_images[i]}")
         if market_chart:
             print(f"\n[график] рынки: {market_chart}")
-        if figures_chart:
-            print(f"[график] к черновику 1: {figures_chart}")
     else:
         if market_chart:
             deliver.send_photo(market_chart, "Рынки за месяц")
         deliver.send(summary_msg, domain_urls)
-        for dm in draft_msgs:
+        for i, dm in enumerate(draft_msgs):
             deliver.send(dm, domain_urls)
-        if figures_chart:
-            deliver.send_photo(figures_chart,
-                               "График к черновику 1 — можно приложить к посту")
+            if draft_images[i]:
+                try:
+                    deliver.send_photo(draft_images[i], f"К черновику {i + 1}")
+                except Exception as exc:
+                    log.warning("отправка картинки к черновику %d упала: %s", i + 1, exc)
         now = datetime.now(timezone.utc).isoformat()
         for s in selected:
             seen[s["item"].key] = now
