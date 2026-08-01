@@ -1,7 +1,7 @@
 """parse_figures и figures_chart на реальных строках из боевых прогонов (T9a, T9f)."""
 from __future__ import annotations
 
-from src import charts
+from src import charts, chartstyle
 
 
 def test_parse_figures_paren_format():
@@ -131,9 +131,35 @@ def test_market_overview_draws_with_renamed_key(monkeypatch, tmp_path):
     assert path.exists()
 
 
-def test_market_overview_line_label_is_wig_tr_etf(monkeypatch, tmp_path):
-    """Подпись линии на графике - "WIG20 TR (ETF)", не голый "WIG20" (T9 fix 2):
-    читатель не должен принять цену пая за уровень индекса."""
+def test_market_overview_handles_mismatched_series_lengths(monkeypatch, tmp_path):
+    """Живой прогон: WIG20 TR (ETF) торгуется в Варшаве, S&P 500 - в Нью-Йорке,
+    разные праздничные календари дают РАЗНОЕ число торговых дней в одном и том
+    же окне (44 против 43) - раньше это падало на fill_between/glow (x и y
+    разной длины)."""
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    wig = {"close": [80.0 + i * 0.1 for i in range(44)],
+          "dates": [f"2026-06-{(i % 28) + 1:02d}" for i in range(44)]}
+    spx = {"close": [5000.0 + i for i in range(43)],
+          "dates": [f"2026-06-{(i % 28) + 1:02d}" for i in range(43)]}
+    numbers = {"_series": {"WIG20 TR (ETF)": wig, "sp500": spx}}
+    path = charts.market_overview(numbers, {}, theme="dark")
+    assert path is not None
+    assert path.exists()
+
+
+def test_stretch_x_aligns_endpoints():
+    assert charts._stretch_x(5, 5) == [0.0, 1.0, 2.0, 3.0, 4.0]
+    stretched = charts._stretch_x(3, 5)
+    assert stretched[0] == 0.0
+    assert stretched[-1] == 4.0
+    assert len(stretched) == 3
+    assert charts._stretch_x(1, 5) == [0.0]
+
+
+def test_market_overview_line_label_is_wig_tr_not_bare_wig20(monkeypatch, tmp_path):
+    """Подпись чипа - "WIG20 TR +X%" (T9 redesign - короткая форма, полное имя
+    "WIG20 TR (ETF)" остаётся в kicker-заголовке и подвале), не голый "WIG20"
+    без "TR" (T9 fix 2): читатель не должен принять цену пая за уровень индекса."""
     import matplotlib.axes
 
     monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
@@ -147,8 +173,22 @@ def test_market_overview_line_label_is_wig_tr_etf(monkeypatch, tmp_path):
     monkeypatch.setattr(matplotlib.axes.Axes, "annotate", fake_annotate)
     numbers = {"_series": {"WIG20 TR (ETF)": _WIG_SERIES, "sp500": _SPX_SERIES}}
     charts.market_overview(numbers, {}, theme="dark")
-    assert any(t.startswith("WIG20 TR (ETF)") for t in captured)
+    assert any(t.startswith("WIG20 TR ") for t in captured)
     assert not any(t.startswith("WIG20 ") and "TR" not in t for t in captured)
+
+
+def test_market_overview_kicker_carries_full_wig_name(monkeypatch, tmp_path):
+    """Полное "WIG20 TR (ETF)" - в надзаголовке (kicker), не в самом чипе."""
+    captured = {}
+
+    def fake_titles(fig, ax, kicker, title, c):
+        captured["kicker"] = kicker
+
+    monkeypatch.setattr(chartstyle, "titles", fake_titles)
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    numbers = {"_series": {"WIG20 TR (ETF)": _WIG_SERIES, "sp500": _SPX_SERIES}}
+    charts.market_overview(numbers, {}, theme="dark")
+    assert "WIG20 TR (ETF)" in captured["kicker"]
 
 
 def test_market_overview_footer_shows_actual_source(monkeypatch, tmp_path):
@@ -160,7 +200,7 @@ def test_market_overview_footer_shows_actual_source(monkeypatch, tmp_path):
     def fake_footer(fig, text, c):
         captured["text"] = text
 
-    monkeypatch.setattr(charts, "_footer", fake_footer)
+    monkeypatch.setattr(chartstyle, "footer", fake_footer)
     monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
     numbers = {"_series": {"WIG20 TR (ETF)": _WIG_SERIES, "sp500": _SPX_SERIES}}
     market_source = {"WIG20 TR (ETF)": "yfinance", "sp500": "stooq"}
@@ -177,7 +217,7 @@ def test_market_overview_footer_falls_back_when_source_unknown(monkeypatch, tmp_
     def fake_footer(fig, text, c):
         captured["text"] = text
 
-    monkeypatch.setattr(charts, "_footer", fake_footer)
+    monkeypatch.setattr(chartstyle, "footer", fake_footer)
     monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
     numbers = {"_series": {"WIG20 TR (ETF)": _WIG_SERIES, "sp500": _SPX_SERIES}}
     charts.market_overview(numbers, None, theme="dark")

@@ -31,6 +31,14 @@ _FIGURE_PAREN = re.compile(rf"^(?P<value>{_VALUE})\s*\(\s*(?P<source>[^()]+?)\s*
 _FIGURE_ARROW = re.compile(rf"^(?P<value>{_VALUE})\s*(?:->|—|-)\s*(?P<source>\S.*)$")
 
 
+def _stretch_x(n: int, n_max: int) -> list[float]:
+    """n точек, растянутых на общий диапазон [0, n_max-1] - оба конца (первый и
+    последний торговый день) совпадают у рядов разной длины (см. market_overview)."""
+    if n <= 1:
+        return [0.0] * n
+    return [i * (n_max - 1) / (n - 1) for i in range(n)]
+
+
 def _save(fig, name: str) -> pathlib.Path:
     _OUT_DIR.mkdir(exist_ok=True)
     path = _OUT_DIR / name
@@ -39,16 +47,14 @@ def _save(fig, name: str) -> pathlib.Path:
     return path
 
 
-def _footer(fig, text: str, c: dict) -> None:
-    fig.text(0.01, 0.02, text, fontsize=8, color=c["neutral"])
-
-
 _WIG_KEY = "WIG20 TR (ETF)"    # см. numbers._DISPLAY_NAME - переименовано там (T9 fix 2)
 
 
 def market_overview(numbers: dict, market_source: dict | None = None,
                     theme: str = "dark") -> pathlib.Path | None:
     """WIG20 TR (ETF) и S&P 500 за ~45 дней, нормированные к 100 на первую дату.
+    Карточка в духе Robinhood/Revolut/FT, не matplotlib-по-умолчанию - см.
+    chartstyle.py (свечение, градиентная заливка, чипы значений, типографика).
 
     numbers - полный снимок из numbers.gather() (ещё с ключом "_series",
     main.py забирает его позже). Нет рядов - молча None, текстовая сводка
@@ -69,25 +75,58 @@ def market_overview(numbers: dict, market_source: dict | None = None,
         with plt.rc_context(chartstyle.rc_params(theme)):
             c = chartstyle.colors(theme)
             fig, ax = plt.subplots()
-            for label, s, color in ((_WIG_KEY, wig, chartstyle.ACCENT),
-                                     ("S&P 500", spx, chartstyle.NEUTRAL)):
-                closes = s["close"]
-                base = closes[0]
-                norm = [v / base * 100 for v in closes]
-                x = list(range(len(norm)))
-                ax.plot(x, norm, color=color, linewidth=2.4, solid_capstyle="round")
-                pct = norm[-1] - 100
-                ax.annotate(f"{label} {pct:+.1f}%", xy=(x[-1], norm[-1]),
-                            xytext=(6, 0), textcoords="offset points",
-                            color=color, fontsize=11, fontweight="bold", va="center")
-            ax.set_title("Markets, last 45 days (rebased to 100)")
+
+            wig_y = [v / wig["close"][0] * 100 for v in wig["close"]]
+            spx_y = [v / spx["close"][0] * 100 for v in spx["close"]]
+            # WIG20 TR (ETF) торгуется в Варшаве, S&P 500 - в Нью-Йорке: разные
+            # праздничные календари легко дают разное число торговых дней в
+            # одном и том же окне (живой прогон: 44 против 43). Растягиваем
+            # каждый ряд на общий x-диапазон [0, n_max-1], чтобы обе линии
+            # начинались и заканчивались вместе - без этого fill_between/glow
+            # падают на несовпадении длин x и y.
+            n_max = max(len(wig_y), len(spx_y))
+            x_wig = _stretch_x(len(wig_y), n_max)
+            x_spx = _stretch_x(len(spx_y), n_max)
+
+            all_vals = wig_y + spx_y + [100.0]
+            data_min, data_max = min(all_vals), max(all_vals)
+            span = (data_max - data_min) or 5.0
+            y_min, y_max = data_min - span * 0.22, data_max + span * 0.30
+            ax.set_ylim(y_min, y_max)
+            ax.set_xlim(-0.5, (n_max - 1) * 1.34)     # щедрое поле справа под чипы значений
+
+            chartstyle.draw_grid(ax, y_min, y_max, c, n=5)
+            chartstyle.draw_baseline(ax, 100.0, c, "100")
+
+            # нейтральная линия первой (под акцентной) - без свечения и заливки
+            ax.plot(x_spx, spx_y, color=c["neutral"], linewidth=2.0,
+                   solid_capstyle="round", solid_joinstyle="round", zorder=2)
+            chartstyle.end_marker(ax, x_spx[-1], spx_y[-1], c["neutral"], zorder=4)
+            chartstyle.value_chip(ax, x_spx[-1], spx_y[-1],
+                                 f"S&P 500 {spx_y[-1] - 100:+.1f}%", c, kind="neutral")
+
+            chartstyle.gradient_fill(ax, x_wig, wig_y, y_min, c["accent"])
+            chartstyle.glow_line(ax, x_wig, wig_y, c["accent"])
+            chartstyle.end_marker(ax, x_wig[-1], wig_y[-1], c["accent"], zorder=5)
+            chartstyle.value_chip(ax, x_wig[-1], wig_y[-1],
+                                 f"WIG20 TR {wig_y[-1] - 100:+.1f}%", c, kind="accent")
+
             ax.set_xticks([])
-            ax.margins(x=0.14)
+            ax.set_yticks([])
+            dates = wig.get("dates") or []
+            chartstyle.x_edge_labels(ax, dates[0] if dates else "",
+                                    dates[-1] if dates else "", c)
+
+            chartstyle.titles(fig, ax, f"{_WIG_KEY} vs S&P 500 - rebased to 100",
+                             "Markets, last 45 days", c)
+
             sources = sorted({market_source[k] for k in (_WIG_KEY, "sp500")
                              if k in market_source}) or ["unknown"]
-            footer = (f"Data: {'/'.join(sources)} | {date.today().strftime('%d.%m.%Y')} | "
-                     f"PL line is total return (incl. dividends), S&P 500 is price-only")
-            _footer(fig, footer, c)
+            footer_text = (f"Data: {'/'.join(sources)} | {date.today().strftime('%d.%m.%Y')} | "
+                          f"PL line is total return (incl. dividends), S&P 500 is price-only")
+            chartstyle.footer(fig, footer_text, c)
+
+            fig.subplots_adjust(left=0.09, right=0.99, top=0.80, bottom=0.11)
             return _save(fig, f"market_{theme}.png")
     except Exception as exc:
         log.warning("market_overview упал: %s", exc)
@@ -190,17 +229,19 @@ def figures_chart(figures: list[tuple[str, str]] | None, title: str,
             nums = [p[1] for p in parsed]
             raw = [p[2] for p in parsed]
             y = list(range(len(nums)))
-            bar_colors = [chartstyle.ACCENT if i == len(nums) - 1 else chartstyle.NEUTRAL
+            bar_colors = [c["accent"] if i == len(nums) - 1 else c["neutral"]
                          for i in range(len(nums))]
-            ax.barh(y, nums, color=bar_colors, height=0.55)
+            ax.margins(x=0.28)             # щедрое поле справа под чипы значений
+            ax.barh(y, nums, color=bar_colors, height=0.55, zorder=2)
             for yi, (n, r) in enumerate(zip(nums, raw)):
-                ax.annotate(r, xy=(n, yi), xytext=(6, 0), textcoords="offset points",
-                            va="center", color=c["fg"], fontsize=11, fontweight="bold")
+                kind = "accent" if yi == len(nums) - 1 else "neutral"
+                chartstyle.value_chip(ax, n, yi, r, c, kind=kind, xytext=(8, 0))
             ax.set_yticks(y)
             ax.set_yticklabels(labels, fontsize=10)
-            ax.set_title(title[:60] if title else "")
+            ax.set_title(title[:60] if title else "", loc="left", pad=14)
             ax.set_xticks([])
-            _footer(fig, f"Data: draft FIGURES | {date.today().strftime('%d.%m.%Y')}", c)
+            chartstyle.footer(fig, f"Data: draft FIGURES | {date.today().strftime('%d.%m.%Y')}", c)
+            fig.subplots_adjust(left=0.22, right=0.98, top=0.86, bottom=0.12)
             return _save(fig, f"figures_{theme}.png")
     except Exception as exc:
         log.warning("figures_chart упал: %s", exc)
