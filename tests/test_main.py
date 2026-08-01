@@ -414,6 +414,28 @@ def test_draft_card_uses_figures_chart_for_draft_three_only(monkeypatch):
     assert calls == ["stat_card", "stat_card", "figures_chart"]
 
 
+def test_draft_card_draft_one_and_two_write_distinct_image_files(monkeypatch, tmp_path):
+    """Живой прогон (T10g review): draft_card(block, 1) и draft_card(block, 2)
+    оба рисуют stat_card в одном прогоне - без различающего key оба писали в
+    один и тот же "stat_dark.png", и черновик 1 в итоге получал картинку
+    черновика 2 (файл перезаписывался до отправки). Через настоящий
+    charts.stat_card (не мок) - проверяем реальные пути, не только что key
+    передаётся."""
+    import src.charts as charts_mod
+    monkeypatch.setattr(charts_mod, "_OUT_DIR", tmp_path)
+
+    level_a = [{"value": "406,000", "source": 'x ("406 tys.")', "status": "FOUND"}]
+    block = {"body": "406,000 people were mentioned today.", "figures": '406,000 -> x ("406 tys.")',
+            "source": "https://a.com", "shape": "digest", "_level_a": level_a}
+
+    path1 = draft_card(block, 1)
+    path2 = draft_card(block, 2)
+
+    assert path1 is not None and path2 is not None
+    assert path1 != path2
+    assert path1.exists() and path2.exists()
+
+
 def test_draft_card_falls_back_to_quote_card_when_nothing_found(monkeypatch):
     monkeypatch.setattr("src.charts.stat_card", lambda *a, **kw: (_ for _ in ()).throw(
         AssertionError("stat_card must not be called with zero FOUND rows")))
@@ -423,6 +445,27 @@ def test_draft_card_falls_back_to_quote_card_when_nothing_found(monkeypatch):
             "source": "https://a.com", "shape": "digest",
             "_level_a": [{"value": "999", "source": "x", "status": "NOT_FOUND"}]}
     result = draft_card(block, 1)
+    assert result == "quote.png"
+
+
+def test_draft_card_draft_three_falls_back_to_quote_card_when_figures_chart_declines(monkeypatch):
+    """Живой прогон (T10g review): DRAFT 3 с 0/4 FOUND не рисовал вообще
+    ничего - figures_chart вернул None (меньше 2 значений после фильтра по
+    FOUND), а фолбэка на quote_card для num==3 не было. "У каждого из трёх
+    черновиков ровно одна картинка" не делает для третьего исключения -
+    figures_chart отказал по ЛЮБОЙ из своих причин (не только "0 FOUND") ->
+    quote_card, как и для карточек."""
+    monkeypatch.setattr("src.charts.figures_chart", lambda *a, **kw: None)
+    monkeypatch.setattr("src.charts.quote_card", lambda *a, **kw: "quote.png")
+
+    block = {
+        "body": "This mismatch destroys the industrial crushing margin.",
+        "figures": "4.1 million tons -> Source [3] text",   # один FOUND - меньше 2, chart отказывает
+        "source": "https://bankier.pl/a", "shape": "B",
+        "_level_a": [{"value": "4.1 million tons", "source": "Source [3] text",
+                     "status": "FOUND"}],
+    }
+    result = draft_card(block, 3)
     assert result == "quote.png"
 
 

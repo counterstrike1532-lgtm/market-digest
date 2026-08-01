@@ -143,16 +143,28 @@ def draft_card(block: dict, num: int, theme: str = "dark"):
     Карточка (DRAFT 1/2, дайджесты) ничего не утверждает - числа разных
     сюжетов на ней сосуществуют законно. Ошибка отрисовки не валит прогон:
     вызывающий код (main()) уже оборачивает это в try/except, здесь - только
-    выбор типа картинки."""
+    выбор типа картинки.
+
+    figures_chart может вернуть None не только из-за нуля FOUND-чисел, но и
+    по любой из своих собственных структурных причин (меньше 2 значений,
+    смешанные единицы, повторный источник) - живой прогон показал ровно этот
+    случай: 0/4 FOUND у DRAFT 3, картинка не рисовалась вовсе, хотя "у каждого
+    из трёх черновиков ровно одна картинка" ничем не ограничивает третий
+    черновик особо. quote_card - универсальный фолбэк для всех трёх, не
+    только для карточек (T10g review)."""
     if num == 3:
         pairs = found_figure_pairs(block)
-        return charts.figures_chart(pairs, title=f"Черновик {num}", theme=theme)
-    rows = stat_card_rows(block)
-    if rows:
-        return charts.stat_card(rows, title=f"Черновик {num}",
-                                subtitle=block.get("shape") or "", theme=theme)
+        chart = charts.figures_chart(pairs, title=f"Черновик {num}", theme=theme)
+        if chart:
+            return chart
+    else:
+        rows = stat_card_rows(block)
+        if rows:
+            return charts.stat_card(rows, title=f"Черновик {num}",
+                                    subtitle=block.get("shape") or "", theme=theme,
+                                    key=str(num))
     sentence, source = quote_card_args(block)
-    return charts.quote_card(sentence, source, theme=theme)
+    return charts.quote_card(sentence, source, theme=theme, key=str(num))
 
 
 # Реальный прогон: "...energy transitions.- An AI-focused" (буллет приклеен к

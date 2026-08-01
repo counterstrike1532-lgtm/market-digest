@@ -23,23 +23,38 @@ log = logging.getLogger(__name__)
 
 _OUT_DIR = pathlib.Path(tempfile.gettempdir()) / "newsbot_charts"
 
-# value = числовое ядро ($/цифры/запятые/точки/%) + до 3 слов единицы измерения
-# ("billion", "PLN", "billion euros") — модель часто пишет "$200 billion", а не
-# голое число. Слова не в числовом ядре: жадный числовой класс без \s не даёт
-# им проглотить пробел перед словом, а \s+ в расширении требует его обратно.
-_NUM_VALUE = r"\$?\d[\d,.%$]*(?:\s+[A-Za-z][\w.]*){0,3}"
+# value = числовое ядро ($/цифры/запятые/точки/% + необязательный слитный
+# диапазон "2.8-3.2") + до 3 слов единицы измерения ("billion", "PLN",
+# "billion euros") — модель часто пишет "$200 billion", а не голое число.
+# Слова не в числовом ядре: жадный числовой класс без \s не даёт им проглотить
+# пробел перед словом, а \s+ в расширении требует его обратно.
+#
+# Слитный диапазон ("2.8-3.2 million tons") - ядро ДОЛЖНО жадно захватывать
+# "-\d..." как часть себя самого: живой прогон (T10g review) показал, что без
+# этого общий "-" -разделитель "value - source" (см. _FIGURE_ARROW) откусывает
+# половину диапазона себе - "2.8-3.2 million tons -> Source [3] text"
+# разбиралось как value="2.8", source="3.2 million tons -> Source [3] text"
+# (хвост с настоящей стрелкой внутри "source" же и остаётся, поле полностью
+# искажено). Дефис в диапазоне всегда стоит МЕЖДУ цифрами без пробелов - у
+# разделителя "value - source" пробел или буква после дефиса обязательны,
+# так что жадный "-\d" в ядре не может случайно проглотить настоящий
+# разделитель.
+_NUM_CORE = r"\$?\d[\d,.%$]*(?:-\d[\d,.%$]*)?"
+_NUM_VALUE = rf"{_NUM_CORE}(?:\s+[A-Za-z][\w.]*){{0,3}}"
 
-# Диапазон ("80,000 to 120,000", "20% to 30%") и дата словом-месяцем
-# ("August 1, 2026") раньше вообще не матчились _VALUE (число-диапазон не
-# начинается с "->" сразу после первого числа, дата не начинается с цифры) -
-# вся строка FIGURES молча выпадала из pairs, и знаменатель верификатора
-# оказывался меньше настоящего числа пар (9 пар -> 7 распознанных -> 6
-# countable вместо 8, T10c req 3). Не обязаны привестись к float (см.
+# Диапазон через "to"/"and" ("80,000 to 120,000", "2.8 and 3.2 million tons")
+# и дата словом-месяцем ("August 1, 2026") раньше вообще не матчились _VALUE
+# (число-диапазон не начинается с "->" сразу после первого числа, дата не
+# начинается с цифры) - вся строка FIGURES молча выпадала из pairs, и
+# знаменатель верификатора оказывался меньше настоящего числа пар (9 пар ->
+# 7 распознанных -> 6 countable вместо 8, T10c req 3). Модель пишет диапазон
+# и через "to", и через "and" в разных черновиках одного прогона (T10g
+# review) - оба варианта нужны. Не обязаны привестись к float (см.
 # verify._to_float) - обязаны только не теряться на этапе парсинга.
 _MONTH = (r"(?:January|February|March|April|May|June|July|August|"
          r"September|October|November|December)")
 _DATE_VALUE = rf"{_MONTH}\s+\d{{1,2}},?\s+\d{{4}}"
-_VALUE = rf"(?:{_DATE_VALUE}|{_NUM_VALUE}(?:\s+to\s+{_NUM_VALUE})?)"
+_VALUE = rf"(?:{_DATE_VALUE}|{_NUM_VALUE}(?:\s+(?:to|and)\s+{_NUM_VALUE})?)"
 _FIGURE_PAREN = re.compile(rf"^(?P<value>{_VALUE})\s*\(\s*(?P<source>[^()]+?)\s*\)$")
 _FIGURE_ARROW = re.compile(rf"^(?P<value>{_VALUE})\s*(?:->|—|-)\s*(?P<source>\S.*)$")
 
@@ -262,7 +277,7 @@ def figures_chart(figures: list[tuple[str, str]] | None, title: str,
 
 
 def stat_card(rows: list[tuple[str, str]], title: str, subtitle: str,
-              theme: str = "dark") -> pathlib.Path | None:
+              theme: str = "dark", key: str = "0") -> pathlib.Path | None:
     """Карточка-типографика для дайджест-черновиков (T10e): до 3 строк "число +
     короткая фраза", ничего не утверждает про связь между числами (в отличие
     от figures_chart) - поэтому числа из разных сюжетов законно уживаются на
@@ -271,7 +286,13 @@ def stat_card(rows: list[tuple[str, str]], title: str, subtitle: str,
 
     rows - уже отфильтрованы вызывающим кодом (main.py) до статуса FOUND по
     верификатору: сюда попадает не более 3 пар, само значение и его форма
-    здесь не проверяются заново."""
+    здесь не проверяются заново.
+
+    key - различает файлы разных вызовов в одном прогоне (main.py передаёт
+    номер черновика). Живой прогон (T10g review) показал: без ключа стат-
+    карточки черновиков 1 и 2 писали в один и тот же путь "stat_dark.png" -
+    вторая перезаписывала файл раньше, чем deliver.send_photo успевал
+    прочитать первую, и черновику 1 отправлялась картинка черновика 2."""
     rows = (rows or [])[:3]
     if not rows:
         return None
@@ -299,16 +320,18 @@ def stat_card(rows: list[tuple[str, str]], title: str, subtitle: str,
             chartstyle.titles(fig, ax, subtitle or "", title or "", c)
             chartstyle.footer(fig, f"Data: draft FIGURES | {date.today().strftime('%d.%m.%Y')}", c)
             fig.subplots_adjust(left=0.09, right=0.96, top=0.80, bottom=0.12)
-            return _save(fig, f"stat_{theme}.png")
+            return _save(fig, f"stat_{key}_{theme}.png")
     except Exception as exc:
         log.warning("stat_card упал: %s", exc)
         return None
 
 
-def quote_card(sentence: str, source: str, theme: str = "dark") -> pathlib.Path | None:
+def quote_card(sentence: str, source: str, theme: str = "dark",
+               key: str = "0") -> pathlib.Path | None:
     """Фолбэк stat_card (T10e): одна сильная фраза черновика типографикой плюс
     источник - когда проверенных (FOUND) чисел не осталось вовсе. Пустая
-    фраза - None, а не пустая карточка."""
+    фраза - None, а не пустая карточка. key - см. stat_card (та же коллизия
+    возможна между черновиками, оба падающими на этот фолбэк в одном прогоне)."""
     sentence = (sentence or "").strip()
     if not sentence:
         return None
@@ -329,7 +352,7 @@ def quote_card(sentence: str, source: str, theme: str = "dark") -> pathlib.Path 
                        ha="center", va="center")
 
             fig.subplots_adjust(left=0.10, right=0.90, top=0.92, bottom=0.10)
-            return _save(fig, f"quote_{theme}.png")
+            return _save(fig, f"quote_{key}_{theme}.png")
     except Exception as exc:
         log.warning("quote_card упал: %s", exc)
         return None

@@ -198,6 +198,19 @@ def test_stat_card_empty_rows_returns_none():
     assert charts.stat_card(None, title="t", subtitle="s", theme="dark") is None
 
 
+def test_stat_card_different_keys_write_different_files(monkeypatch, tmp_path):
+    """Живой прогон (T10g review): черновики 1 и 2 оба вызывают stat_card в
+    одном прогоне и раньше писали в один и тот же путь "stat_dark.png" -
+    вторая карточка перезаписывала файл раньше, чем deliver.send_photo успевал
+    прочитать первую, и черновику 1 уходила картинка черновика 2. key должен
+    различать файлы разных вызовов."""
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    p1 = charts.stat_card([("1", "a")], title="t1", subtitle="s", theme="dark", key="1")
+    p2 = charts.stat_card([("2", "b")], title="t2", subtitle="s", theme="dark", key="2")
+    assert p1 != p2
+    assert p1.exists() and p2.exists()
+
+
 def test_quote_card_draws_with_sentence_and_source(monkeypatch, tmp_path):
     """Ноль FOUND -> quote_card, не пустая карточка."""
     monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
@@ -217,6 +230,14 @@ def test_quote_card_works_without_source(monkeypatch, tmp_path):
     monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
     path = charts.quote_card("A strong sentence with no source attached.", "", theme="dark")
     assert path is not None
+
+
+def test_quote_card_different_keys_write_different_files(monkeypatch, tmp_path):
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    p1 = charts.quote_card("First sentence.", "a.com", theme="dark", key="1")
+    p2 = charts.quote_card("Second sentence.", "b.com", theme="dark", key="2")
+    assert p1 != p2
+    assert p1.exists() and p2.exists()
 
 
 def test_stat_card_and_quote_card_survive_matplotlib_failure(monkeypatch):
