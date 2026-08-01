@@ -143,6 +143,29 @@ def _oneline(text: str) -> str:
     return " ".join((text or "").split())
 
 
+def build_domain_urls(selected: list[dict]) -> dict[str, str]:
+    """домен -> URL конкретной статьи, для deliver._to_html: модель иногда пишет
+    в SOURCE: черновика голый домен вместо ссылки (T9 fix 4), и без подсказки
+    Telegram сам линкует такой голый текст на корень сайта.
+
+    Строго ОДИН URL на домен. Раньше это был плоский {s["item"].source:
+    s["item"].url for s in selected} - при нескольких отобранных сюжетах с
+    одного домена (обычное дело для bankier.pl) более поздняя запись в
+    словаре молча стирала более раннюю, и deliver._wrap_bare_domains потом
+    подставляла этот единственный (чужой для остальных сюжетов) URL везде,
+    где в сообщении встречался голый домен - включая метку "www.bankier.pl"
+    в самом списке СЮЖЕТЫ, к SOURCE черновиков вообще не относящуюся. Итог
+    боевого прогона: у сюжетов 1/2/3 первая ссылка вела на сюжет 5 (T10b).
+
+    Дедуп по заголовку (collect.dedupe_by_title) тут ни при чём - он оставляет
+    URL выжившей записи как есть, ничего не подменяет и не мешает. Причина
+    была в этом плоском словаре, не в дедупе (проверено по коду, не на веру)."""
+    by_domain: dict[str, set[str]] = {}
+    for s in selected:
+        by_domain.setdefault(s["item"].source, set()).add(s["item"].url)
+    return {domain: next(iter(urls)) for domain, urls in by_domain.items() if len(urls) == 1}
+
+
 def build_message(selected, data, drafts) -> str:
     """Секции собираются списком и склеиваются "\\n\\n" явно - гарантированная
     пустая строка между ними (и между сюжетами) не зависит от того, сколько
@@ -258,10 +281,7 @@ def main() -> int:
 
     msg = build_message(selected, data, drafts)
     q = brain.quota_summary()
-    # домен -> URL конкретной статьи: модель иногда путает "SOURCE:" с голым
-    # доменом вместо ссылки - deliver._to_html подставляет реальный URL, чтобы
-    # Telegram не заавтолинковал его сам на корень сайта (T9 fix 4)
-    domain_urls = {s["item"].source: s["item"].url for s in selected}
+    domain_urls = build_domain_urls(selected)
 
     if args.dry:
         print("\n" + msg)

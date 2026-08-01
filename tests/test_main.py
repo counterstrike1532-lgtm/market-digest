@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
-from src import brain, collect, enrich, main, numbers, verify
+from src import brain, collect, deliver, enrich, main, numbers, verify
 from src.collect import Item
-from src.main import (build_message, filter_by_age, first_draft_covers_one_story,
-                      _fix_glued_punctuation)
+from src.main import (build_domain_urls, build_message, filter_by_age,
+                      first_draft_covers_one_story, _fix_glued_punctuation)
 
 
 def _item(age_days=None, published_known=True):
@@ -129,6 +130,93 @@ def test_first_draft_covers_one_story_multiple_urls_comma_separated():
 
 def test_first_draft_covers_one_story_no_match_is_conservative_false():
     assert first_draft_covers_one_story("garbage, no SOURCE field at all") is False
+
+
+# ---------------------------------------------------------------- T10b: URL после дедупа
+#
+# Боевой прогон 01.08.2026: у сюжетов 1/2/3 первая ссылка в СЮЖЕТЫ вела на
+# сюжет 5 (общий газовый материал), вторая - верно. Гипотеза владельца была
+# "дедуп по заголовку смешивает URL" - проверка по коду (tests/test_collect.py)
+# это не подтвердила: dedupe_by_title не трогает поля выживших записей.
+# Настоящая причина: build_domain_urls (тогда - плоский словарь прямо в
+# main()) при нескольких отобранных сюжетах с одного домена (bankier.pl,
+# сюжеты 1/2/3/5 - все оттуда) молча оставлял URL того сюжета, что шёл в
+# selected последним, и deliver._wrap_bare_domains подставляла этот URL
+# ВЕЗДЕ, где в сообщении встречался голый домен - включая метку it.source в
+# самом списке СЮЖЕТЫ, к SOURCE черновиков не относящуюся вовсе.
+
+def test_build_domain_urls_excludes_ambiguous_domain():
+    """Несколько сюжетов с одного домена - разных URL не выбрать однозначно,
+    домен вообще не попадает в карту (лучше не ссылка, чем ссылка не туда)."""
+    a = Item(title="a", url="https://bankier.pl/story-a", source="bankier.pl",
+            tag="misc", published=datetime.now(timezone.utc).isoformat())
+    b = Item(title="b", url="https://bankier.pl/story-b", source="bankier.pl",
+            tag="misc", published=datetime.now(timezone.utc).isoformat())
+    selected = [{"item": a}, {"item": b}]
+    assert build_domain_urls(selected) == {}
+
+
+def test_build_domain_urls_keeps_unambiguous_domain():
+    a = Item(title="a", url="https://money.pl/story-a", source="money.pl",
+            tag="misc", published=datetime.now(timezone.utc).isoformat())
+    selected = [{"item": a}]
+    assert build_domain_urls(selected) == {"money.pl": "https://money.pl/story-a"}
+
+
+def test_build_domain_urls_real_run_regression():
+    """Регрессия на реальные шесть сюжетов прогона 01.08.2026 (bankier.pl - у
+    четырёх из шести, money.pl и dowjones.io - по одному): bankier.pl
+    неоднозначен и не попадает в карту вовсе; money.pl - единственный сюжет
+    с этого домена, попадает корректно."""
+    now = datetime.now(timezone.utc).isoformat()
+    urls = {
+        1: "https://www.bankier.pl/wiadomosc/Dunaj-wysycha-elektrownia-jadrowa-staje-Wegry-wylacza-Paks-w-weekend-9176727.html",
+        2: "https://www.bankier.pl/wiadomosc/Wielka-plyta-zagrozi-deweloperom-Tysiace-odziedziczonych-mieszkan-trafia-na-sprzedaz-9176697.html",
+        3: "https://www.bankier.pl/wiadomosc/Kolejna-obnizka-oprocentowania-w-Banku-Millennium-Tym-razem-dotyczy-stawki-standardowej-9176304.html",
+        4: "https://www.money.pl/finanse/mezczyzni-doplacaja-do-emerytur-kobiet-o-tym-sie-nie-mowi-opinia-7312364596259200a.html",
+        5: "https://www.bankier.pl/wiadomosc/Polska-sprowadza-coraz-wiecej-gazu-Dania-i-USA-na-czele-dostawcow-9176695.html",
+    }
+    sources = {1: "www.bankier.pl", 2: "www.bankier.pl", 3: "www.bankier.pl",
+              4: "www.money.pl", 5: "www.bankier.pl"}
+    selected = [{"item": Item(title=f"story {n}", url=u, source=sources[n], tag="misc",
+                              published=now)}
+               for n, u in urls.items()]
+
+    domain_urls = build_domain_urls(selected)
+    assert "www.bankier.pl" not in domain_urls          # неоднозначен - не угадываем
+    assert domain_urls["www.money.pl"] == urls[4]
+
+    # рендер строки СЮЖЕТЫ для каждого сюжета: их собственный URL (напечатанный
+    # явно после "-") остаётся верным. Для bankier.pl (неоднозначен) голая
+    # метка домена вообще не превращается в ссылку - только явный URL. Для
+    # money.pl (единственный сюжет с домена) метка тоже верно ссылается на
+    # СВОЙ же URL - никакого другого URL с этого домена и не было.
+    for n, u in urls.items():
+        line = f"   {sources[n]}, 2026-08-01 - {u}"
+        out = deliver._to_html(line, domain_urls)
+        # каждая ссылка в отрендеренной строке ведёт на URL ЭТОГО сюжета,
+        # ни на чей чужой (главная регрессия: сюжет 5 не просочился в 1/2/3)
+        for m in re.finditer(r'href="([^"]*)"', out):
+            assert m.group(1) == u
+
+
+# ---------------------------------------------------------------- T10b req 4: utm-хвосты
+
+def test_to_html_strips_utm_params_from_rendered_url():
+    url = ("https://www.bankier.pl/wiadomosc/Dunaj-wysycha-9176727.html"
+          "?utm_source=RSS&utm_medium=RSS&utm_campaign=Wiadomosci")
+    out = deliver._to_html(url)
+    assert "utm_source" not in out
+    assert "utm_medium" not in out
+    assert "utm_campaign" not in out
+    assert 'href="https://www.bankier.pl/wiadomosc/Dunaj-wysycha-9176727.html"' in out
+
+
+def test_to_html_strips_utm_but_keeps_other_query_params():
+    url = "https://news.google.com/rss/articles/x?oc=5&utm_source=RSS&hl=en-US"
+    out = deliver._to_html(url)
+    assert "utm_source" not in out
+    assert "oc=5" in out and "hl=en-US" in out
 
 
 # ---------------------------------------------------------------- T9d: сквозной прогон

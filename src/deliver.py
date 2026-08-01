@@ -13,7 +13,7 @@ import logging
 import os
 import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import requests
 
@@ -133,6 +133,32 @@ def _domain(url: str) -> str:
         return url
 
 
+_UTM_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"}
+
+
+def _strip_utm(url: str) -> str:
+    """utm-хвосты (?utm_source=RSS&utm_medium=RSS&utm_campaign=Wiadomosci) дают
+    треть длины типичной RSS-ссылки и ничего не значат для читателя - режем
+    при рендере (T10b req 4). Сам Item.url (state/seen.json, дедуп по ссылке)
+    не трогаем: key() и так игнорирует query string целиком.
+
+    Режем целыми "key=value"-сегментами по литеральным "&"/"=", не проходя
+    через parse_qsl/urlencode - тот раунд-трип перекодирует ВСЕ параметры
+    заодно (например ":" в "ceid=US:en" превращался в "%3A"), меняя URL,
+    даже когда ни один utm-параметр не резался вовсе."""
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return url
+    if not parts.query:
+        return url
+    segments = parts.query.split("&")
+    kept = [seg for seg in segments if seg.split("=", 1)[0] not in _UTM_PARAMS]
+    if len(kept) == len(segments):
+        return url
+    return urlunparse(parts._replace(query="&".join(kept)))
+
+
 def _wrap_bare_domains(segment: str, domain_re: re.Pattern | None,
                        domain_urls: dict[str, str]) -> str:
     """Домены без "https://" (модель иногда путает "SOURCE: www.cnbc.com" с
@@ -147,7 +173,7 @@ def _wrap_bare_domains(segment: str, domain_re: re.Pattern | None,
     for m in domain_re.finditer(segment):
         out.append(html.escape(segment[last:m.start()]))
         domain = m.group()
-        url = domain_urls[domain]
+        url = _strip_utm(domain_urls[domain])
         out.append(f'<a href="{html.escape(url)}">{html.escape(domain)}</a>')
         last = m.end()
     out.append(html.escape(segment[last:]))
@@ -173,7 +199,7 @@ def _to_html(text: str, domain_urls: dict[str, str] | None = None) -> str:
     out, last = [], 0
     for m in URL_RE.finditer(text):
         out.append(_wrap_bare_domains(text[last:m.start()], domain_re, domain_urls or {}))
-        url = m.group()
+        url = _strip_utm(m.group())
         label = html.escape(_domain(url))
         out.append(f'<a href="{html.escape(url)}">{label}</a>')
         last = m.end()
