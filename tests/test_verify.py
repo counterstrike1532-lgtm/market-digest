@@ -212,7 +212,7 @@ def test_verify_drafts_inserts_headers_across_dashes_separator():
         + "\n\n---\n\n"
         + _draft_block("A", "Second body.", "none used", _ITEM_2_URL)
     )
-    out, stats = verify.verify_drafts(raw, selected=[], data_text="")
+    out, stats, _ = verify.verify_drafts(raw, selected=[], data_text="")
 
     assert "DRAFT 1 (digest)" in out
     assert "DRAFT 2 (A)" in out
@@ -230,7 +230,7 @@ def test_verify_drafts_inserts_headers_across_dashes_separator():
 
 def test_verify_drafts_no_model_header_still_gets_one():
     raw = _draft_block("digest-short", "Only body.", "none used", _ITEM_1_URL)
-    out, stats = verify.verify_drafts(raw, selected=[], data_text="")
+    out, stats, _ = verify.verify_drafts(raw, selected=[], data_text="")
     assert out.count("DRAFT 1") == 1
     assert "SHAPE: digest-short" in out
     assert stats["drafted"] == 1
@@ -467,7 +467,7 @@ def test_stats_verdicts_reflect_verifier_downgrade_not_raw_verdict():
     selected = [{"item": SimpleNamespace(url=_ITEM_2_URL),
                 "body": "This article talks about something unrelated entirely."}]
 
-    _, stats = verify.verify_drafts(raw, selected=selected, data_text=data_text)
+    _, stats, _blocks = verify.verify_drafts(raw, selected=selected, data_text=data_text)
 
     assert stats["drafted"] == 3
     assert stats["verdicts"] == {"POST": 1, "MAYBE": 1, "SKIP": 1}
@@ -485,7 +485,7 @@ def test_verify_drafts_check_first_lists_all_unparsed_values():
         "digest", "Body text.",
         "3.4.5 million -> A; 1,2,3 -> A",
         _ITEM_1_URL, verdict="POST")
-    out, stats = verify.verify_drafts(draft, selected=[], data_text="")
+    out, stats, _ = verify.verify_drafts(draft, selected=[], data_text="")
     assert stats["verdicts"] == {"POST": 0, "MAYBE": 1, "SKIP": 0}
     assert "VERDICT эффективно MAYBE" in out
     assert '"3.4.5 million"' in out
@@ -510,7 +510,7 @@ def test_verify_drafts_dedups_model_printed_header():
         + "\n\nDRAFT 2\n"
         + _draft_block("A", "Second body.", "none used", _ITEM_2_URL)
     )
-    out, _ = verify.verify_drafts(raw, selected=[], data_text="")
+    out, _, _blocks = verify.verify_drafts(raw, selected=[], data_text="")
     assert "DRAFT 2DRAFT 2" not in out
     assert out.count("DRAFT 2") == 1
     assert "DRAFT 2 (A)" in out
@@ -524,7 +524,7 @@ def test_verify_drafts_dedups_header_with_no_blank_line_before_it():
         + "\nDRAFT 2\n"
         + _draft_block("A", "Second body.", "none used", _ITEM_2_URL)
     )
-    out, _ = verify.verify_drafts(raw, selected=[], data_text="")
+    out, _, _blocks = verify.verify_drafts(raw, selected=[], data_text="")
     assert "DRAFT 2DRAFT 2" not in out
     assert out.count("DRAFT 2") == 1
 

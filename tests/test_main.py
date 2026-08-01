@@ -9,7 +9,8 @@ from datetime import datetime, timedelta, timezone
 from src import brain, collect, deliver, enrich, main, numbers, verify
 from src.collect import Item
 from src.main import (build_domain_urls, build_message, filter_by_age,
-                      first_draft_covers_one_story, _fix_glued_punctuation)
+                      first_draft_covers_one_story, render_draft_message,
+                      render_summary, _fix_glued_punctuation, _word_count)
 
 
 def _item(age_days=None, published_known=True):
@@ -217,6 +218,161 @@ def test_to_html_strips_utm_but_keeps_other_query_params():
     out = deliver._to_html(url)
     assert "utm_source" not in out
     assert "oc=5" in out and "hl=en-US" in out
+
+
+# ---------------------------------------------------------------- T10d: рендер сводки и черновиков
+
+def _story(url="https://www.bankier.pl/x", source="www.bankier.pl", title="Test story",
+          score=8, angle="An angle worth reading.", verified=True, why_nonobvious="obvious thing"):
+    it = Item(title=title, url=url, source=source, tag="misc",
+             published=datetime.now(timezone.utc).isoformat())
+    return {"item": it, "score": score, "angle": angle, "why_nonobvious": why_nonobvious,
+           "verified": verified}
+
+
+def _draft_block_dict(shape="digest", body="Body text with a few words in it today.",
+                      verdict="POST", figures="", source="https://example.com/a",
+                      check_first="-", downgrade=False, offending=None, level_a=None):
+    return {
+        "shape": shape, "body": body, "verdict": verdict, "figures": figures,
+        "source": source, "check_first": check_first, "_downgrade": downgrade,
+        "_offending": offending or [], "_level_a": level_a or [],
+    }
+
+
+def test_render_summary_omits_debug_fields_and_second_link():
+    """T10d: в отрендеренном выводе нет FIGURES/SHAPE/WHY_THIS_ONE/неочевидно -
+    даже если сюжет содержит why_nonobvious, в сводку он не попадает вовсе."""
+    selected = [_story()]
+    out = render_summary(selected, data={})
+    for forbidden in ("FIGURES", "SHAPE", "WHY_THIS_ONE", "неочевидно"):
+        assert forbidden not in out
+    assert "obvious thing" not in out          # why_nonobvious не печатается
+
+
+def test_render_summary_shows_domain_link_and_verified_marker():
+    selected = [_story(verified=False)]
+    out = render_summary(selected, data={})
+    assert "https://www.bankier.pl/x" in out
+    assert "текст статьи не догружен" in out
+
+
+def test_render_summary_cifry_at_most_three_lines():
+    data = {
+        "PLN/USD": {"value": 3.7425, "chg_30d_pct": 0.38, "as_of": "2026-07-31"},
+        "PLN/EUR": {"value": 4.3128, "chg_30d_pct": 1.02, "as_of": "2026-07-31"},
+        "WIG20 TR (ETF)": {"value": 80.13, "chg_1d_pct": 0.33, "chg_1m_pct": 10.01,
+                           "as_of": "2026-07-31"},
+        "sp500": {"value": 7489.72, "chg_1d_pct": 0.70, "chg_1m_pct": -1.45,
+                 "as_of": "2026-07-31"},
+        "HICP PL": {"value": 2.5, "as_of": "2025-12"},
+    }
+    out = render_summary([], data)
+    cifry_block = out.split("\n\n")[1]
+    assert len(cifry_block.splitlines()) <= 3
+
+
+def test_word_count_counts_body_words():
+    assert _word_count("one two three") == 3
+    assert _word_count("") == 0
+
+
+def test_render_draft_message_header_appears_exactly_once():
+    block = _draft_block_dict(shape="digest", verdict="SKIP")
+    out = render_draft_message(block, 1)
+    assert out.count("ЧЕРНОВИК 1") == 1
+    for forbidden in ("FIGURES", "SHAPE:", "WHY_THIS_ONE", "неочевидно"):
+        assert forbidden not in out
+
+
+def test_render_draft_message_clean_case_is_one_counter_line():
+    """При всех FOUND - одна строка со счётчиком, без списка чисел (T10d)."""
+    level_a = [{"value": "406,000", "source": "x", "status": "FOUND"},
+              {"value": "23%", "source": "y", "status": "FOUND"}]
+    block = _draft_block_dict(verdict="POST", level_a=level_a)
+    out = render_draft_message(block, 1)
+    assert "POST · цифры 2/2 ✅" in out
+    assert "406,000" not in out
+    assert "23%" not in out
+
+
+def test_render_draft_message_shows_first_three_offending_values_only():
+    """При трёх и более проблемных числах печатаются первые три (T10d)."""
+    figures = (
+        '- 100 -> Story [1] source text ("100")\n'
+        '- 200 -> Story [1] source text ("200 X")\n'
+        '- 300 -> Story [1] source text ("300 Y")\n'
+        '- 400 -> Story [1] source text ("400 Z")'
+    )
+    level_a = [{"value": v, "source": s, "status": "NOT_FOUND"} for v, s in [
+        ("100", 'Story [1] source text ("100")'),
+        ("200", 'Story [1] source text ("200 X")'),
+        ("300", 'Story [1] source text ("300 Y")'),
+        ("400", 'Story [1] source text ("400 Z")'),
+    ]]
+    block = _draft_block_dict(verdict="POST", figures=figures, downgrade=True,
+                              offending=["100", "200", "300", "400"], level_a=level_a)
+    out = render_draft_message(block, 1)
+    assert "MAYBE" in out                       # эффективный вердикт, не сырой POST
+    assert '100 ("100")' in out
+    assert '200 ("200 X")' in out
+    assert '300 ("300 Y")' in out
+    assert "400" not in out                     # четвёртое не печатается
+    assert "+1 more" in out
+
+
+def test_render_draft_message_check_first_only_when_not_dash():
+    clean = render_draft_message(_draft_block_dict(check_first="-"), 1)
+    assert "CHECK_FIRST" not in clean
+
+    with_check = render_draft_message(_draft_block_dict(check_first="verify the GUS figure"), 1)
+    assert "CHECK_FIRST: verify the GUS figure" in with_check
+
+
+def test_render_draft_message_parse_failed_shows_manual_check_notice():
+    block = _draft_block_dict()
+    block["_parse_failed"] = True
+    out = render_draft_message(block, 1)
+    assert "проверь числа руками" in out
+
+
+def test_digest_log_receives_full_report_with_figures(monkeypatch, tmp_path, caplog):
+    """Всё вырезанное из Telegram (FIGURES и т.д.) уходит в digest.log на уровне
+    INFO - полный отчёт верификатора, не только то, что реально отправляется (T10d)."""
+    seen_path = tmp_path / "seen.json"
+    metrics_path = tmp_path / "metrics.json"
+    monkeypatch.setattr(main, "SEEN", seen_path)
+    monkeypatch.setattr(main, "METRICS", metrics_path)
+
+    item = Item(title="Test story", url="https://example.com/story1",
+               source="example.com", tag="misc",
+               published=datetime.now(timezone.utc).isoformat())
+    monkeypatch.setattr(collect, "collect_all", lambda cfg, hours: [item])
+    monkeypatch.setattr(numbers, "gather", lambda cfg: {})
+    selected = [{"item": item, "score": 8, "angle": "x", "why_nonobvious": "x",
+                "body": "", "verified": False}]
+    monkeypatch.setattr(brain, "rank", lambda candidates, top_n: selected)
+    monkeypatch.setattr(enrich, "enrich", lambda selected, limit: 0)
+    monkeypatch.setattr(brain, "draft", lambda *a, **kw:
+                        'SHAPE: digest\nBODY: text.\nFIGURES: 6,872 -> Money.pl\n'
+                        'SOURCE: https://example.com/story1\nWHY_THIS_ONE: why not obvious\n'
+                        'VERDICT: SKIP\nWHY: commodity news, no edge\nCHECK_FIRST: -')
+    monkeypatch.setattr(brain, "last_model_used", lambda: "gemini-3.5-flash")
+    monkeypatch.setattr(brain, "quota_summary",
+                        lambda: {"total": 1, "successful": 1, "quota_refused": 0})
+    monkeypatch.setattr("src.deliver.send", lambda *a, **kw: None)
+    monkeypatch.setattr("src.deliver.send_photo", lambda *a, **kw: None)
+
+    monkeypatch.setattr("sys.argv", ["main.py", "--no-charts"])
+    import logging
+    with caplog.at_level(logging.INFO, logger="digest"):
+        rc = main.main()
+
+    assert rc == 0
+    full_log = "\n".join(r.message for r in caplog.records)
+    assert "6,872" in full_log
+    assert "FIGURES" in full_log
+    assert "WHY_THIS_ONE" in full_log
 
 
 # ---------------------------------------------------------------- T9d: сквозной прогон

@@ -133,7 +133,7 @@ def _to_search_variants(value: str) -> list[str]:
     НБСП) и словесный порядок величины (tys./mln/mld) для круглых чисел -
     "406,000" по-польски источник пишет "406 tys.", не "406,000" ни в каком
     варианте разделителя. Это второй эшелон, после прямой цитаты из FIGURES
-    (см. _quoted_source_form) - но нужен и сам по себе, когда цитаты нет.
+    (см. quoted_source_form) - но нужен и сам по себе, когда цитаты нет.
 
     Хвост (единица/порядок слова, "billion", "PLN", "percentage points")
     приклеивается назад с одним пробелом к каждому варианту числа - именно так
@@ -238,7 +238,7 @@ _BARE_YEAR = re.compile(r"^(19|20)\d{2}$")
 _QUOTED = re.compile(r'"([^"]+)"')
 
 
-def _quoted_source_form(source: str) -> str | None:
+def quoted_source_form(source: str) -> str | None:
     """Фрагмент в кавычках из поля FIGURES ("406 tys.") - модель уже указала,
     в какой форме число стоит в источнике. Посимвольный поиск этой цитаты -
     первый и самый дешёвый и надёжный эшелон проверки, до любой реконструкции
@@ -276,7 +276,7 @@ def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
             out.append({"value": value, "source": source, "status": "YEAR"})
             continue
 
-        quote = _quoted_source_form(source)
+        quote = quoted_source_form(source)
         variants = ([quote] if quote else []) + _to_search_variants(value)
 
         if any(v in data_text for v in variants):
@@ -540,7 +540,8 @@ def _stats_from_blocks(blocks: list[dict]) -> dict:
     return stats
 
 
-def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> tuple[str, dict]:
+def verify_drafts(drafts_text: str, selected: list[dict],
+                  data_text: str) -> tuple[str, dict, list[dict]]:
     """Точка входа. Дописывает под каждым черновиком строку "ЦИФРЫ: ..." и, если
     хоть одно число NOT_FOUND или MISMATCH, явную пометку о принудительном
     понижении VERDICT до MAYBE - саму строку VERDICT черновика не трогает, только
@@ -551,7 +552,13 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> tup
     вставки берутся из ОДНИХ И ТЕХ ЖЕ match-объектов, поэтому аннотация физически
     не может уехать не к своему черновику (раньше data и место вставки собирались
     двумя независимыми проходами, синхронизированными только счётчиком по индексу -
-    один непарный матч расходил их на весь оставшийся текст)."""
+    один непарный матч расходил их на весь оставшийся текст).
+
+    Третье значение - blocks: те же структуры, что использовались для сборки
+    текста (shape/body/figures/source/verdict/why/check_first/_level_a/_report/
+    _downgrade/_offending), без повторного захода в Gemini. Нужны T10d-рендереру
+    Telegram-сообщений - разбирать заново уже готовый плоский текст обратно в
+    поля было бы хрупко и дублировало бы эту же работу."""
     blocks = []
     for m in _DRAFT_RE.finditer(drafts_text):
         d = {k: (v or "").strip() for k, v in m.groupdict().items()}
@@ -560,7 +567,7 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> tup
 
     if not blocks:
         log.warning("verify: не удалось разобрать черновики по формату - цифры не проверены")
-        return drafts_text, _empty_stats()
+        return drafts_text, _empty_stats(), []
 
     for b in blocks:
         raw_figures = b["figures"].strip()
@@ -585,7 +592,7 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> tup
             # verify_figures_local (с цитатой из FIGURES, если она есть) -
             # иначе матч, найденный только по цитате, здесь не находился бы
             # вовсе, и candidate тихо терялся (T10c).
-            quote = _quoted_source_form(r["source"])
+            quote = quoted_source_form(r["source"])
             source_variants = ([quote] if quote else []) + _to_search_variants(r["value"])
             fragment = _fragment_around(combined_body, source_variants)
             if not fragment:
@@ -637,4 +644,4 @@ def verify_drafts(drafts_text: str, selected: list[dict], data_text: str) -> tup
         out_parts.append("\n" + "\n".join(_report_lines(b)))
         pos = m.end()
     out_parts.append(drafts_text[pos:])
-    return "".join(out_parts), stats
+    return "".join(out_parts), stats, blocks

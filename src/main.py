@@ -166,6 +166,123 @@ def build_domain_urls(selected: list[dict]) -> dict[str, str]:
     return {domain: next(iter(urls)) for domain, urls in by_domain.items() if len(urls) == 1}
 
 
+_COMPACT_MARKET_NAME = {"WIG20 TR (ETF)": "WIG20 TR", "sp500": "S&P500", "nasdaq": "Nasdaq"}
+
+
+def _render_cifry_compact(data: dict) -> list[str]:
+    """ЦИФРЫ сообщения 2 в максимум три строки (T10d): валюты/рынки/HICP - по
+    одной строке на категорию, без построчного перечисления каждого ключа."""
+    fx_bits, market_bits, hicp_bits = [], [], []
+    for k, v in data.items():
+        if k.startswith("PLN/"):
+            code = k.split("/", 1)[1]
+            chg = v.get("chg_30d_pct")
+            chg_txt = f" ({chg:+.1f}%)" if chg is not None else ""
+            fx_bits.append(f"{code} {v.get('value')}{chg_txt}")
+        elif k.startswith("HICP "):
+            hicp_bits.append(f"{k[len('HICP '):]} {v.get('value')}")
+        elif "chg_1d_pct" in v or "chg_1m_pct" in v:
+            name = _COMPACT_MARKET_NAME.get(k, k)
+            bits = []
+            if "chg_1d_pct" in v:
+                bits.append(f"{v['chg_1d_pct']:+.1f}% д")
+            if "chg_1m_pct" in v:
+                bits.append(f"{v['chg_1m_pct']:+.1f}% мес")
+            market_bits.append(f"{name} {' / '.join(bits)}")
+
+    lines = []
+    if fx_bits:
+        lines.append(" · ".join(fx_bits) + "  30д")
+    if market_bits:
+        lines.append(" · ".join(market_bits))
+    if hicp_bits and len(lines) < 3:
+        lines.append(" / ".join(hicp_bits) + " (г/г)")
+    return lines
+
+
+def render_summary(selected: list[dict], data: dict) -> str:
+    """Сообщение 2 (T10d): дата, компактные ЦИФРЫ, список сюжетов без
+    служебных полей - без "неочевидно", без второй ссылки. URL сюжета - как
+    обычный текст: deliver._to_html сам покажет его доменом-ссылкой (URL_RE),
+    без риска T10b - ссылка ровно одна и принадлежит именно этому сюжету, тут
+    вообще не нужен domain_urls/build_domain_urls."""
+    today = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    sections = [f"СВОДКА {today}"]
+
+    cifry_lines = _render_cifry_compact(data) if data else []
+    if cifry_lines:
+        sections.append("\n".join(cifry_lines))
+
+    story_blocks = [f"СЮЖЕТЫ ({len(selected)})"]
+    for i, s in enumerate(selected, 1):
+        it = s["item"]
+        lines = [f"{i}. [{s.get('score')}] {_oneline(it.title)}"]
+        if s.get("angle"):
+            lines.append(f"   {_oneline(s['angle'])}")
+        lines.append(f"   {it.url}")
+        if "verified" in s and not s["verified"]:
+            lines.append("   ! текст статьи не догружен — цифры в угле не проверены")
+        story_blocks.append("\n".join(lines))
+    sections.append("\n\n".join(story_blocks))
+
+    return "\n\n".join(sections)
+
+
+def _word_count(text: str) -> int:
+    return len((text or "").split())
+
+
+def _offending_source_quotes(values: list[str], figures_raw: str) -> dict[str, str | None]:
+    """value -> цитата из FIGURES (verify.quoted_source_form) - показать проблемное
+    число вместе с его формой в источнике, как в живом отчёте (T10d)."""
+    pairs = charts.parse_figures(figures_raw) or []
+    return {v: verify.quoted_source_form(src) for v, src in pairs if v in values}
+
+
+def render_draft_message(block: dict, num: int) -> str:
+    """Сообщение 3+ (T10d): один черновик на сообщение. SHAPE/FIGURES/
+    WHY_THIS_ONE в Telegram не идут никогда - полный отчёт верификатора уже
+    ушёл в digest.log через build_message() (см. main()). Заголовок черновика
+    ставит рендерер - строку модели "DRAFT n (...)" сюда не пускаем вовсе,
+    её и не было в распарсенных полях block."""
+    body = block.get("body", "").strip()
+    header = f"ЧЕРНОВИК {num} — {block.get('shape') or '?'}, {_word_count(body)} слов"
+    lines = [header, "", body]
+
+    if block.get("_parse_failed"):
+        lines += ["", "⚠️ FIGURES не распарсился - проверь числа руками"]
+    else:
+        verdict = (block.get("verdict") or "").strip().upper()
+        if block.get("_downgrade") and verdict == "POST":
+            verdict = "MAYBE"          # эффективный вердикт, не сырой (T9 fix 6)
+
+        offending = block.get("_offending") or []
+        if offending:
+            quotes = _offending_source_quotes(offending, block.get("figures", ""))
+            shown = offending[:3]
+            parts = [f'{v} ("{quotes[v]}")' if quotes.get(v) else v for v in shown]
+            extra = f" +{len(offending) - 3} more" if len(offending) > 3 else ""
+            lines += ["", f"{verdict} — сверь {', '.join(parts)}{extra}"]
+        else:
+            countable = [r for r in block.get("_level_a", []) if r["status"] != "YEAR"]
+            denom = len(countable)
+            if denom:
+                found = sum(1 for r in countable if r["status"] == "FOUND")
+                lines += ["", f"{verdict} · цифры {found}/{denom} ✅"]
+            else:
+                lines += ["", verdict]
+
+    check_first = (block.get("check_first") or "").strip()
+    if check_first and check_first != "-":
+        lines.append(f"CHECK_FIRST: {check_first}")
+
+    urls = [u.strip() for u in re.split(r"[,\n]", block.get("source", "")) if u.strip()]
+    if urls:
+        lines.append(", ".join(urls))
+
+    return "\n".join(lines)
+
+
 def build_message(selected, data, drafts) -> str:
     """Секции собираются списком и склеиваются "\\n\\n" явно - гарантированная
     пустая строка между ними (и между сюжетами) не зависит от того, сколько
@@ -273,18 +390,30 @@ def main() -> int:
 
     log.info("--- верификация цифр ---")
     draft_stats = verify._empty_stats()
+    draft_blocks = []
     try:
-        drafts, draft_stats = verify.verify_drafts(drafts, selected,
-                                                    brain.format_data_block(data))
+        drafts, draft_stats, draft_blocks = verify.verify_drafts(
+            drafts, selected, brain.format_data_block(data))
     except Exception as exc:
         log.warning("verify_drafts упал: %s", exc)
 
-    msg = build_message(selected, data, drafts)
+    # Полный отчёт (FIGURES, оба URL, "неочевидно", сырые заголовки модели,
+    # полный текст ЦИФРЫ) в Telegram не идёт (T10d) - только в лог. Лог уже
+    # уходит артефактом в Actions, владелец откроет его, когда что-то заподозрит.
+    log.info("полный отчёт прогона (в Telegram не отправляется):\n%s",
+             build_message(selected, data, drafts))
+
+    summary_msg = render_summary(selected, data)
+    draft_msgs = [render_draft_message(b, i) for i, b in enumerate(draft_blocks, 1)]
+
     q = brain.quota_summary()
     domain_urls = build_domain_urls(selected)
 
     if args.dry:
-        print("\n" + msg)
+        print("\n" + summary_msg)
+        for dm in draft_msgs:
+            print("\n" + "-" * 30)
+            print(dm)
         if market_chart:
             print(f"\n[график] рынки: {market_chart}")
         if figures_chart:
@@ -292,7 +421,9 @@ def main() -> int:
     else:
         if market_chart:
             deliver.send_photo(market_chart, "Рынки за месяц")
-        deliver.send(msg, domain_urls)
+        deliver.send(summary_msg, domain_urls)
+        for dm in draft_msgs:
+            deliver.send(dm, domain_urls)
         if figures_chart:
             deliver.send_photo(figures_chart,
                                "График к черновику 1 — можно приложить к посту")
