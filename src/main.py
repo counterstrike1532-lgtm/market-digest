@@ -252,12 +252,34 @@ def _render_cifry_compact(data: dict) -> list[str]:
     return lines
 
 
+# T11d: владелец - "текста как-то дофига". Пояснение печатаем только у топ-N
+# сюжетов (отбор Gemini уже отсортирован по final score, см. brain.rank) -
+# сюжеты за пределами топа остаются заголовком и ссылкой.
+_EXPLAINED_TOP_N = 5
+
+# Первое предложение целиком, если оно короче лимита; если и оно длиннее -
+# не трогать вовсе (обрезка посреди мысли хуже длины, T11d).
+_SENTENCE_END_RE = re.compile(r"^(.*?[.!?])(\s|$)", re.S)
+
+
+def _truncate_at_sentence(text: str, limit: int = 160) -> str:
+    if len(text) <= limit:
+        return text
+    m = _SENTENCE_END_RE.match(text)
+    if m and len(m.group(1)) <= limit:
+        return m.group(1)
+    return text
+
+
 def render_summary(selected: list[dict], data: dict) -> str:
-    """Сообщение 2 (T10d): дата, компактные ЦИФРЫ, список сюжетов без
-    служебных полей - без "неочевидно", без второй ссылки. URL сюжета - как
+    """Сообщение 2 (T10d, сжато в T11d): дата, компактные ЦИФРЫ, список сюжетов
+    без служебных полей - без "неочевидно", без второй ссылки. URL сюжета - как
     обычный текст: deliver._to_html сам покажет его доменом-ссылкой (URL_RE),
     без риска T10b - ссылка ровно одна и принадлежит именно этому сюжету, тут
-    вообще не нужен domain_urls/build_domain_urls."""
+    вообще не нужен domain_urls/build_domain_urls.
+
+    Пояснение - только у топ-_EXPLAINED_TOP_N. Предупреждения о недогруженном
+    тексте не разбивают список построчно - схлопнуты в одну строку в конце."""
     today = datetime.now(timezone.utc).strftime("%d.%m.%Y")
     sections = [f"СВОДКА {today}"]
 
@@ -266,15 +288,19 @@ def render_summary(selected: list[dict], data: dict) -> str:
         sections.append("\n".join(cifry_lines))
 
     story_blocks = [f"СЮЖЕТЫ ({len(selected)})"]
+    unverified_nums = []
     for i, s in enumerate(selected, 1):
         it = s["item"]
         lines = [f"{i}. [{s.get('score')}] {_oneline(it.title)}"]
-        if s.get("angle"):
-            lines.append(f"   {_oneline(s['angle'])}")
+        if i <= _EXPLAINED_TOP_N and s.get("angle"):
+            lines.append(f"   {_truncate_at_sentence(_oneline(s['angle']))}")
         lines.append(f"   {it.url}")
-        if "verified" in s and not s["verified"]:
-            lines.append("   ! текст статьи не догружен — цифры в угле не проверены")
         story_blocks.append("\n".join(lines))
+        if "verified" in s and not s["verified"]:
+            unverified_nums.append(str(i))
+    if unverified_nums:
+        story_blocks.append(
+            f"! текст не догружен: {', '.join(unverified_nums)} — цифры оттуда не проверены")
     sections.append("\n\n".join(story_blocks))
 
     return "\n\n".join(sections)

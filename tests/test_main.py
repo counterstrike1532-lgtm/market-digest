@@ -222,10 +222,12 @@ def test_render_summary_omits_debug_fields_and_second_link():
 
 
 def test_render_summary_shows_domain_link_and_verified_marker():
+    """T11d: маркер недогрузки больше не построчный - агрегированная строка
+    в конце блока СЮЖЕТЫ, см. тесты ниже."""
     selected = [_story(verified=False)]
     out = render_summary(selected, data={})
     assert "https://www.bankier.pl/x" in out
-    assert "текст статьи не догружен" in out
+    assert "текст не догружен" in out
 
 
 def test_render_summary_cifry_at_most_three_lines():
@@ -241,6 +243,76 @@ def test_render_summary_cifry_at_most_three_lines():
     out = render_summary([], data)
     cifry_block = out.split("\n\n")[1]
     assert len(cifry_block.splitlines()) <= 3
+
+
+# ---------------------------------------------------------------- T11d: сжатие сводки
+
+def _live_run_selected():
+    """8 сюжетов, 4 недогруженных - фикстура по мотивам живого прогона 02.08.2026.
+    Пояснение ~157 символов - реалистичная длина под лимит RANK_PROMPT (angle
+    максимум 35 слов), достаточно длинная, чтобы честно проверить сжатие блока."""
+    unverified = {1, 3, 7, 8}
+    return [_story(title=f"Story {i}",
+                   angle=(f"Story {i} reveals a mechanism that most readers miss and "
+                          "changes how the surrounding numbers should be read together, "
+                          "which matters more than it first appears."),
+                   verified=(i not in unverified))
+           for i in range(1, 9)]
+
+
+def test_render_summary_explains_only_top_n_stories():
+    selected = _live_run_selected()
+    out = render_summary(selected, data={})
+    for i in range(1, 6):
+        assert f"Story {i} reveals a mechanism" in out
+    for i in range(6, 9):
+        assert f"Story {i} reveals a mechanism" not in out
+
+
+def test_render_summary_collapses_unverified_warnings_into_one_line():
+    selected = _live_run_selected()
+    out = render_summary(selected, data={})
+    assert out.count("текст не догружен") == 1
+    assert "1, 3, 7, 8" in out
+
+
+def test_render_summary_truncates_long_angle_at_sentence_boundary():
+    long_angle = ("This first sentence alone is short. " +
+                 "But together with this second one the whole angle runs well past one "
+                 "hundred and sixty characters, which is exactly the case this rule targets.")
+    assert len(long_angle) > 160
+    selected = [_story(angle=long_angle)]
+    out = render_summary(selected, data={})
+    assert "This first sentence alone is short." in out
+    assert "But together with this second one" not in out
+
+
+def test_render_summary_leaves_long_single_sentence_untouched():
+    long_angle = ("This is one very long sentence with no early period in it at all that "
+                 "keeps running well past one hundred and sixty characters before it finally "
+                 "ends right here, well beyond the limit.")
+    assert len(long_angle) > 160
+    selected = [_story(angle=long_angle)]
+    out = render_summary(selected, data={})
+    assert long_angle in out
+
+
+def test_render_summary_shrinks_block_by_a_third_vs_uncompressed():
+    selected = _live_run_selected()
+    out = render_summary(selected, data={})
+    story_block = out.split("\n\n", 1)[1]
+
+    uncompressed_lines = [f"СЮЖЕТЫ ({len(selected)})"]
+    for i, s in enumerate(selected, 1):
+        it = s["item"]
+        lines = [f"{i}. [{s.get('score')}] {it.title}", f"   {s['angle']}", f"   {it.url}"]
+        if not s["verified"]:
+            lines.append("   ! текст статьи не догружен — цифры в угле не проверены")
+        uncompressed_lines.append("\n".join(lines))
+    uncompressed = "\n\n".join(uncompressed_lines)
+
+    reduction = 1 - len(story_block) / len(uncompressed)
+    assert reduction >= 1 / 3
 
 
 def test_word_count_counts_body_words():
