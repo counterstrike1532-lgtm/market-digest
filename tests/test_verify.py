@@ -417,6 +417,87 @@ def test_closest_still_shown_when_same_order_of_magnitude():
     assert level_a[0]["closest"] == "410,000"
 
 
+# ---------------------------------------------------------------- T11b: единицы измерения
+#
+# Живой прогон 02.08.2026: 0/8 FOUND во всех трёх черновиках, все сюжеты
+# польские. _to_search_variants переводит ФОРМАТ числа, но не слово-единицу
+# рядом с ним - "4.1 million tons" никогда не совпадёт с "4,1 mln ton"
+# посимвольно. Пять значений ниже - реальные пары из этого прогона.
+
+def test_unit_synonyms_tons_and_pln_and_hectares_real_run_values():
+    pairs = [
+        ("4.1 million tons", "Story [1] source text"),
+        ("2.8 million tons", "Story [1] source text"),
+        ("3.2 million tons", "Story [1] source text"),
+        ("37 million zl", "Story [2] source text"),
+        ("93,000 hectares", "Story [3] source text"),
+    ]
+    body = (
+        "Firma wyprodukowala 4,1 mln ton stali w 2025 roku, wobec 2,8 mln ton "
+        "rok wczesniej i 3,2 mln ton dwa lata wczesniej. Inwestycja pochlonela "
+        "37 mln zl, a pod uprawy przeznaczono 93 tys. ha gruntow ornych."
+    )
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    statuses = {r["value"]: r["status"] for r in level_a}
+    assert statuses["4.1 million tons"] == "FOUND"
+    assert statuses["2.8 million tons"] == "FOUND"
+    assert statuses["3.2 million tons"] == "FOUND"
+    assert statuses["37 million zl"] == "FOUND"
+    assert statuses["93,000 hectares"] == "FOUND"
+
+
+def test_unit_mismatch_core_found_unit_absent_stays_not_found():
+    """Планка не ослаблена: числовое ядро совпало, но единицы рядом нет -
+    статус остаётся NOT_FOUND, не FOUND (T11b req 3)."""
+    pairs = [("4.1 million tons", "Story [1] source text")]
+    body = "Firma odnotowala wynik 4,1 w nowym rankingu branzowym."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "NOT_FOUND"
+
+
+def test_unit_match_must_be_in_same_sentence_not_anywhere_in_body():
+    """Единица есть в тексте, но в другом предложении - окно ограничено
+    предложением с числом, не всем телом статьи."""
+    pairs = [("4.1 million tons", "Story [1] source text")]
+    body = ("Firma odnotowala wynik 4,1 w nowym rankingu branzowym. "
+            "Osobno, konkurencja sprzedala w tym roku 2 mln ton stali.")
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "NOT_FOUND"
+
+
+def test_unit_synonyms_unrecognized_suffix_never_forces_found():
+    """Хвост value не попал ни в одно слово таблицы синонимов - единица не
+    подтверждена никогда, даже если числовое ядро совпало в тексте."""
+    pairs = [("4.1 whatsits", "Story [1] source text")]
+    body = "W 2025 roku odnotowano wynik 4,1 w nowej kategorii nazwanej inaczej."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "NOT_FOUND"
+    assert verify._unit_groups("4.1 whatsits") == []
+
+
+def test_unit_groups_recognizes_known_suffix_words():
+    assert verify._unit_groups("4.1 million tons") == [["mln"],
+        ["ton", "tony", "tona", "tys. ton", "mln ton"]]
+    assert verify._unit_groups("23%") == [["proc.", "%"]]
+    assert verify._unit_groups("93,000 hectares") == \
+        [["ha", "hektar", "hektara", "hektarów", "hektarow"]]
+
+
+def test_not_found_carries_search_window_for_digest_log():
+    """T11b, шаг перед реализацией: окно вокруг ближайшего кандидата уходит в
+    digest.log (через _render -> build_message), не догадка о причине
+    NOT_FOUND, а реальный фрагмент текста источника."""
+    pairs = [("406,000", "Story [2] source text")]
+    body = "The report counted 410,000 people in the same category, officials said."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "NOT_FOUND"
+    assert "410,000" in level_a[0]["search_window"]
+
+    report, _, _ = verify._render(level_a, {})
+    assert "window" in report
+    assert "410,000" in report
+
+
 def test_real_run_regression_draft1_finds_at_least_8_of_9():
     """Регрессия целиком: FIGURES и реалистичный текст источника (польские формы
     цифр, как их реально пишут bankier.pl/GUS) черновика 1 прогона 01.08.2026

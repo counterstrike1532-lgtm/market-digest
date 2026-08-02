@@ -119,10 +119,10 @@ def _polish_thousand_forms(no_sep: str) -> list[str]:
     return out
 
 
-def _to_search_variants(value: str) -> list[str]:
-    """Строковые варианты числа для посимвольного поиска: группа из 3 цифр после
-    запятой - разделитель тысяч (английский формат), иначе запятая - десятичная
-    (польский формат): "31,0" и "31.0" - одно и то же число.
+def _core_number_variants(value: str) -> list[str]:
+    """Числовые варианты БЕЗ хвоста-единицы: группа из 3 цифр после запятой -
+    разделитель тысяч (английский формат), иначе запятая - десятичная (польский
+    формат): "31,0" и "31.0" - одно и то же число.
 
     Для разделителя тысяч ищем ОБА варианта - "6,872" (как обычно и пишет
     источник) и "6872" (на случай, если источник запятую не ставит). Раньше
@@ -135,14 +135,11 @@ def _to_search_variants(value: str) -> list[str]:
     варианте разделителя. Это второй эшелон, после прямой цитаты из FIGURES
     (см. quoted_source_form) - но нужен и сам по себе, когда цитаты нет.
 
-    Хвост (единица/порядок слова, "billion", "PLN", "percentage points")
-    приклеивается назад с одним пробелом к каждому варианту числа - именно так
-    источник и пишет, "45 billion", а не слитно "45billion" (T9 fix 3). "%"
-    приклеен без пробела к числу в исходном значении и в _NUM_AND_SUFFIX
-    попадает в числовое ядро, а не в хвост - явно выделяем его и добавляем
-    польскую форму "23 proc." рядом с "23%" (T10c req 2)."""
-    num_part, suffix = _split_value(value)
-    is_percent = num_part.endswith("%")
+    Выделено из _to_search_variants отдельной функцией (T11b): единица
+    измерения теперь проверяется отдельно, в окне предложения
+    (_unit_matches_in_sentence), а не приклеена к самому искомому числу -
+    "4.1 million tons" никогда не встретится в польском тексте дословно."""
+    num_part, _suffix = _split_value(value)
     core = re.sub(r"\s+", "", num_part.replace("$", "").replace("%", ""))
     if re.fullmatch(r"\d+(,\d{3})+(\.\d+)?", core):
         no_sep = core.replace(",", "")
@@ -164,6 +161,25 @@ def _to_search_variants(value: str) -> list[str]:
         else:
             num_variants = [core]
             num_variants += _polish_thousand_forms(core)
+    return num_variants
+
+
+def _to_search_variants(value: str) -> list[str]:
+    """Строковые варианты числа И его хвоста для посимвольного поиска - первый,
+    самый строгий эшелон проверки (число и единица склеены в одну строку, как
+    их пишет DRAFT_PROMPT). Не находит польскую запись с другим словом-единицей
+    ("8.5 million tons" вместо "8,5 mln ton") - для этого второй эшелон,
+    _unit_matches_in_sentence (T11b).
+
+    Хвост (единица/порядок слова, "billion", "PLN", "percentage points")
+    приклеивается назад с одним пробелом к каждому варианту числа - именно так
+    источник и пишет, "45 billion", а не слитно "45billion" (T9 fix 3). "%"
+    приклеен без пробела к числу в исходном значении и в _NUM_AND_SUFFIX
+    попадает в числовое ядро, а не в хвост - явно выделяем его и добавляем
+    польскую форму "23 proc." рядом с "23%" (T10c req 2)."""
+    num_part, suffix = _split_value(value)
+    is_percent = num_part.endswith("%")
+    num_variants = _core_number_variants(value)
 
     tails = []
     if is_percent:
@@ -173,6 +189,65 @@ def _to_search_variants(value: str) -> list[str]:
     if not tails:
         return num_variants
     return [v + t for v in num_variants for t in tails]
+
+
+# T11b: 0/8 FOUND у польских сюжетов живого прогона 02.08 - _to_search_variants
+# переводит ФОРМАТ числа (разряды, запятая, tys./mln/mld), но не слово-единицу
+# рядом с ним, поэтому "4.1 million tons" никогда не совпадёт с "4,1 mln ton"
+# дословно. Не полный переводчик единиц - таблица по живым случаям, расширять
+# по факту следующих прогонов.
+_UNIT_SYNONYMS: dict[str, list[str]] = {
+    "ton": ["ton", "tony", "tona", "tys. ton", "mln ton"],
+    "tons": ["ton", "tony", "tona", "tys. ton", "mln ton"],
+    "tonne": ["ton", "tony", "tona", "tys. ton", "mln ton"],
+    "tonnes": ["ton", "tony", "tona", "tys. ton", "mln ton"],
+    "hectare": ["ha", "hektar", "hektara", "hektarów", "hektarow"],
+    "hectares": ["ha", "hektar", "hektara", "hektarów", "hektarow"],
+    # Оба варианта диакритики - фиды отдают польский текст без "ł"/"ó" не
+    # реже, чем с ними (см. существующие фикстуры этого файла - "obnizyl",
+    # не "obniżył").
+    "pln": ["zł", "zl", "złotych", "zlotych", "złoty", "zloty", "PLN"],
+    "zl": ["zł", "zl", "złotych", "zlotych", "złoty", "zloty", "PLN"],
+    "eur": ["euro", "EUR"],
+    "euro": ["euro", "EUR"],
+    "euros": ["euro", "EUR"],
+    "million": ["mln"],
+    "billion": ["mld"],
+    "thousand": ["tys."],
+    "percent": ["proc.", "%"],
+}
+
+
+def _unit_groups(value: str) -> list[list[str]]:
+    """Синонимы единиц из хвоста value, по одной группе на распознанное слово
+    (в т.ч. "%" из числового ядра). Слово не нашлось в таблице - молча
+    пропускается, не глушит остальные группы."""
+    num_part, suffix = _split_value(value)
+    groups: list[list[str]] = []
+    seen: set[str] = set()
+    if num_part.rstrip().endswith("%"):
+        seen.add("percent")
+        groups.append(_UNIT_SYNONYMS["percent"])
+    for word in suffix.split():
+        key = word.strip(".,").lower()
+        if key in _UNIT_SYNONYMS and key not in seen:
+            seen.add(key)
+            groups.append(_UNIT_SYNONYMS[key])
+    return groups
+
+
+def _unit_matches_in_sentence(value: str, sentence: str) -> bool:
+    """T11b req 3: FOUND только когда совпало И числовое ядро (проверяется
+    отдельно, см. verify_figures_local), И единица - в этом же предложении, не
+    обязательно вплотную к числу. Хвост value не распознался в таблице синонимов
+    (пустой groups) - единица не подтверждена, матч не засчитывается: молчаливое
+    "любая единица подходит" наштамповало бы ложных FOUND, а планку ослаблять
+    нельзя (T11 ТЗ)."""
+    groups = _unit_groups(value)
+    if not groups:
+        return False
+    low = sentence.lower()
+    return all(any(syn.lower() in low for syn in group) for group in groups)
 
 
 def _to_float(value: str) -> float | None:
@@ -247,6 +322,18 @@ def quoted_source_form(source: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _find_first(text: str, variants: list[str]) -> tuple[int, str] | None:
+    """Первое совпадение любого из variants в text - (позиция, сама строка) или
+    None. Позиция нужна отдельно от факта совпадения (T11b: чтобы найти
+    предложение вокруг числового ядра для проверки единицы), а не только
+    да/нет, как раньше давал плоский `any(v in text for v in variants)`."""
+    for v in variants:
+        idx = text.find(v)
+        if idx != -1:
+            return idx, v
+    return None
+
+
 def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
                          data_text: str) -> list[dict]:
     """Уровень a. Каждая запись: {value, source, status, matched_in?, closest?}.
@@ -259,6 +346,15 @@ def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
     "23%"). Цитата проверяется ДО проверки "приводится ли value к float" -
     диапазон ("80,000 to 120,000") или дата ("August 1, 2026") не приводятся
     к одному числу, но с цитатой всё равно могут быть найдены посимвольно.
+
+    T11b, третий эшелон (после цитаты и склеенного числа+хвоста): числовое
+    ядро БЕЗ хвоста (_core_number_variants) ищется отдельно, и если нашлось -
+    единица проверяется в окне того же предложения (_unit_matches_in_sentence),
+    не как часть искомой строки. Живой прогон 02.08 дал 0/8 FOUND именно на
+    польских сюжетах - "4.1 million tons" не совпадает с "4,1 mln ton"
+    посимвольно ни в каком виде, а раздельная проверка числа и единицы это
+    ловит. Планка не ослаблена: без совпадения единицы в предложении статус
+    остаётся NOT_FOUND, как и раньше.
 
     UNPARSED - значение структурно распозналось как пара (value, source), но не
     приводится к числу и цитата не нашлась. Раньше такая пара (а также пары
@@ -288,6 +384,17 @@ def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
                        "matched_in": "body"})
             continue
 
+        if combined_body:
+            core_hit = _find_first(combined_body, _core_number_variants(value))
+            if core_hit is not None:
+                idx, matched = core_hit
+                start = _sentence_start(combined_body, idx)
+                end = _sentence_end(combined_body, idx + len(matched))
+                if _unit_matches_in_sentence(value, combined_body[start:end]):
+                    out.append({"value": value, "source": source, "status": "FOUND",
+                               "matched_in": "body"})
+                    continue
+
         if _to_float(value) is None:
             out.append({"value": value, "source": source, "status": "UNPARSED"})
             continue
@@ -296,7 +403,13 @@ def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
             continue
         target = _to_float(value)
         closest = _closest_in_text(target, combined_body)
-        out.append({"value": value, "source": source, "status": "NOT_FOUND", "closest": closest})
+        # T11b (ГИПОТЕЗА): окно вокруг ближайшего кандидата в digest.log -
+        # следующий живой прогон покажет причину NOT_FOUND, а не догадку.
+        # Часть значений (пересчёт модели, а не цитата) честно не обязана
+        # встречаться в источнике дословно - это не всегда баг верификатора.
+        window = _fragment_around(combined_body, [closest], window=80) if closest else None
+        out.append({"value": value, "source": source, "status": "NOT_FOUND",
+                   "closest": closest, "search_window": window})
     return out
 
 
@@ -453,8 +566,12 @@ def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, l
     if not_found:
         r = not_found[0]
         closest = f' (closest: "{r["closest"]}")' if r.get("closest") else ""
+        # T11b: окно вокруг ближайшего кандидата - в digest.log (это уходит
+        # только в build_message()/полный отчёт, не в Telegram), не догадка,
+        # а то, что реально стояло в тексте источника рядом с искомым числом.
+        window = f' [window: "{r["search_window"]}"]' if r.get("search_window") else ""
         extra = f" +{len(not_found) - 1} more" if len(not_found) > 1 else ""
-        problems.append(f'"{r["value"]}" not found{closest}{extra}')
+        problems.append(f'"{r["value"]}" not found{closest}{window}{extra}')
     if mismatches:
         r, lb = mismatches[0]
         why = (lb.get("why") or "").strip()
