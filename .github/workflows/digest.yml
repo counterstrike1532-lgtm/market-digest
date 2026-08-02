@@ -41,7 +41,7 @@ jobs:
           FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
           GEMINI_MODEL:       ${{ vars.GEMINI_MODEL }}
           HOURS:              ${{ github.event.inputs.hours || '26' }}
-          DRAFTS:             ${{ github.event.inputs.drafts || '3' }}
+          DRAFTS:             ${{ github.event.inputs.drafts || '2' }}
           NEWSBOT_ALLOW_LIVE: "1"
         run: |
           python -m src.main --hours "$HOURS" --drafts "$DRAFTS" 2>&1 | tee digest.log
