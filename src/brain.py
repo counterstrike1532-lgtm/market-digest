@@ -302,25 +302,22 @@ def rank(items, top_n: int = 12) -> list[dict]:
 # ------------------------------------------------------------------
 #  ЭТАП 2: черновики. Антишлак-правила прописаны явно.
 # ------------------------------------------------------------------
-DRAFT_PROMPT = """Write exactly 3 LinkedIn post drafts in ENGLISH, in this fixed order:
+DRAFT_PROMPT = """Write exactly 2 LinkedIn post drafts in ENGLISH, in this fixed order:
 
 DRAFT 1 - digest: a roundup of the 2-3 best stories from the selection below. Frame it as
 something like "Three things I read this week that stuck with me" (vary the wording, do not
 copy that line). For each story: one line on what happened, then one or two lines on why it
 is interesting. Keep it light - no deep analysis. 120-170 words.
 
-DRAFT 2 - digest, short: the same roundup, the same stories, but 80-110 words. Drier, no
-intro line - go straight into the first item.
-
-DRAFT 3 - single: one story, the strongest one, examined a bit deeper - a normal analytical
+DRAFT 2 - single: one story, the strongest one, examined a bit deeper - a normal analytical
 post. Pick ONE shape for it:
 
   A. MECHANISM: name the mechanism, explain how it works, then show where it just showed up.
   B. TWO NUMBERS: put two figures side by side, then explain what the pairing reveals.
   C. COMMON BELIEF: state the widely held view plainly, then the fact that complicates it.
 
-The reader is choosing between the two digest lengths and the single post - that is the
-point of writing three, not three unrelated posts on different topics.
+The reader is choosing between the digest and the single post - that is the point of writing
+two, not two unrelated posts on different topics.
 
 WHO IS WRITING: a 2nd-year Finance & Accounting student at Kozminski University in Warsaw,
 aiming for investment banking and asset management. He reads primary sources and runs his own
@@ -346,25 +343,27 @@ BANNED, do not write these or anything close: "What am I missing", "I might be w
 "I might be reading this wrong", "Correct me if", "Am I off base". Confidence about the
 mechanism, honesty about limits of the data - those are different things.
 
-=== FIRST PERSON: ONLY FOR WORK ACTUALLY DONE ===
-A digest item or the single post can be written in first person, but ONLY for something he
-verifiably did with the material in front of him: read a primary source, pulled a specific
-figure from it. NEVER claim analytical work he did not do - comparing figures, running the
-numbers, computing a ratio, reading a report cover to cover, attending an event. The
-comparison or mechanism can still be the point of the post; it just cannot be framed as
-something he personally performed - state it about the numbers themselves, not about his own
-activity. NEVER claim observation, monitoring, research, or access he did not have - no "I
-tracked this play out", "I've been following this", "I noticed this developing". A false
-claim about his own work is worse than a fabricated number: a number can be checked against
-the source, a claim about what he personally did cannot - and if it's ever caught out, it
-costs more than the post.
+=== FIRST PERSON: OFF BY DEFAULT ===
+By default, do not write in first person at all - not even for pulling a figure from a
+source. NEVER claim analytical work he did not do - comparing figures, running the numbers,
+computing a ratio, reading a report cover to cover, attending an event, pulling a number from
+a source. The comparison or mechanism can still be the point of the post; it just cannot be
+framed as something he personally performed - state it about the numbers themselves, not
+about his own activity. NEVER claim observation, monitoring, research, or access he did not
+have - no "I tracked this play out", "I've been following this", "I noticed this developing".
+A false claim about his own work is worse than a fabricated number: a number can be checked
+against the source, a claim about what he personally did cannot - and if it's ever caught
+out, it costs more than the post.
 
-  GOOD: "I pulled these figures from Statistics Poland."
+  GOOD: "These figures come from Statistics Poland."
   GOOD: "These two numbers sit oddly next to each other."
   BAD:  "I compared these figures from the RynekPierwotny report, and the difference is
         striking."
   BAD:  "I ran the numbers and the gap is striking."
   BAD:  "I read the report and here's what stood out."
+  BAD:  "I pulled these figures from Statistics Poland." - anyone could have pulled that
+        number from the article, including a machine; the reader has no way to check who
+        actually did the work, so the claim is worthless even when true.
   BAD:  "I tracked this mechanism play out at Situational Awareness."
   BAD:  "I have been following this story for weeks."
 
@@ -404,15 +403,15 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
 - Hashtags: 0 or 1. Never generic ones (#finance #macroeconomics #GPW #forex) - they hurt
   classification. Prefer none.
 - Word count is a hard limit per draft: DRAFT 1 (digest) 120-170 words, DRAFT 2
-  (digest, short) 80-110 words, DRAFT 3 (single) 110-170 words.
-- At most ONE of the 3 drafts may end with a question - not zero forced, not a rule to use
+  (single) 110-170 words.
+- At most ONE of the 2 drafts may end with a question - not zero forced, not a rule to use
   every time. That one question must invite someone else's expertise, not ask for
   validation: a specific industry professional would answer it better than the author, and
   it must grow out of the post's own content and name something concrete (an import
   structure, a fee mechanic, a specific segment) - never a generic closer like "What do you
-  think?", "Thoughts?", "Agree?", or "let me know what you think". The digest drafts (1 and
-  2) are allowed to simply end on their last item; ending every post with a question is
-  itself a tell, and is exactly the pattern to avoid. The others end on a statement.
+  think?", "Thoughts?", "Agree?", or "let me know what you think". The digest draft (1) is
+  allowed to simply end on its last item; ending every post with a question is itself a
+  tell, and is exactly the pattern to avoid. The other ends on a statement.
 - No links in the body. LinkedIn suppresses reach on posts with external links.
 - Sound like a curious student who read the source, not a consultant summarising it.
 - Never name his own role or status in the text itself: no "for a finance student", "as a
@@ -432,12 +431,11 @@ Second filter: if a story will obviously be in every feed within a day or two an
 adds nothing of his own - no calculation, no Poland angle, no comparison he made - the verdict
 is SKIP, reason "commodity news, no edge".
 
-All three drafts getting SKIP is a valid, honest outcome for a day with no real material - say
+Both drafts getting SKIP is a valid, honest outcome for a day with no real material - say
 so plainly, do not stretch a verdict to POST to avoid an empty-handed day.
 
-=== OUTPUT FORMAT (exactly this, per draft, in order DRAFT 1 / DRAFT 2 / DRAFT 3) ===
-SHAPE: (digest | digest-short | A/B/C - digest for DRAFT 1, digest-short for DRAFT 2,
-  whichever of A/B/C you picked for DRAFT 3)
+=== OUTPUT FORMAT (exactly this, per draft, in order DRAFT 1 / DRAFT 2) ===
+SHAPE: (digest | A/B/C - digest for DRAFT 1, whichever of A/B/C you picked for DRAFT 2)
 BODY: (the post, starting with its own first line - do not print the hook separately)
 FIGURES: (each number used -> where it came from; or "none used")
 SOURCE: (the url; if the draft covers more than one story, list them comma-separated)
@@ -464,7 +462,7 @@ def format_data_block(data: dict) -> str:
     return "\n".join(f"- {k}: {v}" for k, v in data.items()) or "(нет данных)"
 
 
-def draft(selected: list[dict], data: dict, style_text: str, n: int = 3) -> str:
+def draft(selected: list[dict], data: dict, style_text: str, n: int = 2) -> str:
     blocks = []
     for i, s_ in enumerate(selected[:6], 1):
         body = (s_.get("body") or "").strip()

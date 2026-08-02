@@ -9,7 +9,6 @@ import pathlib
 import re
 import sys
 from datetime import datetime, timezone, timedelta
-from urllib.parse import urlparse
 
 import yaml
 
@@ -107,64 +106,21 @@ def found_figure_pairs(block: dict) -> list[tuple[str, str]]:
     return [(v, s) for v, s in pairs if v in found_values]
 
 
-def stat_card_rows(block: dict) -> list[tuple[str, str]]:
-    """(значение, короткая фраза) для stat_card - только FOUND по верификатору
-    (T10e), не более 3. Фраза - предложение BODY, где значение встречается,
-    обрезанное до короткой строки; verify._sentence_containing/_to_search_variants
-    уже делают эту работу для уровня b, переиспользуем их же."""
-    body = block.get("body", "")
-    rows = []
-    for r in block.get("_level_a", []):
-        if r["status"] != "FOUND":
-            continue
-        variants = verify._to_search_variants(r["value"])
-        phrase = _oneline(verify._sentence_containing(body, variants))
-        if len(phrase) > 70:
-            phrase = phrase[:67].rstrip() + "..."
-        rows.append((r["value"], phrase))
-        if len(rows) == 3:
-            break
-    return rows
-
-
-def quote_card_args(block: dict) -> tuple[str, str]:
-    """(фраза, источник) для quote_card - фолбэк, когда FOUND-чисел не осталось.
-    Фраза - первое предложение BODY, источник - домен первой ссылки SOURCE."""
-    body = block.get("body", "").strip()
-    sentence = re.split(r"(?<=[.!?])\s+", body, maxsplit=1)[0] if body else ""
-    urls = [u.strip() for u in re.split(r"[,\n]", block.get("source", "")) if u.strip()]
-    source = urlparse(urls[0]).netloc if urls else ""
-    return sentence, source
-
-
 def draft_card(block: dict, num: int, theme: str = "dark"):
-    """Картинка к одному черновику (T10e): график (DRAFT 3, single) утверждает
-    связь между числами одного сюжета - тут заново перенацеленный figures_chart.
-    Карточка (DRAFT 1/2, дайджесты) ничего не утверждает - числа разных
-    сюжетов на ней сосуществуют законно. Ошибка отрисовки не валит прогон:
-    вызывающий код (main()) уже оборачивает это в try/except, здесь - только
-    выбор типа картинки.
+    """Картинка к черновику (T10e, откат фолбэка в T11e.2): figures_chart
+    утверждает связь между проверенными числами одного сюжета - единственный
+    тип картинки в конвейере. Ошибка отрисовки не валит прогон: вызывающий код
+    (main()) уже оборачивает это в try/except, здесь - только сам вызов.
 
-    figures_chart может вернуть None не только из-за нуля FOUND-чисел, но и
-    по любой из своих собственных структурных причин (меньше 2 значений,
-    смешанные единицы, повторный источник) - живой прогон показал ровно этот
-    случай: 0/4 FOUND у DRAFT 3, картинка не рисовалась вовсе, хотя "у каждого
-    из трёх черновиков ровно одна картинка" ничем не ограничивает третий
-    черновик особо. quote_card - универсальный фолбэк для всех трёх, не
-    только для карточек (T10g review)."""
-    if num == 3:
-        pairs = found_figure_pairs(block)
-        chart = charts.figures_chart(pairs, title=f"Черновик {num}", theme=theme)
-        if chart:
-            return chart
-    else:
-        rows = stat_card_rows(block)
-        if rows:
-            return charts.stat_card(rows, title=f"Черновик {num}",
-                                    subtitle=block.get("shape") or "", theme=theme,
-                                    key=str(num))
-    sentence, source = quote_card_args(block)
-    return charts.quote_card(sentence, source, theme=theme, key=str(num))
+    Нет картинки - нет сообщения с картинкой, и это ожидаемый исход (T11 ТЗ,
+    п. e.2.3), а не повод откатываться на quote_card/stat_card - обе функции
+    остаются в charts.py, но больше не вызываются отсюда. Раньше "у каждого
+    черновика ровно одна картинка" было неверным инвариантом: гарантия
+    наличия картинки важнее её осмысленности только на бумаге - живой прогон
+    02.08 показал три картинки, каждая дословно повторяющая первую фразу
+    черновика, который владелец уже прочитал строкой выше."""
+    pairs = found_figure_pairs(block)
+    return charts.figures_chart(pairs, title=f"Черновик {num}", theme=theme, key=str(num))
 
 
 # Реальный прогон: "...energy transitions.- An AI-focused" (буллет приклеен к
@@ -445,9 +401,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true", help="не отправлять в Телегу, печатать в консоль")
     ap.add_argument("--hours", type=int, default=26, help="окно свежести новостей")
-    ap.add_argument("--drafts", type=int, default=3)
+    ap.add_argument("--drafts", type=int, default=2)
     ap.add_argument("--top", type=int, default=12)
     ap.add_argument("--no-charts", action="store_true", help="не рисовать и не слать графики")
+    ap.add_argument("--markets", action="store_true",
+                    help="рисовать и слать график рынков (T11e: выключен по умолчанию, "
+                         "цифры остаются в текстовом блоке ЦИФРЫ)")
     args = ap.parse_args()
 
     cfg = yaml.safe_load((ROOT / "config" / "sources.yaml").read_text(encoding="utf-8"))
@@ -473,8 +432,13 @@ def main() -> int:
     data = numbers.gather(cfg)
     market_source = data.pop("_market_source", {})
 
+    # T11e: график рынков убран из ежедневной отправки - владелец им не пользовался,
+    # а WIG20 TR (с дивидендами) против ценового S&P 500 систематически рисует
+    # Польшу лучше конкурента (асимметрия баз, не сигнал). Цифры остаются в
+    # текстовом блоке ЦИФРЫ - это и есть ежедневная ценность. Код и тесты не
+    # удалены, доступен по требованию через `.\run.ps1 dry -Markets` / `-Markets`.
     market_chart = None
-    if not args.no_charts:
+    if args.markets and not args.no_charts:
         try:
             market_chart = charts.market_overview(data, market_source, theme="dark")
         except Exception as exc:
@@ -514,10 +478,9 @@ def main() -> int:
     summary_msg = render_summary(selected, data)
     draft_msgs = [render_draft_message(b, i, selected) for i, b in enumerate(draft_blocks, 1)]
 
-    # Картинка к каждому черновику (T10e): DRAFT 3 (single) - перенацеленный
-    # figures_chart, DRAFT 1/2 (дайджесты) - stat_card, quote_card как фолбэк,
-    # когда FOUND-чисел не осталось. Только числа со статусом FOUND от
-    # верификатора попадают на картинку - планка выше, чем для текста.
+    # Картинка к черновику (T10e, откат фолбэка в T11e.2) - только figures_chart,
+    # только числа со статусом FOUND от верификатора, минимум два значения.
+    # Ноль картинок за прогон - валидный исход, не повод рисовать что-то ещё.
     draft_images = [None] * len(draft_blocks)
     if not args.no_charts:
         for i, b in enumerate(draft_blocks):

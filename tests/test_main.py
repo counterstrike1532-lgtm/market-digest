@@ -9,8 +9,8 @@ from datetime import datetime, timedelta, timezone
 from src import brain, collect, deliver, enrich, main, numbers, verify
 from src.collect import Item
 from src.main import (build_domain_urls, build_message, draft_card, filter_by_age,
-                      found_figure_pairs, quote_card_args, render_draft_message,
-                      render_summary, stat_card_rows, _fix_glued_punctuation, _word_count)
+                      found_figure_pairs, render_draft_message,
+                      render_summary, _fix_glued_punctuation, _word_count)
 
 
 def _item(age_days=None, published_known=True):
@@ -483,71 +483,52 @@ def test_found_figure_pairs_excludes_not_found():
     assert pairs == [("406,000", 'Story [1] ("406 tys.")')]
 
 
-def test_stat_card_rows_only_found_capped_at_three():
-    level_a = [{"value": str(i), "source": f"src {i}", "status": "FOUND"} for i in range(4)]
-    level_a.append({"value": "bad", "source": "src bad", "status": "NOT_FOUND"})
-    block = {"body": "0 1 2 3 bad appear here in this sentence today.", "_level_a": level_a}
-    rows = stat_card_rows(block)
-    assert len(rows) == 3
-    assert all(v in {"0", "1", "2", "3"} for v, _ in rows)
-    assert "bad" not in [v for v, _ in rows]
-
-
-def test_stat_card_rows_two_of_three_when_one_not_found():
-    level_a = [
-        {"value": "406,000", "source": "x", "status": "FOUND"},
-        {"value": "0.50%", "source": "y", "status": "FOUND"},
-        {"value": "213.5 TWh", "source": "z", "status": "NOT_FOUND"},
-    ]
-    block = {"body": "406,000 people and 0.50% rate were both mentioned today.",
-            "_level_a": level_a}
-    rows = stat_card_rows(block)
-    assert len(rows) == 2
-
-
-def test_quote_card_args_uses_first_sentence_and_domain():
-    block = {"body": "DDM understates banks with low payout. Second sentence here.",
-            "source": "https://www.bankier.pl/wiadomosc/x"}
-    sentence, source = quote_card_args(block)
-    assert sentence == "DDM understates banks with low payout."
-    assert source == "www.bankier.pl"
-
-
-def test_draft_card_uses_figures_chart_for_draft_three_only(monkeypatch):
-    """figures_chart вызывается для черновика 3 и не вызывается для 1/2 (T10e) -
-    перенацелено с DRAFT 1 (T9f), DRAFT 1/2 теперь получают карточку."""
+def test_draft_card_calls_figures_chart_for_every_draft(monkeypatch):
+    """T11e.2: откат фикса ревью №2 - figures_chart больше не единственный
+    путь только для draft-3/single, вызывается единообразно для любого
+    номера черновика, и отказ не откатывается на stat_card/quote_card."""
     calls = []
     monkeypatch.setattr("src.charts.figures_chart",
                         lambda *a, **kw: calls.append("figures_chart") or "chart.png")
-    monkeypatch.setattr("src.charts.stat_card",
-                        lambda *a, **kw: calls.append("stat_card") or "stat.png")
-    monkeypatch.setattr("src.charts.quote_card",
-                        lambda *a, **kw: calls.append("quote_card") or "quote.png")
 
-    level_a = [{"value": "1", "source": "x", "status": "FOUND"}]
-    block = {"body": "1 is mentioned here today.", "figures": "1 -> x", "source": "https://a.com",
-            "shape": "digest", "_level_a": level_a}
+    level_a = [{"value": "1", "source": "x", "status": "FOUND"},
+              {"value": "2", "source": "y", "status": "FOUND"}]
+    block = {"body": "1 and 2 mentioned here today.", "figures": "1 -> x\n2 -> y",
+            "source": "https://a.com", "shape": "digest", "_level_a": level_a}
 
     draft_card(block, 1)
     draft_card(block, 2)
-    draft_card(block, 3)
 
-    assert calls.count("figures_chart") == 1
-    assert calls == ["stat_card", "stat_card", "figures_chart"]
+    assert calls == ["figures_chart", "figures_chart"]
+
+
+def test_draft_card_returns_none_without_stat_or_quote_card_fallback(monkeypatch):
+    """T11e.2: ноль картинок за прогон - валидный исход, не повод рисовать
+    stat_card/quote_card. Обе функции остаются в charts.py, но не вызываются
+    отсюда - падение теста на вызов означает, что фолбэк вернулся."""
+    monkeypatch.setattr("src.charts.stat_card", lambda *a, **kw: (_ for _ in ()).throw(
+        AssertionError("stat_card must not be called - fallback was removed in T11e")))
+    monkeypatch.setattr("src.charts.quote_card", lambda *a, **kw: (_ for _ in ()).throw(
+        AssertionError("quote_card must not be called - fallback was removed in T11e")))
+
+    block = {"body": "Nothing verifiable here today.", "figures": "999 -> x",
+            "source": "https://a.com", "shape": "digest",
+            "_level_a": [{"value": "999", "source": "x", "status": "NOT_FOUND"}]}
+    assert draft_card(block, 1) is None
 
 
 def test_draft_card_draft_one_and_two_write_distinct_image_files(monkeypatch, tmp_path):
-    """Живой прогон (T10g review): draft_card(block, 1) и draft_card(block, 2)
-    оба рисуют stat_card в одном прогоне - без различающего key оба писали в
-    один и тот же "stat_dark.png", и черновик 1 в итоге получал картинку
-    черновика 2 (файл перезаписывался до отправки). Через настоящий
-    charts.stat_card (не мок) - проверяем реальные пути, не только что key
-    передаётся."""
+    """Тот же класс бага, что T10g нашёл для stat_card, теперь для figures_chart:
+    раньше она вызывалась не больше раза за прогон (только draft 3/single),
+    коллизия имени файла была невозможна физически. T11e зовёт её для каждого
+    черновика единообразно - без различающего key оба писали бы в один и тот
+    же "figures_dark.png", и черновик 1 получал бы картинку черновика 2."""
     import src.charts as charts_mod
     monkeypatch.setattr(charts_mod, "_OUT_DIR", tmp_path)
 
-    level_a = [{"value": "406,000", "source": 'x ("406 tys.")', "status": "FOUND"}]
-    block = {"body": "406,000 people were mentioned today.", "figures": '406,000 -> x ("406 tys.")',
+    level_a = [{"value": "1", "source": "x", "status": "FOUND"},
+              {"value": "2", "source": "y", "status": "FOUND"}]
+    block = {"body": "1 and 2 mentioned today.", "figures": "1 -> x\n2 -> y",
             "source": "https://a.com", "shape": "digest", "_level_a": level_a}
 
     path1 = draft_card(block, 1)
@@ -556,39 +537,6 @@ def test_draft_card_draft_one_and_two_write_distinct_image_files(monkeypatch, tm
     assert path1 is not None and path2 is not None
     assert path1 != path2
     assert path1.exists() and path2.exists()
-
-
-def test_draft_card_falls_back_to_quote_card_when_nothing_found(monkeypatch):
-    monkeypatch.setattr("src.charts.stat_card", lambda *a, **kw: (_ for _ in ()).throw(
-        AssertionError("stat_card must not be called with zero FOUND rows")))
-    monkeypatch.setattr("src.charts.quote_card", lambda *a, **kw: "quote.png")
-
-    block = {"body": "Nothing verifiable here today.", "figures": "999 -> x",
-            "source": "https://a.com", "shape": "digest",
-            "_level_a": [{"value": "999", "source": "x", "status": "NOT_FOUND"}]}
-    result = draft_card(block, 1)
-    assert result == "quote.png"
-
-
-def test_draft_card_draft_three_falls_back_to_quote_card_when_figures_chart_declines(monkeypatch):
-    """Живой прогон (T10g review): DRAFT 3 с 0/4 FOUND не рисовал вообще
-    ничего - figures_chart вернул None (меньше 2 значений после фильтра по
-    FOUND), а фолбэка на quote_card для num==3 не было. "У каждого из трёх
-    черновиков ровно одна картинка" не делает для третьего исключения -
-    figures_chart отказал по ЛЮБОЙ из своих причин (не только "0 FOUND") ->
-    quote_card, как и для карточек."""
-    monkeypatch.setattr("src.charts.figures_chart", lambda *a, **kw: None)
-    monkeypatch.setattr("src.charts.quote_card", lambda *a, **kw: "quote.png")
-
-    block = {
-        "body": "This mismatch destroys the industrial crushing margin.",
-        "figures": "4.1 million tons -> Source [3] text",   # один FOUND - меньше 2, chart отказывает
-        "source": "https://bankier.pl/a", "shape": "B",
-        "_level_a": [{"value": "4.1 million tons", "source": "Source [3] text",
-                     "status": "FOUND"}],
-    }
-    result = draft_card(block, 3)
-    assert result == "quote.png"
 
 
 def test_draft_image_failure_does_not_crash_main_run(monkeypatch, tmp_path):
@@ -689,6 +637,57 @@ def test_main_send_run_writes_metrics_record(monkeypatch, tmp_path):
     assert rec["gemini_successful"] == 2
     assert rec["draft_model"] == "gemini-3.5-flash"
     assert rec["market_source"] == {"wig20": "yfinance"}
+
+
+# ---------------------------------------------------------------- T11e.2: график рынков по флагу
+
+def _stub_common_run(monkeypatch, tmp_path, argv):
+    seen_path = tmp_path / "seen.json"
+    metrics_path = tmp_path / "metrics.json"
+    monkeypatch.setattr(main, "SEEN", seen_path)
+    monkeypatch.setattr(main, "METRICS", metrics_path)
+
+    item = Item(title="Test story", url="https://example.com/story1",
+               source="example.com", tag="misc",
+               published=datetime.now(timezone.utc).isoformat())
+    monkeypatch.setattr(collect, "collect_all", lambda cfg, hours: [item])
+    monkeypatch.setattr(numbers, "gather", lambda cfg: {"_market_source": {}})
+    selected = [{"item": item, "score": 8, "angle": "x", "why_nonobvious": "x",
+                "body": "", "verified": False}]
+    monkeypatch.setattr(brain, "rank", lambda candidates, top_n: selected)
+    monkeypatch.setattr(enrich, "enrich", lambda selected, limit: 0)
+    monkeypatch.setattr(brain, "draft", lambda *a, **kw: _CANNED_DRAFT)
+    monkeypatch.setattr(brain, "last_model_used", lambda: "gemini-3.5-flash")
+    monkeypatch.setattr(brain, "quota_summary",
+                        lambda: {"total": 1, "successful": 1, "quota_refused": 0})
+    monkeypatch.setattr("src.deliver.send", lambda text, domain_urls=None: None)
+    monkeypatch.setattr("src.deliver.send_photo", lambda *a, **kw: None)
+    monkeypatch.setattr("sys.argv", argv)
+
+
+def test_market_chart_not_built_by_default(monkeypatch, tmp_path):
+    """T11e.2: график рынков убран из ежедневной отправки - владелец им не
+    пользовался, а WIG20 TR против ценового S&P 500 систематически рисует
+    Польшу лучше конкурента. Цифры остаются в блоке ЦИФРЫ, картинки - нет."""
+    calls = []
+    monkeypatch.setattr("src.charts.market_overview",
+                        lambda *a, **kw: calls.append(1) or "chart.png")
+    _stub_common_run(monkeypatch, tmp_path, ["main.py", "--no-charts"])
+    rc = main.main()
+    assert rc == 0
+    assert calls == []
+
+
+def test_market_chart_built_with_markets_flag(monkeypatch, tmp_path):
+    """Доступен по требованию (run.ps1 -Markets), код и тесты market_overview
+    не удалены (T11 ТЗ)."""
+    calls = []
+    monkeypatch.setattr("src.charts.market_overview",
+                        lambda *a, **kw: calls.append(1) or "chart.png")
+    _stub_common_run(monkeypatch, tmp_path, ["main.py", "--markets"])
+    rc = main.main()
+    assert rc == 0
+    assert calls == [1]
 
 
 def test_main_dry_run_does_not_write_metrics(monkeypatch, tmp_path):

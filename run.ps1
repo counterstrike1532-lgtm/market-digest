@@ -1,6 +1,7 @@
 # Usage:  .\run.ps1 verify   |   .\run.ps1 dry   |   .\run.ps1 send   |   .\run.ps1 test
 #         .\run.ps1 score draft.txt   |   .\run.ps1 score draft.txt -Deep
 #         .\run.ps1 dry -NoCharts     |   .\run.ps1 send -NoCharts
+#         .\run.ps1 dry -Markets      |   .\run.ps1 send -Markets   (T11e: off by default)
 # ASCII only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 
 param(
@@ -12,7 +13,8 @@ param(
     [string]$Path,
 
     [switch]$Deep,
-    [switch]$NoCharts
+    [switch]$NoCharts,
+    [switch]$Markets
 )
 
 $py = ".\.venv\Scripts\python.exe"
@@ -67,11 +69,13 @@ switch ($Mode) {
     "dry"    {
         $dryArgs = @("-m", "src.main", "--dry", "--hours", "48")
         if ($NoCharts) { $dryArgs += "--no-charts" }
+        if ($Markets) { $dryArgs += "--markets" }
         & $py @dryArgs
     }
     "send"   {
         $sendArgs = @("-m", "src.main", "--hours", "48")
         if ($NoCharts) { $sendArgs += "--no-charts" }
+        if ($Markets) { $sendArgs += "--markets" }
         & $py @sendArgs
     }
     "score"  {

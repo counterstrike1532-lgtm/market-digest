@@ -9,8 +9,8 @@ on:
         description: "Окно свежести, часов"
         default: "26"
       drafts:
-        description: "Сколько черновиков"
-        default: "3"
+        description: "Сколько черновиков (T11e: DRAFT_PROMPT сам всегда пишет 2 - digest + single)"
+        default: "2"
 
 concurrency:
   group: digest

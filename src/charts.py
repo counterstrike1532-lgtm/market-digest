@@ -224,7 +224,7 @@ def _looks_like_citation(label: str) -> bool:
 
 
 def figures_chart(figures: list[tuple[str, str]] | None, title: str,
-                  theme: str = "light") -> pathlib.Path | None:
+                  theme: str = "light", key: str = "0") -> pathlib.Path | None:
     """2-5 именованных значений ОДНОЙ единицы измерения с источником -> горизонтальные бары.
 
     Всё остальное (меньше 2, больше 5, число не распарсилось, смешанные единицы,
@@ -232,7 +232,12 @@ def figures_chart(figures: list[tuple[str, str]] | None, title: str,
     процитирован больше одного раза - явный признак, что слиты числа из разных
     сюжетов) -> None молча. Сомнение = None (T8a, ужесточено в T9f): лучше прогон
     без графика, чем график, который врёт о структуре данных.
-    """
+
+    key - различает файлы разных вызовов в одном прогоне (main.py передаёт номер
+    черновика), как у stat_card/quote_card. Раньше figures_chart вызывалась не
+    больше раза за прогон (только для DRAFT 3, single) и коллизия была
+    невозможна физически - T11e зовёт её для каждого черновика единообразно,
+    тот же класс бага из T10g review вернулся бы без ключа."""
     if not figures or not (2 <= len(figures) <= 5):
         return None
     sources = [source for _, source in figures]
@@ -270,7 +275,7 @@ def figures_chart(figures: list[tuple[str, str]] | None, title: str,
             ax.set_xticks([])
             chartstyle.footer(fig, f"Data: draft FIGURES | {date.today().strftime('%d.%m.%Y')}", c)
             fig.subplots_adjust(left=0.22, right=0.98, top=0.86, bottom=0.12)
-            return _save(fig, f"figures_{theme}.png")
+            return _save(fig, f"figures_{key}_{theme}.png")
     except Exception as exc:
         log.warning("figures_chart упал: %s", exc)
         return None
