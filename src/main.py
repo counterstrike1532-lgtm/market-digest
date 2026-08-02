@@ -333,14 +333,11 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
     if check_first and check_first != "-":
         lines.append(f"CHECK_FIRST: {check_first}")
 
+    # T12a: номер сюжета не разрешился - строку SOURCE не печатаем вовсе, а не
+    # откатываемся на сырой текст модели (T11c-фолбэк). Ссылка на главную
+    # страницу издания хуже отсутствия ссылки: выглядит рабочей и ведёт в
+    # никуда, а настоящие ссылки на все сюжеты уже есть в сводке (сообщение 2).
     urls = resolve_draft_source_urls(block, selected)
-    if not urls:
-        # номер сюжета не разрешился - печатаем то, что написала модель, как
-        # есть. Если это голый домен (T10b req 3), _to_html его не залинкует
-        # (T11c п.2): domain_urls строится только для доменов с ровно одной
-        # ссылкой в подборке, у bankier.pl их обычно 3-4.
-        raw = [u.strip() for u in re.split(r"[,\n]", block.get("source", "")) if u.strip()]
-        urls = list(dict.fromkeys(raw))
     if urls:
         lines.append(", ".join(urls))
 

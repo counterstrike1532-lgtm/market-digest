@@ -428,21 +428,32 @@ def test_render_draft_message_dedupes_source_urls():
     assert out.count("https://www.bankier.pl/story-2") == 1
 
 
-def test_render_draft_message_unresolvable_source_stays_plain_text():
-    """Номер сюжета не разрешился (FIGURES пуст) - печатаем то, что написала
-    модель, как есть. Ссылку на голый домен добавлять не должны сами - это и
-    есть фикс T11c, а не попытка угадать URL."""
+def test_render_draft_message_unresolvable_source_omits_source_line():
+    """T12a: номер сюжета не разрешился (FIGURES пуст) - строку SOURCE не
+    печатаем вовсе, не откатываемся на сырой текст модели. Ссылка на голую
+    главную страницу издания хуже отсутствия ссылки - выглядит рабочей и
+    ведёт в никуда, а настоящие ссылки на все сюжеты уже есть в сводке выше."""
     block = _draft_block_dict(figures="none used", source="www.bankier.pl")
     out = render_draft_message(block, 1, selected=None)
-    assert "www.bankier.pl" in out
+    assert "www.bankier.pl" not in out
 
 
-def test_render_draft_message_out_of_range_story_number_falls_back():
+def test_render_draft_message_out_of_range_story_number_omits_source_line():
     selected = _bankier_selected()
     block = _draft_block_dict(figures='406 tys. -> Story [9] source text',
                               source="https://www.bankier.pl/story-1")
     out = render_draft_message(block, 1, selected)
-    assert "https://www.bankier.pl/story-1" in out
+    assert "https://www.bankier.pl/story-1" not in out
+    assert "bankier.pl" not in out
+
+
+def test_render_draft_message_no_story_numbers_omits_source_line_entirely():
+    """Приёмка T12a: FIGURES без номеров сюжетов -> в сообщении нет ни строки
+    SOURCE, ни подстроки bankier.pl."""
+    block = _draft_block_dict(
+        figures="6,872 -> Money.pl", source="https://www.bankier.pl/wiadomosc/x.html")
+    out = render_draft_message(block, 1, selected=_bankier_selected())
+    assert "bankier.pl" not in out
 
 
 def test_digest_log_receives_full_report_with_figures(monkeypatch, tmp_path, caplog):
