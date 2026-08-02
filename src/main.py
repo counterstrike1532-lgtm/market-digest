@@ -273,13 +273,20 @@ def _offending_source_quotes(values: list[str], figures_raw: str) -> dict[str, s
     return {v: verify.quoted_source_form(src) for v, src in pairs if v in values}
 
 
-_STORY_NUM_RE = re.compile(r"\[(\d+)\]")
+
+# T11 ТЗ сам пишет и "Story [N]", и "Source [N]" как равноценные примеры, а
+# живой прогон 02.08 после T11c показал третью форму - "Story 3 source text"
+# вовсе без скобок. DRAFT_PROMPT не требует буквального формата для этой
+# колонки FIGURES ("where it came from"), модель вольна в фразировке - якорное
+# слово ловим в любом варианте, скобки опциональны.
+_STORY_NUM_RE = re.compile(r"(?:Story|Source)\s*\[?(\d+)\]?", re.IGNORECASE)
 
 
 def _referenced_story_numbers(figures_raw: str) -> list[int]:
-    """Номера сюжетов ("Story [2] source text"), на которые в FIGURES реально
-    ссылается черновик - по одному разу, в порядке появления. FIGURES видит
-    ту же нумерацию [i], что brain.draft() подставила в блоки историй."""
+    """Номера сюжетов ("Story [2] source text" / "Story 3 source text"), на
+    которые в FIGURES реально ссылается черновик - по одному разу, в порядке
+    появления. FIGURES видит ту же нумерацию [i], что brain.draft() подставила
+    в блоки историй."""
     pairs = charts.parse_figures(figures_raw) or []
     numbers = []
     for _, source in pairs:

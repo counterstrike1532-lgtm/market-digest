@@ -403,6 +403,22 @@ def test_render_draft_message_resolves_source_by_story_number():
     assert "www.bankier.pl, www.bankier.pl" not in out
 
 
+def test_render_draft_message_resolves_source_number_without_brackets():
+    """Живой прогон 02.08 после T11c: модель написала "Story 3 source text" -
+    без квадратных скобок, regex искал только "[N]" и молча откатывался на
+    сырой SOURCE. Сегодня в SOURCE случайно оказались рабочие URL, а не голый
+    домен - в следующий раз может не повезти. FIGURES ссылается только на
+    сюжет 2, SOURCE не должен содержать сюжеты 1/3/4."""
+    selected = _bankier_selected()
+    block = _draft_block_dict(
+        figures='58.97 billion dollars -> Story 2 source text ("58,97 mld dolarow")',
+        source="https://www.bankier.pl/story-1, https://www.bankier.pl/story-3")
+    out = render_draft_message(block, 1, selected)
+    assert "https://www.bankier.pl/story-2" in out
+    assert "https://www.bankier.pl/story-1" not in out
+    assert "https://www.bankier.pl/story-3" not in out
+
+
 def test_render_draft_message_dedupes_source_urls():
     selected = _bankier_selected()
     block = _draft_block_dict(
