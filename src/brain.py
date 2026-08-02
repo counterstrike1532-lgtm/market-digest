@@ -316,6 +316,11 @@ post. Pick ONE shape for it:
   B. TWO NUMBERS: put two figures side by side, then explain what the pairing reveals.
   C. COMMON BELIEF: state the widely held view plainly, then the fact that complicates it.
 
+These are instructions for how to build the post, not sentences to put in it. Never open with
+the shape's own name - "The common view is that", "This mechanism shows", "Two numbers stand
+out" (or close variants) read as a label stuck on the post, not part of it. Start with the
+actual claim, fact, or number instead.
+
 The reader is choosing between the digest and the single post - that is the point of writing
 two, not two unrelated posts on different topics.
 
@@ -397,7 +402,7 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
 === VOICE ===
 - Plain words. Banned: leverage, synergy, landscape, paradigm, unprecedented, game-changer,
   delve, underscore, pivotal, robust, "it's not just X, it's Y", "here's the thing".
-- Short sentences. Mix in some very short ones.
+- Short sentences. At least one sentence in every draft must be under 8 words.
 - Never open with "I'm excited to share", "Let that sink in", or a rhetorical question.
 - No emoji. Plain "-" bullets only, max 3.
 - Hashtags: 0 or 1. Never generic ones (#finance #macroeconomics #GPW #forex) - they hurt
@@ -409,9 +414,18 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
   validation: a specific industry professional would answer it better than the author, and
   it must grow out of the post's own content and name something concrete (an import
   structure, a fee mechanic, a specific segment) - never a generic closer like "What do you
-  think?", "Thoughts?", "Agree?", or "let me know what you think". The digest draft (1) is
-  allowed to simply end on its last item; ending every post with a question is itself a
-  tell, and is exactly the pattern to avoid. The other ends on a statement.
+  think?", "Thoughts?", "Agree?", or "let me know what you think". A question with no
+  answerable shape is just as bad as a generic one - the professional it's aimed at has to be
+  able to answer it from real work, not just muse about it. BAD: "How do manufacturers in
+  mature CEE markets transition from cheap labor to brand equity?" - nobody can actually
+  answer that in a comment, so nobody does. The digest draft (1) is allowed to simply end on
+  its last item; ending every post with a question is itself a tell, and is exactly the
+  pattern to avoid. The other ends on a statement.
+- Whatever a draft ends on, the closing sentence must be a specific, concrete thing - not a
+  sentence that restates what was just said in broader words. BAD: "These movements show how
+  quickly regional cost structures and trade policy can reshape corporate performance." If a
+  closing sentence would fit equally well after three different, unrelated stories, it is not
+  concrete enough - end on the last number, name, or fact instead.
 - No links in the body. LinkedIn suppresses reach on posts with external links.
 - Sound like a curious student who read the source, not a consultant summarising it.
 - Never name his own role or status in the text itself: no "for a finance student", "as a
