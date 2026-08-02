@@ -379,6 +379,56 @@ def test_render_draft_message_parse_failed_shows_manual_check_notice():
     assert "проверь числа руками" in out
 
 
+# ---------------------------------------------------------------- T11c: SOURCE по номеру сюжета
+
+def _bankier_selected():
+    """4 сюжета с одного домена - build_domain_urls исключает bankier.pl (T10b),
+    точное условие бага живого прогона 02.08.2026."""
+    return [_story(url=f"https://www.bankier.pl/story-{n}", source="www.bankier.pl",
+                   title=f"story {n}")
+           for n in range(1, 5)]
+
+
+def test_render_draft_message_resolves_source_by_story_number():
+    """Живой баг 02.08: под черновиком печаталось "www.bankier.pl www.bankier.pl" -
+    голый домен дважды, обе ссылки вели на главную страницу, не на статью."""
+    selected = _bankier_selected()
+    block = _draft_block_dict(
+        figures='4.1 mln ton -> Story [4] source text ("4,1 mln ton")\n'
+               '2.8 mln ton -> Story [2] source text ("2,8 mln ton")',
+        source="www.bankier.pl, www.bankier.pl")
+    out = render_draft_message(block, 1, selected)
+    assert "https://www.bankier.pl/story-4" in out
+    assert "https://www.bankier.pl/story-2" in out
+    assert "www.bankier.pl, www.bankier.pl" not in out
+
+
+def test_render_draft_message_dedupes_source_urls():
+    selected = _bankier_selected()
+    block = _draft_block_dict(
+        figures='4.1 mln ton -> Story [2] source text\n2.8 mln ton -> Story [2] source text',
+        source="www.bankier.pl")
+    out = render_draft_message(block, 1, selected)
+    assert out.count("https://www.bankier.pl/story-2") == 1
+
+
+def test_render_draft_message_unresolvable_source_stays_plain_text():
+    """Номер сюжета не разрешился (FIGURES пуст) - печатаем то, что написала
+    модель, как есть. Ссылку на голый домен добавлять не должны сами - это и
+    есть фикс T11c, а не попытка угадать URL."""
+    block = _draft_block_dict(figures="none used", source="www.bankier.pl")
+    out = render_draft_message(block, 1, selected=None)
+    assert "www.bankier.pl" in out
+
+
+def test_render_draft_message_out_of_range_story_number_falls_back():
+    selected = _bankier_selected()
+    block = _draft_block_dict(figures='406 tys. -> Story [9] source text',
+                              source="https://www.bankier.pl/story-1")
+    out = render_draft_message(block, 1, selected)
+    assert "https://www.bankier.pl/story-1" in out
+
+
 def test_digest_log_receives_full_report_with_figures(monkeypatch, tmp_path, caplog):
     """Всё вырезанное из Telegram (FIGURES и т.д.) уходит в digest.log на уровне
     INFO - полный отчёт верификатора, не только то, что реально отправляется (T10d)."""

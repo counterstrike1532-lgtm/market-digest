@@ -317,7 +317,42 @@ def _offending_source_quotes(values: list[str], figures_raw: str) -> dict[str, s
     return {v: verify.quoted_source_form(src) for v, src in pairs if v in values}
 
 
-def render_draft_message(block: dict, num: int) -> str:
+_STORY_NUM_RE = re.compile(r"\[(\d+)\]")
+
+
+def _referenced_story_numbers(figures_raw: str) -> list[int]:
+    """Номера сюжетов ("Story [2] source text"), на которые в FIGURES реально
+    ссылается черновик - по одному разу, в порядке появления. FIGURES видит
+    ту же нумерацию [i], что brain.draft() подставила в блоки историй."""
+    pairs = charts.parse_figures(figures_raw) or []
+    numbers = []
+    for _, source in pairs:
+        for m in _STORY_NUM_RE.finditer(source):
+            n = int(m.group(1))
+            if n not in numbers:
+                numbers.append(n)
+    return numbers
+
+
+def resolve_draft_source_urls(block: dict, selected: list[dict] | None) -> list[str]:
+    """T11c: SOURCE черновика по номеру сюжета из FIGURES, не по тексту, который
+    модель сама написала в поле SOURCE - тот иногда голый домен ("www.bankier.pl")
+    вместо ссылки на статью, и Telegram линкует такой текст на корень сайта, не
+    на статью (T10b req 3, не реализовано в T10). Один URL на сюжет, без дублей.
+    Номер не разрешился ни для одной пары - пустой список, вызывающий код падает
+    на исходное поле SOURCE как текст, без специальной обработки."""
+    if not selected:
+        return []
+    urls = []
+    for n in _referenced_story_numbers(block.get("figures", "")):
+        if 1 <= n <= len(selected):
+            url = selected[n - 1]["item"].url
+            if url not in urls:
+                urls.append(url)
+    return urls
+
+
+def render_draft_message(block: dict, num: int, selected: list[dict] | None = None) -> str:
     """Сообщение 3+ (T10d): один черновик на сообщение. SHAPE/FIGURES/
     WHY_THIS_ONE в Telegram не идут никогда - полный отчёт верификатора уже
     ушёл в digest.log через build_message() (см. main()). Заголовок черновика
@@ -354,7 +389,14 @@ def render_draft_message(block: dict, num: int) -> str:
     if check_first and check_first != "-":
         lines.append(f"CHECK_FIRST: {check_first}")
 
-    urls = [u.strip() for u in re.split(r"[,\n]", block.get("source", "")) if u.strip()]
+    urls = resolve_draft_source_urls(block, selected)
+    if not urls:
+        # номер сюжета не разрешился - печатаем то, что написала модель, как
+        # есть. Если это голый домен (T10b req 3), _to_html его не залинкует
+        # (T11c п.2): domain_urls строится только для доменов с ровно одной
+        # ссылкой в подборке, у bankier.pl их обычно 3-4.
+        raw = [u.strip() for u in re.split(r"[,\n]", block.get("source", "")) if u.strip()]
+        urls = list(dict.fromkeys(raw))
     if urls:
         lines.append(", ".join(urls))
 
@@ -470,7 +512,7 @@ def main() -> int:
              build_message(selected, data, drafts))
 
     summary_msg = render_summary(selected, data)
-    draft_msgs = [render_draft_message(b, i) for i, b in enumerate(draft_blocks, 1)]
+    draft_msgs = [render_draft_message(b, i, selected) for i, b in enumerate(draft_blocks, 1)]
 
     # Картинка к каждому черновику (T10e): DRAFT 3 (single) - перенацеленный
     # figures_chart, DRAFT 1/2 (дайджесты) - stat_card, quote_card как фолбэк,
