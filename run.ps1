@@ -52,6 +52,14 @@ $env:PYTHONIOENCODING = "utf-8"
 $OutputEncoding = [System.Text.Encoding]::UTF8
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
+# Live Gemini calls are blocked in brain._call unless this is set. Only the
+# owner's own runs set it - test and score without -Deep must not, so an
+# unattended run can never reach the API by accident.
+if ((@("verify", "models", "dry", "send") -contains $Mode) -or
+    (($Mode -eq "score") -and $Deep)) {
+    $env:NEWSBOT_ALLOW_LIVE = "1"
+}
+
 switch ($Mode) {
     "verify" { & $py -m src.verify_feeds }
     "models" { & $py -m src.list_models }

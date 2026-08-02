@@ -35,6 +35,7 @@ def _reset_brain_state(monkeypatch):
     monkeypatch.setattr(brain, "_quota_refusals", 0)
     monkeypatch.setattr(brain, "_day_exhausted", set())
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-tests")
+    monkeypatch.setenv("NEWSBOT_ALLOW_LIVE", "1")
     monkeypatch.setattr(brain.time, "sleep", lambda *_a, **_k: None)
 
 
@@ -119,6 +120,30 @@ def test_call_503_retries_then_succeeds(monkeypatch):
     q = brain.quota_summary()
     assert q["total"] == 2
     assert q["successful"] == 1
+
+
+def test_call_blocked_without_allow_live_env(monkeypatch):
+    """T11a: без NEWSBOT_ALLOW_LIVE=1 _call падает раньше любого HTTP - предохранитель
+    от несанкционированных живых прогонов, который просьбами не лечился (T10 - 4 раза)."""
+    monkeypatch.delenv("NEWSBOT_ALLOW_LIVE", raising=False)
+    monkeypatch.setattr(brain, "MODELS", ["gemini-3.5-flash"])
+    calls = []
+    monkeypatch.setattr(brain.requests, "post", lambda *a, **kw: calls.append(kw))
+
+    with pytest.raises(RuntimeError, match="NEWSBOT_ALLOW_LIVE"):
+        brain._call("prompt")
+    assert calls == []
+
+
+def test_call_blocked_when_allow_live_not_exactly_one(monkeypatch):
+    monkeypatch.setenv("NEWSBOT_ALLOW_LIVE", "true")
+    monkeypatch.setattr(brain, "MODELS", ["gemini-3.5-flash"])
+    calls = []
+    monkeypatch.setattr(brain.requests, "post", lambda *a, **kw: calls.append(kw))
+
+    with pytest.raises(RuntimeError, match="NEWSBOT_ALLOW_LIVE"):
+        brain._call("prompt")
+    assert calls == []
 
 
 def test_call_full_exhaustion_raises(monkeypatch):

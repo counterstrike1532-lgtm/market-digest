@@ -57,6 +57,11 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
     тогда параметр снимается автоматически.
     """
     global _requests_made, _successful_calls, _quota_refusals, _last_model
+    if os.environ.get("NEWSBOT_ALLOW_LIVE") != "1":
+        raise RuntimeError(
+            "живой вызов Gemini заблокирован: переменная NEWSBOT_ALLOW_LIVE не выставлена "
+            "в 1. Её ставит только run.ps1 в режимах verify/models/dry/send - если ты "
+            "видишь это в тестах или ручном прогоне, живые вызовы Gemini сейчас не разрешены.")
     key = os.environ["GEMINI_API_KEY"]
     last = "неизвестно"
 
