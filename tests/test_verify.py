@@ -526,6 +526,74 @@ def test_real_run_regression_draft1_finds_at_least_8_of_9():
     assert found >= 8
 
 
+# ---------------------------------------------------------------- T11f: тела по номеру сюжета
+#
+# Живой прогон 02.08.2026: bodies_for_source() сопоставляла сырое SOURCE
+# черновика с selected[i]["item"].url подстрочно в обе стороны. Опечатка модели
+# в одну букву ("na-ryku" вместо "na-rynku") дала False в обе стороны - тело
+# статьи не находилось, хотя оно было полностью загружено, и черновик получал
+# "source text not fetched" незаслуженно. Верификатор существует, чтобы ловить
+# ошибки модели - доверять ей же выбор текста для проверки было неправильно.
+
+def _ns_selected(bodies: dict[int, str], urls: dict[int, str] | None = None) -> list[dict]:
+    """selected[i] с телом bodies[i+1] и (опционально) своим URL - индексация с 1,
+    как везде в FIGURES ("Story [N]")."""
+    from types import SimpleNamespace
+    urls = urls or {}
+    n = max(bodies)
+    return [{"item": SimpleNamespace(url=urls.get(i, f"https://example.com/story{i}")),
+            "body": bodies.get(i, "")}
+           for i in range(1, n + 1)]
+
+
+def test_bodies_for_source_finds_body_by_number_despite_source_url_typo():
+    """Реальный кейс прогона 02.08: FIGURES ссылается на сюжет 2, SOURCE-поле
+    черновика содержит опечатку в URL той же статьи - тело всё равно находится,
+    потому что берётся по номеру, не по строке SOURCE."""
+    selected = _ns_selected(
+        {1: "story one body", 2: "story two body, the real one"},
+        urls={2: "https://www.bankier.pl/wiadomosc/na-rynku-walutowym-x.html"})
+    typoed_source = "https://www.bankier.pl/wiadomosc/na-ryku-walutowym-x.html"  # без "n"
+    figures = '58.97 billion dollars -> Story [2] source text ("58,97 mld dolarow")'
+
+    bodies = verify.bodies_for_source(typoed_source, selected, figures)
+    assert bodies == ["story two body, the real one"]
+
+
+def test_bodies_for_source_falls_back_to_string_match_when_figures_has_no_numbers():
+    """FIGURES без ссылок на номер сюжета (например "none used" или числа из
+    FRESH DATA) - поведение идентично тому, что было до T11f: сопоставление по
+    URL из поля SOURCE."""
+    selected = _ns_selected({1: "story one body"}, urls={1: "https://example.com/story1"})
+    bodies = verify.bodies_for_source("https://example.com/story1", selected, "none used")
+    assert bodies == ["story one body"]
+
+
+def test_bodies_for_source_out_of_range_number_falls_back_not_raises():
+    """Номер из FIGURES не попадает в диапазон selected - фолбэк на строковое
+    сопоставление, не исключение."""
+    selected = _ns_selected({1: "story one body"}, urls={1: "https://example.com/story1"})
+    figures = '999 -> Story [9] source text'   # 9 вне диапазона (selected короче)
+    bodies = verify.bodies_for_source("https://example.com/story1", selected, figures)
+    assert bodies == ["story one body"]
+
+
+def test_bodies_for_source_number_match_excludes_other_stories_body():
+    """FIGURES ссылается только на сюжет 2 - тело сюжета 3 в bodies не попадает,
+    даже если SOURCE-поле (текст модели) технически упоминает и его URL тоже.
+    Не объединяем номера со строковым совпадением: иначе число из статьи 3
+    "нашлось" бы в статье 2 - ложный FOUND, которого избегали в T11b."""
+    selected = _ns_selected(
+        {2: "story two body", 3: "story three body"},
+        urls={2: "https://example.com/story2", 3: "https://example.com/story3"})
+    figures = '406,000 -> Story [2] source text'
+    source_field = "https://example.com/story2, https://example.com/story3"
+
+    bodies = verify.bodies_for_source(source_field, selected, figures)
+    assert bodies == ["story two body"]
+    assert "story three body" not in bodies
+
+
 # ---------------------------------------------------------------- T9d: метрики прогона
 
 def test_stats_verdicts_reflect_verifier_downgrade_not_raw_verdict():

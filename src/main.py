@@ -273,41 +273,22 @@ def _offending_source_quotes(values: list[str], figures_raw: str) -> dict[str, s
     return {v: verify.quoted_source_form(src) for v, src in pairs if v in values}
 
 
-
-# T11 ТЗ сам пишет и "Story [N]", и "Source [N]" как равноценные примеры, а
-# живой прогон 02.08 после T11c показал третью форму - "Story 3 source text"
-# вовсе без скобок. DRAFT_PROMPT не требует буквального формата для этой
-# колонки FIGURES ("where it came from"), модель вольна в фразировке - якорное
-# слово ловим в любом варианте, скобки опциональны.
-_STORY_NUM_RE = re.compile(r"(?:Story|Source)\s*\[?(\d+)\]?", re.IGNORECASE)
-
-
-def _referenced_story_numbers(figures_raw: str) -> list[int]:
-    """Номера сюжетов ("Story [2] source text" / "Story 3 source text"), на
-    которые в FIGURES реально ссылается черновик - по одному разу, в порядке
-    появления. FIGURES видит ту же нумерацию [i], что brain.draft() подставила
-    в блоки историй."""
-    pairs = charts.parse_figures(figures_raw) or []
-    numbers = []
-    for _, source in pairs:
-        for m in _STORY_NUM_RE.finditer(source):
-            n = int(m.group(1))
-            if n not in numbers:
-                numbers.append(n)
-    return numbers
-
-
 def resolve_draft_source_urls(block: dict, selected: list[dict] | None) -> list[str]:
     """T11c: SOURCE черновика по номеру сюжета из FIGURES, не по тексту, который
     модель сама написала в поле SOURCE - тот иногда голый домен ("www.bankier.pl")
     вместо ссылки на статью, и Telegram линкует такой текст на корень сайта, не
     на статью (T10b req 3, не реализовано в T10). Один URL на сюжет, без дублей.
     Номер не разрешился ни для одной пары - пустой список, вызывающий код падает
-    на исходное поле SOURCE как текст, без специальной обработки."""
+    на исходное поле SOURCE как текст, без специальной обработки.
+
+    Номера сюжетов извлекает verify._referenced_story_numbers (T11f: перенесена
+    туда, потому что verify.bodies_for_source теперь использует тот же якорь для
+    выбора тела статьи на верификацию - один якорь, а не два места, которые
+    могут разойтись)."""
     if not selected:
         return []
     urls = []
-    for n in _referenced_story_numbers(block.get("figures", "")):
+    for n in verify._referenced_story_numbers(block.get("figures", "")):
         if 1 <= n <= len(selected):
             url = selected[n - 1]["item"].url
             if url not in urls:

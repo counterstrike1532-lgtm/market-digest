@@ -296,8 +296,54 @@ def _closest_in_text(target: float, text: str) -> str | None:
     return best
 
 
-def bodies_for_source(source_field: str, selected: list[dict]) -> list[str]:
-    """Тексты сюжетов, на которые ссылается SOURCE черновика (сопоставление по URL)."""
+# T11 ТЗ сам пишет и "Story [N]", и "Source [N]" как равноценные примеры, а
+# живой прогон 02.08 после T11c показал третью форму - "Story 3 source text"
+# вовсе без скобок. DRAFT_PROMPT не требует буквального формата для этой
+# колонки FIGURES ("where it came from"), модель вольна в фразировке - якорное
+# слово ловим в любом варианте, скобки опциональны. Перенесено из main.py в
+# T11f (verify.py его тоже использует теперь, main → verify - существующее
+# направление импорта, обратное дало бы цикл).
+_STORY_NUM_RE = re.compile(r"(?:Story|Source)\s*\[?(\d+)\]?", re.IGNORECASE)
+
+
+def _referenced_story_numbers(figures_raw: str) -> list[int]:
+    """Номера сюжетов ("Story [2] source text" / "Story 3 source text"), на
+    которые в FIGURES реально ссылается черновик - по одному разу, в порядке
+    появления. FIGURES видит ту же нумерацию [i], что brain.draft() подставила
+    в блоки историй. Общий якорь для SOURCE-ссылки под черновиком
+    (main.resolve_draft_source_urls, T11c) и для выбора тела статьи на
+    верификацию (bodies_for_source ниже, T11f)."""
+    pairs = charts.parse_figures(figures_raw) or []
+    numbers = []
+    for _, source in pairs:
+        for m in _STORY_NUM_RE.finditer(source):
+            n = int(m.group(1))
+            if n not in numbers:
+                numbers.append(n)
+    return numbers
+
+
+def bodies_for_source(source_field: str, selected: list[dict],
+                      figures_raw: str = "") -> list[str]:
+    """Тексты сюжетов для верификации (T11f). Сначала - по номеру сюжета из
+    FIGURES, тем же якорем, что уже держит ссылку под черновиком (T11c).
+    Строковое сопоставление SOURCE-поля с URL - только фолбэк, когда номер не
+    разрешился: SOURCE пишет модель САМА, отдельно от FIGURES, и опечатка в
+    одну букву URL (боевой прогон 02.08: "na-ryku" вместо "na-rynku") даёт
+    False в обе стороны у подстрочного сравнения - тело статьи не находится,
+    хотя оно было загружено, и черновик получает "source text not fetched"
+    незаслуженно, при этом верификатор существует именно для того, чтобы
+    ловить ошибки модели, а не доверять ей выбор текста для проверки.
+
+    Номера НЕ объединяются со строковым совпадением: если хотя бы один номер
+    разрешился, тела берутся строго по ним. Иначе в проверку заедет текст
+    соседнего сюжета, и число из статьи A "найдётся" в статье B - тот же
+    класс ложного FOUND, которого избегали в T11b."""
+    if selected:
+        numbers = [n for n in _referenced_story_numbers(figures_raw) if 1 <= n <= len(selected)]
+        if numbers:
+            return [selected[n - 1].get("body") or "" for n in numbers]
+
     urls = [u.strip() for u in re.split(r"[,\n]", source_field) if u.strip()]
     if not urls:
         return []
@@ -693,7 +739,7 @@ def verify_drafts(drafts_text: str, selected: list[dict],
         # текст был, но ни одна пара не распозналась - это НЕ "цифр нет", а сбой
         # парсера. Ложный "все ок" тут хуже, чем явное "проверь руками".
         b["_parse_failed"] = (not no_figures_declared) and not figures
-        bodies = bodies_for_source(b["source"], selected)
+        bodies = bodies_for_source(b["source"], selected, raw_figures)
         b["_bodies"] = bodies
         b["_level_a"] = verify_figures_local(figures, bodies, data_text)
 
