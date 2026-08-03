@@ -529,15 +529,9 @@ def test_draft_card_calls_figures_chart_for_every_draft(monkeypatch):
     assert calls == ["figures_chart", "figures_chart"]
 
 
-def test_draft_card_returns_none_without_stat_or_quote_card_fallback(monkeypatch):
-    """T11e.2: ноль картинок за прогон - валидный исход, не повод рисовать
-    stat_card/quote_card. Обе функции остаются в charts.py, но не вызываются
-    отсюда - падение теста на вызов означает, что фолбэк вернулся."""
-    monkeypatch.setattr("src.charts.stat_card", lambda *a, **kw: (_ for _ in ()).throw(
-        AssertionError("stat_card must not be called - fallback was removed in T11e")))
-    monkeypatch.setattr("src.charts.quote_card", lambda *a, **kw: (_ for _ in ()).throw(
-        AssertionError("quote_card must not be called - fallback was removed in T11e")))
-
+def test_draft_card_returns_none_when_no_found_figures(monkeypatch):
+    """T11e.2: ноль проверенных чисел -> ноль картинок за прогон, валидный
+    исход (stat_card/quote_card-фолбэк удалён в T13b как мёртвый код)."""
     block = {"body": "Nothing verifiable here today.", "figures": "999 -> x",
             "source": "https://a.com", "shape": "digest",
             "_level_a": [{"value": "999", "source": "x", "status": "NOT_FOUND"}]}
