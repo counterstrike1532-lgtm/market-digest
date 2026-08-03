@@ -25,6 +25,15 @@ _successful_calls = 0    # реально вернувшие пригодный 
 _quota_refusals = 0      # HTTP 429 с "PerDay" - дневной лимит модели исчерпан
 _day_exhausted: set[str] = set()   # модели с исчерпанной дневной квотой в этом прогоне
 _last_model: str | None = None     # какая модель ответила на последний успешный _call (T9d)
+_last_rank_degraded = False        # rank() отработал без модели, эвристическим top-N (T13a)
+
+
+def rank_degraded() -> bool:
+    """True, если последний rank() не смог достучаться до модели вообще (все модели
+    исчерпаны/недоступны) и отдал эвристический top-N вместо ранжирования Gemini.
+    main.py читает это сразу после brain.rank(), чтобы пропустить черновики
+    целиком (T13a: строка матрицы "rank падает") и добавить пометку в сводку."""
+    return _last_rank_degraded
 
 
 def last_model_used() -> str | None:
@@ -273,7 +282,16 @@ ITEMS:
 
 def rank(items, top_n: int = 12) -> list[dict]:
     """Один вызов на весь список. Дефицит free tier - число запросов в день (20/модель),
-    не токены, а вход в 1M токенов легко тянет сотню заголовков разом."""
+    не токены, а вход в 1M токенов легко тянет сотню заголовков разом.
+
+    Модель недоступна целиком (все модели исчерпаны/сеть легла) - вместо пустого
+    списка отдаём эвристический top-N (T13a): `items` уже приходит отсортированным
+    по main.heuristic_prefilter (вес источника, тег, свежесть, social) - это тот
+    же порядок, без нового скоринга, просто урезанный до top_n. rank_degraded()
+    сообщает вызывающему коду об этом, чтобы пропустить черновики целиком - без
+    score/angle от модели строить черновик не на чем."""
+    global _last_rank_degraded
+    _last_rank_degraded = False
     scored: list[dict] = []
     by_id = {i: it for i, it in enumerate(items)}
 
@@ -290,7 +308,11 @@ def rank(items, top_n: int = 12) -> list[dict]:
                 row["item"] = by_id[idx]
                 scored.append(row)
     except Exception as exc:
-        log.warning("отбор упал: %s", exc)
+        log.warning("отбор упал: %s - эвристический top-N без модели", exc)
+        _last_rank_degraded = True
+        fallback = [{"item": it} for it in list(by_id.values())[:top_n]]
+        log.info("эвристический top-N: берём %d из %d", len(fallback), len(by_id))
+        return fallback
 
     for s in scored:
         s["final"] = float(s.get("score", 0)) * s["item"].weight

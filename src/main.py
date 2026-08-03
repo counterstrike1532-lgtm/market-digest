@@ -247,7 +247,10 @@ def render_summary(selected: list[dict], data: dict) -> str:
     unverified_nums = []
     for i, s in enumerate(selected, 1):
         it = s["item"]
-        lines = [f"{i}. [{s.get('score')}] {_oneline(it.title)}"]
+        # эвристический top-N (rank деградировал, T13a) не даёт score модели -
+        # "[None]" в сводке выглядело бы как баг, а не как явный статус
+        score_txt = s["score"] if "score" in s else "heuristic"
+        lines = [f"{i}. [{score_txt}] {_oneline(it.title)}"]
         if i <= _EXPLAINED_TOP_N and s.get("angle"):
             lines.append(f"   {_truncate_at_sentence(_oneline(s['angle']))}")
         lines.append(f"   {it.url}")
@@ -308,6 +311,13 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
 
     if block.get("_parse_failed"):
         lines += ["", "⚠️ FIGURES не распарсился - проверь числа руками"]
+    elif block.get("_verify_unavailable"):
+        # T13a: verify.verify_drafts() упал целиком (не путать с падением только
+        # уровня b - оно уже гасится внутри verify.py и сюда не долетает).
+        # Одна строка на сообщение, не пометка на каждое число (alarm fatigue).
+        verdict = (block.get("verdict") or "").strip().upper()
+        lines += ["", (f"{verdict} — числа не верифицированы" if verdict
+                       else "числа не верифицированы")]
     else:
         verdict = (block.get("verdict") or "").strip().upper()
         if block.get("_downgrade") and verdict == "POST":
@@ -367,7 +377,8 @@ def build_message(selected, data, drafts) -> str:
     for i, s in enumerate(selected, 1):
         it = s["item"]
         date_str = it.published[:10] if it.published_known else "дата неизвестна"
-        story_lines = [f"{i}. [{s.get('score')}/10] {_oneline(it.title)}",
+        score_txt = f"{s['score']}/10" if "score" in s else "heuristic"
+        story_lines = [f"{i}. [{score_txt}] {_oneline(it.title)}",
                       f"   {it.source}, {date_str} — {it.url}"]
         if s.get("angle"):
             story_lines.append(f"   угол: {_oneline(s['angle'])}")
@@ -433,26 +444,66 @@ def main() -> int:
     log.info("--- отбор ---")
     candidates = heuristic_prefilter(fresh, args.hours)
     selected = brain.rank(candidates, top_n=args.top)
-    if not selected:
-        log.warning("отбор не дал ничего — сегодня без сводки")
-        return 0
+    rank_degraded = brain.rank_degraded()
 
-    log.info("--- догрузка текста статей ---")
-    enrich.enrich(selected, limit=args.drafts + 3)
-
-    log.info("--- черновики ---")
-    style_text = STYLE.read_text(encoding="utf-8") if STYLE.exists() else ""
-    drafts = _fix_glued_punctuation(brain.draft(selected, data, style_text, n=args.drafts))
-    draft_model = brain.last_model_used()
-
-    log.info("--- верификация цифр ---")
+    # T13a: ни один отказ Gemini не должен приводить к пустому сообщению - цифры
+    # (NBP/рынки/HICP) и эвристический предотбор их не требуют и уходят всегда.
+    # `notices` - строки-пометки простым текстом, без новых эмодзи-маркеров,
+    # дописываются к сводке ниже.
+    notices: list[str] = []
+    drafts = ""
+    draft_model = None
     draft_stats = verify._empty_stats()
-    draft_blocks = []
-    try:
-        drafts, draft_stats, draft_blocks = verify.verify_drafts(
-            drafts, selected, brain.format_data_block(data))
-    except Exception as exc:
-        log.warning("verify_drafts упал: %s", exc)
+    draft_blocks: list[dict] = []
+
+    if rank_degraded:
+        # Отбор шёл без модели - на эвристическом top-N нет score/angle, черновик
+        # по ним не построить осмысленно, и раз rank уже не достучался до Gemini,
+        # черновики тоже не пробуем (тот же день, та же исчерпанная квота).
+        log.warning("rank деградировал: эвристический top-N (%d сюжетов), "
+                    "черновики пропущены", len(selected))
+        notices.append("! отбор сюжетов сегодня без модели — эвристический список, "
+                       "черновиков нет")
+    elif not selected:
+        # Кандидатов реально не осталось (либо модель честно всех отбраковала) -
+        # валидный пустой день, не отказ: без строки-пометки, без черновиков.
+        log.info("отбор не дал сюжетов — сводка без черновиков")
+    else:
+        log.info("--- догрузка текста статей ---")
+        enrich.enrich(selected, limit=args.drafts + 3)
+
+        log.info("--- черновики ---")
+        style_text = STYLE.read_text(encoding="utf-8") if STYLE.exists() else ""
+        try:
+            drafts = _fix_glued_punctuation(
+                brain.draft(selected, data, style_text, n=args.drafts))
+            draft_model = brain.last_model_used()
+        except Exception as exc:
+            log.warning("draft упал: %s", exc)
+            notices.append(f"! черновиков сегодня нет — Gemini недоступен: {str(exc)[:200]}")
+
+        if drafts:
+            log.info("--- верификация цифр ---")
+            try:
+                drafts, draft_stats, draft_blocks = verify.verify_drafts(
+                    drafts, selected, brain.format_data_block(data))
+            except Exception as exc:
+                # verify_drafts упал целиком (не путать с уровнем b - тот уже
+                # гасится внутри verify.py). Черновики всё равно должны уйти:
+                # парсим форматные поля тем же парсером, что и verify_drafts
+                # внутри себя (verify.parse_drafts), без верификации чисел -
+                # render_draft_message покажет одну строку "не верифицированы"
+                # вместо разбора по каждому числу (T13a).
+                log.warning("verify_drafts упал: %s", exc)
+                draft_blocks = verify.parse_drafts(drafts)
+                for b in draft_blocks:
+                    b["_verify_unavailable"] = True
+                draft_stats = verify._empty_stats()
+                draft_stats["drafted"] = len(draft_blocks)
+                for b in draft_blocks:
+                    v = (b.get("verdict") or "").strip().upper()
+                    if v in draft_stats["verdicts"]:
+                        draft_stats["verdicts"][v] += 1
 
     # Полный отчёт (FIGURES, оба URL, "неочевидно", сырые заголовки модели,
     # полный текст ЦИФРЫ) в Telegram не идёт (T10d) - только в лог. Лог уже
@@ -461,6 +512,8 @@ def main() -> int:
              build_message(selected, data, drafts))
 
     summary_msg = render_summary(selected, data)
+    if notices:
+        summary_msg += "\n\n" + "\n".join(notices)
     draft_msgs = [render_draft_message(b, i, selected) for i, b in enumerate(draft_blocks, 1)]
 
     # Картинка к черновику (T10e, откат фолбэка в T11e.2) - только figures_chart,

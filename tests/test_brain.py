@@ -34,6 +34,7 @@ def _reset_brain_state(monkeypatch):
     monkeypatch.setattr(brain, "_successful_calls", 0)
     monkeypatch.setattr(brain, "_quota_refusals", 0)
     monkeypatch.setattr(brain, "_day_exhausted", set())
+    monkeypatch.setattr(brain, "_last_rank_degraded", False)
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-tests")
     monkeypatch.setenv("NEWSBOT_ALLOW_LIVE", "1")
     monkeypatch.setattr(brain.time, "sleep", lambda *_a, **_k: None)
@@ -158,3 +159,42 @@ def test_call_full_exhaustion_raises(monkeypatch):
     q = brain.quota_summary()
     assert q["quota_refused"] == 2
     assert q["successful"] == 0
+
+
+# ---------------------------------------------------------------- T13a: rank() без модели
+
+from types import SimpleNamespace
+
+
+def _fake_item(i):
+    return SimpleNamespace(source="example.com", tag="misc", social=0,
+                           title=f"Story {i}", summary="body", weight=1.0)
+
+
+def test_rank_falls_back_to_heuristic_order_when_model_unavailable(monkeypatch):
+    """T13a: модель недоступна целиком - rank() отдаёт первые top_n items В ТОМ
+    ЖЕ ПОРЯДКЕ, в каком их передал вызывающий код (main.heuristic_prefilter уже
+    отсортировал по весу/тегу/свежести/social) - никакого нового скоринга внутри
+    rank() самого."""
+    items = [_fake_item(i) for i in range(5)]
+    monkeypatch.setattr(brain, "_call",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("down")))
+
+    result = brain.rank(items, top_n=3)
+
+    assert brain.rank_degraded() is True
+    assert [r["item"] for r in result] == items[:3]
+    assert all("score" not in r and "angle" not in r for r in result)
+
+
+def test_rank_success_leaves_degraded_flag_false(monkeypatch):
+    items = [_fake_item(0), _fake_item(1)]
+    monkeypatch.setattr(brain, "_call",
+                        lambda *a, **kw: '[{"id": 0, "score": 8, "angle": "a", '
+                                        '"why_nonobvious": "b"}]')
+
+    result = brain.rank(items, top_n=5)
+
+    assert brain.rank_degraded() is False
+    assert len(result) == 1
+    assert result[0]["item"] is items[0]
