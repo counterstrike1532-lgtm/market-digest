@@ -203,6 +203,78 @@ def _draft_block(shape, body, figures, source, verdict="SKIP", why="no edge"):
     )
 
 
+# ---------------------------------------------------------------- T13a: parse_drafts (сырой фолбэк)
+#
+# parse_drafts() сама по себе долгое время была мёртвым кодом (ноль вызовов) -
+# T13a завела ей первого настоящего вызывающего: main.py использует её на
+# аварийном пути (verify.verify_drafts() падает целиком), чтобы всё равно
+# разобрать черновики на поля и отправить их без верификации чисел. Раз этот
+# путь несущий на аварии, ему нужно прямое покрытие, не только транзитивное
+# через один main()-тест.
+
+def test_parse_drafts_returns_bare_fields_for_two_blocks():
+    raw = (
+        _draft_block("digest", "First body.", "none used", _ITEM_1_URL, verdict="SKIP")
+        + "\n\n---\n\n"
+        + _draft_block("A", "Second body.", "1 -> x", _ITEM_2_URL, verdict="POST")
+    )
+    blocks = verify.parse_drafts(raw)
+    assert len(blocks) == 2
+    assert blocks[0]["shape"] == "digest"
+    assert blocks[0]["body"] == "First body."
+    assert blocks[0]["figures"] == "none used"
+    assert blocks[0]["verdict"] == "SKIP"
+    assert blocks[1]["shape"] == "A"
+    assert blocks[1]["figures"] == "1 -> x"
+    assert blocks[1]["verdict"] == "POST"
+    # сырой парсинг формата, никакой верификации в этих полях нет
+    assert "_level_a" not in blocks[0]
+    assert "_report" not in blocks[0]
+
+
+def test_parse_drafts_drops_truncated_block_missing_trailing_fields():
+    """Модель/сеть оборвались посреди второго черновика - блок без
+    VERDICT/WHY/CHECK_FIRST не матчится форматом целиком и просто выпадает,
+    первый черновик разбирается независимо от второго."""
+    raw = (
+        _draft_block("digest", "First body.", "none used", _ITEM_1_URL, verdict="SKIP")
+        + "\n\nSHAPE: A\nBODY: Second body, cut off here"
+    )
+    blocks = verify.parse_drafts(raw)
+    assert len(blocks) == 1
+    assert blocks[0]["shape"] == "digest"
+
+
+def test_parse_drafts_drops_block_missing_figures_field_entirely():
+    """FIGURES выпало из формата целиком (не пустая строка - отсутствующая
+    строка). Весь блок не матчится regex'ом и не всплывает как наполовину
+    валидный - лучше честный ноль черновиков, чем блок с оторванными полями."""
+    raw = (
+        "SHAPE: digest\n"
+        "BODY: Body without a figures line at all.\n"
+        "SOURCE: https://example.com/story1\n"
+        "WHY_THIS_ONE: reason\n"
+        "VERDICT: SKIP\n"
+        "WHY: no edge\n"
+        "CHECK_FIRST: -"
+    )
+    assert verify.parse_drafts(raw) == []
+
+
+def test_parse_drafts_ignores_leading_model_header_noise():
+    """Модель напечатала свой заголовок "DRAFT 1" перед SHAPE: - finditer не
+    заботится о том, что стоит до начала SHAPE:, блок разбирается как обычно."""
+    raw = "DRAFT 1\n" + _draft_block("digest", "Body.", "none used", _ITEM_1_URL)
+    blocks = verify.parse_drafts(raw)
+    assert len(blocks) == 1
+    assert blocks[0]["body"] == "Body."
+
+
+def test_parse_drafts_drops_block_with_empty_body():
+    raw = _draft_block("digest", "", "none used", _ITEM_1_URL)
+    assert verify.parse_drafts(raw) == []
+
+
 def test_verify_drafts_inserts_headers_across_dashes_separator():
     """Модель часто разделяет черновики строкой "---" и не печатает свой
     заголовок "DRAFT n" - рендерер должен подписать оба блока и не потерять
