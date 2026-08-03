@@ -43,6 +43,7 @@ jobs:
           HOURS:              ${{ github.event.inputs.hours || '26' }}
           DRAFTS:             ${{ github.event.inputs.drafts || '2' }}
           NEWSBOT_ALLOW_LIVE: "1"
+          NEWSBOT_PERSIST_STATE: "1"
         run: |
           python -m src.main --hours "$HOURS" --drafts "$DRAFTS" 2>&1 | tee digest.log
 

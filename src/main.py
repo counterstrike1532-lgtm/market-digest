@@ -5,6 +5,7 @@ import argparse
 import json
 import logging
 import math
+import os
 import pathlib
 import re
 import sys
@@ -550,18 +551,27 @@ def main() -> int:
                     deliver.send_photo(draft_images[i], f"К черновику {i + 1}")
                 except Exception as exc:
                     log.warning("отправка картинки к черновику %d упала: %s", i + 1, exc)
-        now = datetime.now(timezone.utc).isoformat()
-        for s in selected:
-            seen[s["item"].key] = now
-        save_seen(seen)
+        # T13c (грабля 6): состояние публикует только Actions. Локальный send без
+        # явного -PersistState не трогает state/ вообще - иначе вечерний ручной
+        # прогон помечает сюжеты виденными, и утренний прогон Actions их теряет,
+        # это уже один раз ломалось и откатывалось руками. Гейт по переменной
+        # окружения, по аналогии с NEWSBOT_ALLOW_LIVE (T11a) - ставит её только
+        # соответствующий шаг digest.yml или run.ps1 send -PersistState.
+        if os.environ.get("NEWSBOT_PERSIST_STATE") == "1":
+            now = datetime.now(timezone.utc).isoformat()
+            for s in selected:
+                seen[s["item"].key] = now
+            save_seen(seen)
 
-        metrics.append(METRICS, metrics.build_record(
-            collected=len(items), after_dedup=after_dedup, after_freshness=len(fresh),
-            prefiltered=len(candidates), ranked=len(selected),
-            drafted=draft_stats["drafted"], verdicts=draft_stats["verdicts"],
-            figures=draft_stats["figures"], gemini_successful=q["successful"],
-            gemini_quota_refused=q["quota_refused"], draft_model=draft_model,
-            market_source=market_source))
+            metrics.append(METRICS, metrics.build_record(
+                collected=len(items), after_dedup=after_dedup, after_freshness=len(fresh),
+                prefiltered=len(candidates), ranked=len(selected),
+                drafted=draft_stats["drafted"], verdicts=draft_stats["verdicts"],
+                figures=draft_stats["figures"], gemini_successful=q["successful"],
+                gemini_quota_refused=q["quota_refused"], draft_model=draft_model,
+                market_source=market_source))
+        else:
+            log.info("NEWSBOT_PERSIST_STATE не выставлена - state/ не тронут (T13c)")
 
     log.info("расход квоты Gemini: %d всего (успешных %d, отказов квоты %d)",
              q["total"], q["successful"], q["quota_refused"])

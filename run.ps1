@@ -2,6 +2,7 @@
 #         .\run.ps1 score draft.txt   |   .\run.ps1 score draft.txt -Deep
 #         .\run.ps1 dry -NoCharts     |   .\run.ps1 send -NoCharts
 #         .\run.ps1 dry -Markets      |   .\run.ps1 send -Markets   (T11e: off by default)
+#         .\run.ps1 send -PersistState   (T13c: local send does not touch state/ by default)
 # ASCII only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 
 param(
@@ -14,7 +15,8 @@ param(
 
     [switch]$Deep,
     [switch]$NoCharts,
-    [switch]$Markets
+    [switch]$Markets,
+    [switch]$PersistState
 )
 
 $py = ".\.venv\Scripts\python.exe"
@@ -60,6 +62,13 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 if ((@("verify", "models", "dry", "send") -contains $Mode) -or
     (($Mode -eq "score") -and $Deep)) {
     $env:NEWSBOT_ALLOW_LIVE = "1"
+}
+
+# state/ is published by Actions only (T13c, grabla 6: a local send once
+# marked evening stories as seen and the morning Actions run lost them).
+# Local send needs an explicit -PersistState to write/commit anything there.
+if (($Mode -eq "send") -and $PersistState) {
+    $env:NEWSBOT_PERSIST_STATE = "1"
 }
 
 switch ($Mode) {

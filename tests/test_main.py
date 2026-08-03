@@ -612,7 +612,12 @@ _CANNED_DRAFT = (
 def test_main_send_run_writes_metrics_record(monkeypatch, tmp_path):
     """Полный прогон main() с замоканными внешними вызовами (Gemini, сеть,
     Телеграм) - проверяет, что T9d-проводка (main.py -> metrics.py) реально
-    работает, а не только что каждый кусок по отдельности проходит юнит-тесты."""
+    работает, а не только что каждый кусок по отдельности проходит юнит-тесты.
+
+    NEWSBOT_PERSIST_STATE=1 - явное локальное сохранение (T13c): без него send
+    больше не трогает state/ вообще, см. test_send_without_persist_state_*
+    ниже."""
+    monkeypatch.setenv("NEWSBOT_PERSIST_STATE", "1")
     seen_path = tmp_path / "seen.json"
     metrics_path = tmp_path / "metrics.json"
     monkeypatch.setattr(main, "SEEN", seen_path)
@@ -658,6 +663,60 @@ def test_main_send_run_writes_metrics_record(monkeypatch, tmp_path):
     assert rec["gemini_successful"] == 2
     assert rec["draft_model"] == "gemini-3.5-flash"
     assert rec["market_source"] == {"wig20": "yfinance"}
+
+
+# ---------------------------------------------------------------- T13c: state/ только с Actions
+
+def _stub_send_run(monkeypatch, tmp_path):
+    seen_path = tmp_path / "seen.json"
+    metrics_path = tmp_path / "metrics.json"
+    monkeypatch.setattr(main, "SEEN", seen_path)
+    monkeypatch.setattr(main, "METRICS", metrics_path)
+
+    item = Item(title="Test story", url="https://example.com/story1",
+               source="example.com", tag="misc",
+               published=datetime.now(timezone.utc).isoformat())
+    monkeypatch.setattr(collect, "collect_all", lambda cfg, hours: [item])
+    monkeypatch.setattr(numbers, "gather", lambda cfg: {"_market_source": {}})
+    selected = [{"item": item, "score": 8, "angle": "x", "why_nonobvious": "x",
+                "body": "", "verified": False}]
+    monkeypatch.setattr(brain, "rank", lambda candidates, top_n: selected)
+    monkeypatch.setattr(enrich, "enrich", lambda selected, limit: 0)
+    monkeypatch.setattr(brain, "draft", lambda *a, **kw: _CANNED_DRAFT)
+    monkeypatch.setattr(brain, "last_model_used", lambda: "gemini-3.5-flash")
+    monkeypatch.setattr(brain, "quota_summary",
+                        lambda: {"total": 1, "successful": 1, "quota_refused": 0})
+    monkeypatch.setattr("src.deliver.send", lambda text, domain_urls=None: None)
+    monkeypatch.setattr("src.deliver.send_photo", lambda *a, **kw: None)
+    monkeypatch.setattr("sys.argv", ["main.py", "--no-charts"])
+    return seen_path, metrics_path
+
+
+def test_send_without_persist_state_env_leaves_state_untouched(monkeypatch, tmp_path):
+    """T13c (грабля 6): локальный send без NEWSBOT_PERSIST_STATE не пишет ни
+    seen.json, ни metrics.json - иначе ручной вечерний прогон помечает сюжеты
+    виденными и утренний прогон Actions их теряет."""
+    monkeypatch.delenv("NEWSBOT_PERSIST_STATE", raising=False)
+    seen_path, metrics_path = _stub_send_run(monkeypatch, tmp_path)
+
+    rc = main.main()
+
+    assert rc == 0
+    assert not seen_path.exists()
+    assert not metrics_path.exists()
+
+
+def test_send_with_persist_state_env_writes_state(monkeypatch, tmp_path):
+    """С явным NEWSBOT_PERSIST_STATE=1 (то, что ставит digest.yml, или ручной
+    run.ps1 send -PersistState) состояние пишется как раньше."""
+    monkeypatch.setenv("NEWSBOT_PERSIST_STATE", "1")
+    seen_path, metrics_path = _stub_send_run(monkeypatch, tmp_path)
+
+    rc = main.main()
+
+    assert rc == 0
+    assert seen_path.exists()
+    assert metrics_path.exists()
 
 
 # ---------------------------------------------------------------- T11e.2: график рынков по флагу
