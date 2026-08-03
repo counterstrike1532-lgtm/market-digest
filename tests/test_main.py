@@ -379,81 +379,75 @@ def test_render_draft_message_parse_failed_shows_manual_check_notice():
     assert "проверь числа руками" in out
 
 
-# ---------------------------------------------------------------- T11c: SOURCE по номеру сюжета
+# ---------------------------------------------------------------- T14a: футер - номера сюжетов
+#
+# Боевой прогон 03.08: под digest-черновиком из трёх буллетов
+# (money.pl + bankier.pl + bankier.pl) печатался один URL www.money.pl -
+# выглядел как источник всего текста, хотя два буллета из трёх пришли с
+# другого домена. Номер сюжета такого класса ошибки не имеет вовсе: ссылки на
+# сами сюжеты уже кликабельны в блоке СЮЖЕТЫ выше, футер только называет,
+# какие именно номера черновик использовал.
 
-def _bankier_selected():
-    """4 сюжета с одного домена - build_domain_urls исключает bankier.pl (T10b),
-    точное условие бага живого прогона 02.08.2026."""
-    return [_story(url=f"https://www.bankier.pl/story-{n}", source="www.bankier.pl",
-                   title=f"story {n}")
-           for n in range(1, 5)]
+def _bankier_selected(n=5):
+    """N сюжетов с одного домена - домен тут не важен (футер T14a URL вообще
+    не печатает), важно только количество/нумерация сюжетов."""
+    return [_story(url=f"https://www.bankier.pl/story-{i}", source="www.bankier.pl",
+                   title=f"story {i}")
+           for i in range(1, n + 1)]
 
 
-def test_render_draft_message_resolves_source_by_story_number():
-    """Живой баг 02.08: под черновиком печаталось "www.bankier.pl www.bankier.pl" -
-    голый домен дважды, обе ссылки вели на главную страницу, не на статью."""
+def test_render_draft_message_footer_lists_story_numbers_ascending():
+    """Номера в FIGURES пришли в порядке 5, 1, 3 - в футере напечатаны по
+    возрастанию, не в порядке появления."""
     selected = _bankier_selected()
     block = _draft_block_dict(
-        figures='4.1 mln ton -> Story [4] source text ("4,1 mln ton")\n'
-               '2.8 mln ton -> Story [2] source text ("2,8 mln ton")',
-        source="www.bankier.pl, www.bankier.pl")
+        figures='4.1 mln ton -> Story [5] source text\n'
+               '2.8 mln ton -> Story [1] source text\n'
+               '1.2 mln ton -> Story [3] source text')
     out = render_draft_message(block, 1, selected)
-    assert "https://www.bankier.pl/story-4" in out
-    assert "https://www.bankier.pl/story-2" in out
-    assert "www.bankier.pl, www.bankier.pl" not in out
+    assert "источники: сюжеты 1, 3, 5" in out
 
 
-def test_render_draft_message_resolves_source_number_without_brackets():
-    """Живой прогон 02.08 после T11c: модель написала "Story 3 source text" -
-    без квадратных скобок, regex искал только "[N]" и молча откатывался на
-    сырой SOURCE. Сегодня в SOURCE случайно оказались рабочие URL, а не голый
-    домен - в следующий раз может не повезти. FIGURES ссылается только на
-    сюжет 2, SOURCE не должен содержать сюжеты 1/3/4."""
+def test_render_draft_message_footer_singular_form_for_one_number():
+    selected = _bankier_selected()
+    block = _draft_block_dict(figures='58.97 billion dollars -> Story 2 source text')
+    out = render_draft_message(block, 1, selected)
+    assert "источник: сюжет 2" in out
+    assert "источники" not in out
+
+
+def test_render_draft_message_footer_out_of_range_number_dropped_others_kept():
     selected = _bankier_selected()
     block = _draft_block_dict(
-        figures='58.97 billion dollars -> Story 2 source text ("58,97 mld dolarow")',
-        source="https://www.bankier.pl/story-1, https://www.bankier.pl/story-3")
+        figures='4.1 mln ton -> Story [2] source text\n406 tys. -> Story [9] source text')
     out = render_draft_message(block, 1, selected)
-    assert "https://www.bankier.pl/story-2" in out
-    assert "https://www.bankier.pl/story-1" not in out
-    assert "https://www.bankier.pl/story-3" not in out
+    assert "источник: сюжет 2" in out
 
 
-def test_render_draft_message_dedupes_source_urls():
+def test_render_draft_message_footer_all_numbers_out_of_range_omits_line():
     selected = _bankier_selected()
-    block = _draft_block_dict(
-        figures='4.1 mln ton -> Story [2] source text\n2.8 mln ton -> Story [2] source text',
-        source="www.bankier.pl")
+    block = _draft_block_dict(figures='406 tys. -> Story [9] source text')
     out = render_draft_message(block, 1, selected)
-    assert out.count("https://www.bankier.pl/story-2") == 1
+    assert "источник" not in out
 
 
-def test_render_draft_message_unresolvable_source_omits_source_line():
-    """T12a: номер сюжета не разрешился (FIGURES пуст) - строку SOURCE не
-    печатаем вовсе, не откатываемся на сырой текст модели. Ссылка на голую
-    главную страницу издания хуже отсутствия ссылки - выглядит рабочей и
-    ведёт в никуда, а настоящие ссылки на все сюжеты уже есть в сводке выше."""
+def test_render_draft_message_footer_no_story_numbers_omits_line_entirely():
+    """Приёмка T12a/T14a: FIGURES без номеров сюжетов -> в сообщении нет
+    строки-футера вообще, домен не подставляется никогда."""
+    selected = _bankier_selected()
+    block = _draft_block_dict(figures="6,872 -> Money.pl", source="www.bankier.pl")
+    out = render_draft_message(block, 1, selected)
+    assert "источник" not in out
+    assert "bankier.pl" not in out
+
+
+def test_render_draft_message_footer_omitted_without_selected():
+    """T12a: номер сюжета не разрешился (selected пуст/не передан) - строки
+    футера нет, не откат на сырой текст модели в поле SOURCE."""
     block = _draft_block_dict(figures="none used", source="www.bankier.pl")
     out = render_draft_message(block, 1, selected=None)
+    assert "источник" not in out
     assert "www.bankier.pl" not in out
-
-
-def test_render_draft_message_out_of_range_story_number_omits_source_line():
-    selected = _bankier_selected()
-    block = _draft_block_dict(figures='406 tys. -> Story [9] source text',
-                              source="https://www.bankier.pl/story-1")
-    out = render_draft_message(block, 1, selected)
-    assert "https://www.bankier.pl/story-1" not in out
-    assert "bankier.pl" not in out
-
-
-def test_render_draft_message_no_story_numbers_omits_source_line_entirely():
-    """Приёмка T12a: FIGURES без номеров сюжетов -> в сообщении нет ни строки
-    SOURCE, ни подстроки bankier.pl."""
-    block = _draft_block_dict(
-        figures="6,872 -> Money.pl", source="https://www.bankier.pl/wiadomosc/x.html")
-    out = render_draft_message(block, 1, selected=_bankier_selected())
-    assert "bankier.pl" not in out
 
 
 def test_digest_log_receives_full_report_with_figures(monkeypatch, tmp_path, caplog):

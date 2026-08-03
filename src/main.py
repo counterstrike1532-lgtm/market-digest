@@ -277,27 +277,23 @@ def _offending_source_quotes(values: list[str], figures_raw: str) -> dict[str, s
     return {v: verify.quoted_source_form(src) for v, src in pairs if v in values}
 
 
-def resolve_draft_source_urls(block: dict, selected: list[dict] | None) -> list[str]:
-    """T11c: SOURCE черновика по номеру сюжета из FIGURES, не по тексту, который
-    модель сама написала в поле SOURCE - тот иногда голый домен ("www.bankier.pl")
-    вместо ссылки на статью, и Telegram линкует такой текст на корень сайта, не
-    на статью (T10b req 3, не реализовано в T10). Один URL на сюжет, без дублей.
-    Номер не разрешился ни для одной пары - пустой список, вызывающий код падает
-    на исходное поле SOURCE как текст, без специальной обработки.
+def resolve_draft_source_numbers(block: dict, selected: list[dict] | None) -> list[int]:
+    """T14a (откат T11c): футер печатает номера сюжетов, не URL. Один голый URL
+    под многосюжетным черновиком выдавал себя за источник всего текста (боевой
+    прогон 03.08: money.pl под черновиком из money.pl+bankier.pl+bankier.pl) -
+    а сами ссылки на эти сюжеты уже есть кликабельными в блоке СЮЖЕТЫ выше,
+    дублировать их текстом в футере незачем и небезопасно (голые URL в
+    Телеграме - T9e). Номер сюжета несёт то, чего URL не несёт: соответствие
+    "буллет -> какая по счёту история в СЮЖЕТЫ", по нему и проверяют цифру.
 
-    Номера сюжетов извлекает verify._referenced_story_numbers (T11f: перенесена
-    туда, потому что verify.bodies_for_source теперь использует тот же якорь для
-    выбора тела статьи на верификацию - один якорь, а не два места, которые
-    могут разойтись)."""
+    Номера сюжетов извлекает verify._referenced_story_numbers, отфильтрованы
+    диапазоном selected, без дублей (сам _referenced_story_numbers их уже не
+    даёт), по возрастанию - не в порядке появления в FIGURES."""
     if not selected:
         return []
-    urls = []
-    for n in verify._referenced_story_numbers(block.get("figures", "")):
-        if 1 <= n <= len(selected):
-            url = selected[n - 1]["item"].url
-            if url not in urls:
-                urls.append(url)
-    return urls
+    numbers = {n for n in verify._referenced_story_numbers(block.get("figures", ""))
+              if 1 <= n <= len(selected)}
+    return sorted(numbers)
 
 
 def render_draft_message(block: dict, num: int, selected: list[dict] | None = None) -> str:
@@ -344,13 +340,15 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
     if check_first and check_first != "-":
         lines.append(f"CHECK_FIRST: {check_first}")
 
-    # T12a: номер сюжета не разрешился - строку SOURCE не печатаем вовсе, а не
-    # откатываемся на сырой текст модели (T11c-фолбэк). Ссылка на главную
-    # страницу издания хуже отсутствия ссылки: выглядит рабочей и ведёт в
-    # никуда, а настоящие ссылки на все сюжеты уже есть в сводке (сообщение 2).
-    urls = resolve_draft_source_urls(block, selected)
-    if urls:
-        lines.append(", ".join(urls))
+    # T12a (и T14a поверх него): номер сюжета не разрешился - строку источника
+    # не печатаем вовсе, ни как URL, ни как домен-фолбэк. Настоящие ссылки на
+    # все сюжеты уже есть кликабельными в сводке (сообщение 2).
+    numbers = resolve_draft_source_numbers(block, selected)
+    if numbers:
+        if len(numbers) == 1:
+            lines.append(f"источник: сюжет {numbers[0]}")
+        else:
+            lines.append(f"источники: сюжеты {', '.join(str(n) for n in numbers)}")
 
     return "\n".join(lines)
 

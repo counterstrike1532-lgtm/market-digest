@@ -310,8 +310,8 @@ def _referenced_story_numbers(figures_raw: str) -> list[int]:
     """Номера сюжетов ("Story [2] source text" / "Story 3 source text"), на
     которые в FIGURES реально ссылается черновик - по одному разу, в порядке
     появления. FIGURES видит ту же нумерацию [i], что brain.draft() подставила
-    в блоки историй. Общий якорь для SOURCE-ссылки под черновиком
-    (main.resolve_draft_source_urls, T11c) и для выбора тела статьи на
+    в блоки историй. Общий якорь для номеров источника под черновиком
+    (main.resolve_draft_source_numbers, T11c/T14a) и для выбора тела статьи на
     верификацию (bodies_for_source ниже, T11f)."""
     pairs = charts.parse_figures(figures_raw) or []
     numbers = []
