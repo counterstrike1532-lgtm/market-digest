@@ -138,9 +138,19 @@ def _core_number_variants(value: str) -> list[str]:
     Выделено из _to_search_variants отдельной функцией (T11b): единица
     измерения теперь проверяется отдельно, в окне предложения
     (_unit_matches_in_sentence), а не приклеена к самому искомому числу -
-    "4.1 million tons" никогда не встретится в польском тексте дословно."""
+    "4.1 million tons" никогда не встретится в польском тексте дословно.
+
+    T14b: core == "" (value не начинается с цифры/"$" - квалификатор словом
+    "over 67 days" или числительное словом "four days longer", см. charts.py
+    T14b шаг 1) обязан вернуть [], а не [core] ([""]). Пустая строка
+    "находится" в НАЧАЛЕ любого текста через str.find(""), и вызывающий код
+    (_find_first в verify_figures_local) принимал бы это за настоящее
+    совпадение числового ядра в позиции 0 - реальный, а не гипотетический
+    путь к ложному FOUND, см. test_empty_core_never_falsely_found_via_incidental_unit_word."""
     num_part, _suffix = _split_value(value)
     core = re.sub(r"\s+", "", num_part.replace("$", "").replace("%", ""))
+    if not core:
+        return []
     if re.fullmatch(r"\d+(,\d{3})+(\.\d+)?", core):
         no_sep = core.replace(",", "")
         num_variants = [core, no_sep]

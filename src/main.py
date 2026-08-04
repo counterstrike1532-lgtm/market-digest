@@ -328,13 +328,30 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
             extra = f" +{len(offending) - 3} more" if len(offending) > 3 else ""
             lines += ["", f"{verdict} — сверь {', '.join(parts)}{extra}"]
         else:
+            # T14b: пустой offending НЕ значит "всё найдено" - NO_SOURCE_TEXT в
+            # него не входит по замыслу verify.py (это не вина модели, а
+            # недогруженный источник), поэтому раньше ✅ печаталась при found=0
+            # (все пары NO_SOURCE_TEXT) и даже при 0 < found < denom. Второе
+            # достижимо: FRESH DATA даёт FOUND через data_text независимо от
+            # bodies (verify._render/verify_figures_local, data_text общий на
+            # все черновики), а числа конкретного сюжета в этом же черновике
+            # уходят в NO_SOURCE_TEXT, если тело сюжета не догрузилось -
+            # combined_body общий на весь черновик, а не per-pair. Условие
+            # галочки поэтому не "offending пуст", а "found == denom > 0".
             countable = [r for r in block.get("_level_a", []) if r["status"] != "YEAR"]
             denom = len(countable)
-            if denom:
-                found = sum(1 for r in countable if r["status"] == "FOUND")
-                lines += ["", f"{verdict} · цифры {found}/{denom} ✅"]
-            else:
+            if not denom:
                 lines += ["", verdict]
+            else:
+                found = sum(1 for r in countable if r["status"] == "FOUND")
+                if found == denom:
+                    lines += ["", f"{verdict} · цифры {found}/{denom} ✅"]
+                elif found == 0:
+                    lines += ["", f"{verdict} · цифры {found}/{denom} — "
+                                  "источник не догружен, сверь вручную"]
+                else:
+                    lines += ["", f"{verdict} · цифры {found}/{denom} — "
+                                  "часть чисел не сверена, источник не догружен"]
 
     check_first = (block.get("check_first") or "").strip()
     if check_first and check_first != "-":

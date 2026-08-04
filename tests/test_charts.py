@@ -113,6 +113,42 @@ def test_parse_figures_real_draft1_all_nine_pairs():
     ]
 
 
+# ---------------------------------------------------------- T14b: квалификатор/числительное словом
+
+def test_parse_figures_plain_number_still_works():
+    """Контроль: обычная пара без квалификатора не задета изменением ядра."""
+    text = "96.5 million PLN -> Story [1] source text"
+    assert charts.parse_figures(text) == [
+        ("96.5 million PLN", "Story [1] source text"),
+    ]
+
+
+def test_parse_figures_qualifier_plus_digit_core():
+    """Живой лог 03.08 08:41: "over 67 days" не начиналось с цифры, вся пара
+    выпадала из parse_figures. Квалификатор "over" - в закрытом списке."""
+    text = "over 67 days -> Story [1] source text"
+    assert charts.parse_figures(text) == [
+        ("over 67 days", "Story [1] source text"),
+    ]
+
+
+def test_parse_figures_number_word_as_core():
+    """Тот же лог: "four days longer" - числительное словом как самостоятельное
+    ядро, без квалификатора и без цифры вообще."""
+    text = "four days longer -> Story [1] source text"
+    assert charts.parse_figures(text) == [
+        ("four days longer", "Story [1] source text"),
+    ]
+
+
+def test_parse_figures_number_word_core_two_tail_words():
+    """Тот же лог: числительное словом + два слова хвоста единицы измерения."""
+    text = "seven residential buildings -> Story [1] source text"
+    assert charts.parse_figures(text) == [
+        ("seven residential buildings", "Story [1] source text"),
+    ]
+
+
 # ---------------------------------------------------------------- T9f: figures_chart
 
 def test_figures_chart_refuses_seven_numbers_from_three_stories(tmp_path, monkeypatch):

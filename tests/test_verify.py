@@ -388,6 +388,38 @@ def test_unparsed_offending_lists_all_values_not_just_first():
     assert "2 unparsed" in verify._render(level_a, {})[0]
 
 
+# ---------------------------------------------------------------- T14b: пустое числовое ядро
+
+def test_core_number_variants_empty_core_returns_empty_list():
+    """T14b шаг 1 расширил _NUM_CORE в charts.py, и такие value ("over 67 days",
+    "four days longer") теперь структурно доходят как пары до verify.py. Их
+    числовое ядро (_split_value) пусто - _core_number_variants обязана
+    вернуть [], а не [""]: пустая строка "находится" в начале ЛЮБОГО текста
+    через text.find(""), и это ложно засчитывает совпадение ядра для пары,
+    которая структурно не несёт числа вовсе."""
+    assert verify._core_number_variants("over 67 days") == []
+    assert verify._core_number_variants("four days longer") == []
+
+
+def test_empty_core_never_falsely_found_via_incidental_unit_word():
+    """Пара с пустым числовым ядром ("four tons") стала ДОСТИЖИМОЙ до этого
+    места только после расширения _NUM_CORE в charts.py (T14b шаг 1) - до
+    него parse_figures такую строку целиком ронял, verify_figures_local её
+    вообще не видел. Без фикса _core_number_variants (см. тест выше) она
+    срабатывает на строке 434 verify.py: _find_first(body, [""]) даёт (0, "")
+    - text.find("") всегда находит пустую строку в позиции 0 - затем
+    _unit_matches_in_sentence проверяет ПЕРВОЕ предложение тела целиком на
+    слово-единицу "tons" из таблицы синонимов, никак не привязываясь к числу
+    "four" из пары. Тело ниже намеренно враждебное: "tons" стоит в первом
+    предложении рядом с посторонним числом (12), не с тем, что в паре - без
+    фикса это всё равно засчитывается как FOUND. Ожидаемый результат -
+    UNPARSED, как для любой пары без числового ядра."""
+    pairs = [("four tons", "Story [1] source text")]
+    body = "The mine reported 12 tons of copper waste this week. No other figures follow."
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert level_a[0]["status"] == "UNPARSED"
+
+
 # ---------------------------------------------------------------- T10c: цитата, знаменатель, граница
 #
 # Боевой прогон 01.08.2026: FIGURES из девяти пар давало "1/6 found", хотя все
@@ -754,3 +786,115 @@ def test_strip_model_header_leaves_non_header_content_alone():
     assert verify._strip_model_header("\n\n---\n\n") == "\n\n---"
     assert verify._strip_model_header("\n\nDRAFT 3\n") == ""
     assert verify._strip_model_header("") == ""
+
+
+# ---------------------------------------------------------------- T14b шаг 4: две живые регрессии
+
+def test_live_log_0803_0841utc_draft1_denominator_is_four_not_one():
+    """Живой лог 03.08.2026 08:41 UTC, DRAFT 1: Телеграм напечатал
+    "✅ verified (1/1 found)", хотя FIGURES черновика содержал четыре пары -
+    "96.5 million PLN", "over 67 days", "four days longer", "seven
+    residential buildings". Три из четырёх не начинались с цифры и целиком
+    выпадали из charts.parse_figures ещё до verify_figures_local - знаменатель
+    занижался без единого следа. Это регрессия на T14b шаг 1 (парсинг):
+    проверяем именно то, что все четыре пары СТРУКТУРНО доходят до
+    verify_figures_local. Причина другой силы того же класса ("1/1" из-за
+    недогруженного источника, а не парсинга) - в следующем тесте,
+    test_dry_run_evening_0803_broken_source_url.
+
+    Явная проверка статусов (не только длины countable) - шаг 2 закрыл мину
+    "пустое ядро -> ложный FOUND" (см. секцию T14b: пустое числовое ядро
+    выше), и здесь это тот самый живой контекст, где мина могла бы
+    сработать: тело содержит слова "days"/"buildings" рядом с реальными
+    числами (67, 96.5). Если бы шаг 2 закрыл её не полностью, здесь бы
+    появился лишний FOUND вместо UNPARSED - тест должен это показать явно,
+    а не только через агрегированную длину."""
+    figures_text = (
+        "- 96.5 million PLN -> Story [1] source text\n"
+        "- over 67 days -> Story [1] source text\n"
+        "- four days longer -> Story [1] source text\n"
+        "- seven residential buildings -> Story [1] source text"
+    )
+    pairs = charts.parse_figures(figures_text)
+    assert len(pairs) == 4          # T14b шаг 1: раньше здесь было 1 (три пары ронялись)
+
+    body = ("The report cited 96.5 million PLN in quarterly revenue, a project "
+            "that ran over 67 days longer than planned across seven residential "
+            "buildings, four days longer than the earlier phase.")
+    level_a = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    countable = [r for r in level_a if r["status"] != "YEAR"]
+    assert len(countable) == 4      # честный знаменатель, не 1
+
+    statuses = {r["value"]: r["status"] for r in level_a}
+    assert statuses == {
+        "96.5 million PLN": "FOUND",
+        "over 67 days": "UNPARSED",
+        "four days longer": "UNPARSED",
+        "seven residential buildings": "UNPARSED",
+    }
+
+    report, downgrade, offending = verify._render(level_a, {})
+    assert "1/4 found" in report    # позитивно: found=1, denom=4, не "не 1/1"
+    assert downgrade is True
+    # T14b: три UNPARSED честно попадают в offending - в render_draft_message
+    # это уйдёт по ветке 1 (перечисление "MAYBE - сверь ..."), не по новым
+    # веткам 3-5 из шага 3 - offending здесь непуст по построению.
+    assert set(offending) == {"over 67 days", "four days longer",
+                              "seven residential buildings"}
+
+
+def test_dry_run_evening_0803_broken_source_url_falls_to_no_source_text():
+    """Dry-прогон вечера 03.08.2026: FIGURES черновика - три валидных,
+    честно разобранных пары ("300 million PLN", "4 years", "8 years").
+    Разбор числа тут ни при чём - это НЕ регрессия на шаг 1. Сломался
+    bodies_for_source: SOURCE черновика указывал на URL с опечаткой
+    относительно настоящего URL сюжета (тот же класс, что T11f -
+    "na-ryku" вместо "na-rynku"), а FIGURES написан прозой без "Story [N]"/
+    "Source [N]" - _referenced_story_numbers не дал ни одного номера, и
+    строковый URL-фолбэк bodies_for_source тоже не нашёл совпадения. В
+    verify_figures_local body пришло ПУСТЫМ, хотя тело сюжета реально было
+    загружено (и даже содержит все нужные числа) - виден только пустой
+    знаменатель источника, не поломка разбора.
+
+    Гоняем настоящий путь целиком - verify.verify_drafts (внутри себя зовёт
+    bodies_for_source и verify_figures_local) -> main.render_draft_message -
+    а не подсовываем готовый _level_a: иначе тест не поймает будущую поломку
+    именно в bodies_for_source, только в рендере. brain._call запатчен так,
+    что бросает при любом вызове - уровень b не должен строить кандидатов
+    вовсе (все три пары NO_SOURCE_TEXT, не FOUND), так что живой Gemini тут
+    в принципе не нужен, и тест это явно проверяет, а не просто полагается."""
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    from src.main import render_draft_message
+
+    body = ("The developer raised 300 million PLN for the project, which runs "
+            "4 years longer than the pilot and 8 years in total.")
+    selected = [{"item": SimpleNamespace(url="https://example.com/na-rynku-real"),
+                "body": body}]
+
+    draft = _draft_block(
+        "digest",
+        "The developer raised 300 million PLN, extending the timeline "
+        "to 4 years longer and 8 years overall.",
+        "300 million PLN -> company disclosure; 4 years -> annual report; "
+        "8 years -> annual report",
+        "https://example.com/na-ryku-broken",     # опечатка - не совпадает ни с одним selected
+        verdict="POST")
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("уровень b не должен звать Gemini - кандидатов нет")
+
+    with patch("src.brain._call", side_effect=fail_if_called):
+        _, _, blocks = verify.verify_drafts(draft, selected=selected, data_text="")
+
+    assert len(blocks) == 1
+    statuses = {r["value"]: r["status"] for r in blocks[0]["_level_a"]}
+    assert statuses == {"300 million PLN": "NO_SOURCE_TEXT",
+                        "4 years": "NO_SOURCE_TEXT",
+                        "8 years": "NO_SOURCE_TEXT"}
+    assert blocks[0]["_offending"] == []
+
+    out = render_draft_message(blocks[0], 1, selected=selected)
+    assert "✅" not in out
+    assert "POST · цифры 0/3 — источник не догружен, сверь вручную" in out

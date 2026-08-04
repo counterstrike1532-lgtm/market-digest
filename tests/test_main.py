@@ -379,6 +379,82 @@ def test_render_draft_message_parse_failed_shows_manual_check_notice():
     assert "проверь числа руками" in out
 
 
+# ---------------------------------------------------------------- T14b: пять веток "цифры" вместо ✅ на честном слове
+#
+# Живой лог 03.08 08:41: "✅ verified (1/1 found)" под черновиком с четырьмя
+# числами. Причина - ✅ печаталась при пустом _offending, а NO_SOURCE_TEXT в
+# _offending не входит по замыслу verify.py (не вина модели). Условие галочки
+# теперь строго found == denom > 0, с отдельной веткой на каждый другой исход.
+
+def test_render_draft_message_offending_nonpaired_branch_untouched():
+    """Ветка 1 (offending непуст) - существующее поведение с перечислением,
+    этот шаг её не трогает вообще."""
+    figures = '- 100 -> Story [1] source text ("100")'
+    level_a = [{"value": "100", "source": 'Story [1] source text ("100")',
+               "status": "NOT_FOUND"}]
+    block = _draft_block_dict(verdict="POST", figures=figures, downgrade=True,
+                              offending=["100"], level_a=level_a)
+    out = render_draft_message(block, 1)
+    assert "MAYBE — сверь" in out
+    assert '100 ("100")' in out
+
+
+def test_render_draft_message_denom_zero_is_bare_verdict():
+    """Ветка 2: черновик без проверяемых чисел (level_a пуст) - просто
+    вердикт, без "цифры N/M" и без ✅."""
+    block = _draft_block_dict(verdict="SKIP", level_a=[], offending=[])
+    out = render_draft_message(block, 1)
+    assert "\nSKIP" in out
+    assert "цифры" not in out
+    assert "✅" not in out
+
+
+def test_render_draft_message_all_found_keeps_checkmark():
+    """Ветка 3: found == denom > 0 - как раньше, с ✅. Не сломать (T10d)."""
+    level_a = [{"value": "406,000", "source": "x", "status": "FOUND"},
+              {"value": "23%", "source": "y", "status": "FOUND"}]
+    block = _draft_block_dict(verdict="POST", level_a=level_a, offending=[])
+    out = render_draft_message(block, 1)
+    assert "POST · цифры 2/2 ✅" in out
+
+
+def test_render_draft_message_all_no_source_text_no_checkmark():
+    """Ветка 4: все пары NO_SOURCE_TEXT (found == 0, offending пуст по
+    конструкции verify._render - NO_SOURCE_TEXT туда не входит) - явная
+    строка про недогруженный источник, без ✅, вместо ложной "0/3 ✅"."""
+    level_a = [{"value": "300 million PLN", "source": "x", "status": "NO_SOURCE_TEXT"},
+              {"value": "4 years", "source": "y", "status": "NO_SOURCE_TEXT"},
+              {"value": "8 years", "source": "z", "status": "NO_SOURCE_TEXT"}]
+    block = _draft_block_dict(verdict="POST", level_a=level_a, offending=[])
+    out = render_draft_message(block, 1)
+    assert "POST · цифры 0/3 — источник не догружен, сверь вручную" in out
+    assert "✅" not in out
+
+
+def test_render_draft_message_partial_no_source_text_distinct_line():
+    """Ветка 5 (новая, 0 < found < denom, offending пуст): достижимо, когда
+    FIGURES черновика ссылается и на число из FRESH DATA, и на число
+    конкретного сюжета. FRESH DATA матчится в verify_figures_local через
+    data_text - независимо от bodies (verify.py:424, `any(v in data_text
+    ...)` стоит раньше и отдельно от проверки combined_body) - это даёт
+    FOUND, даже когда тело сюжета не догрузилось вовсе. А число самого
+    сюжета в этом же черновике уходит в NO_SOURCE_TEXT, потому что
+    combined_body общий на весь черновик (verify.py:414), а не per-pair, и
+    он пуст, если тело единственного сюжета не загрузилось. Офендинг при
+    этом остаётся пустым (NO_SOURCE_TEXT в него не входит), а найдено не
+    всё - строка обязана отличаться и от ✅, и от "источник не догружен,
+    сверь вручную" (который держится за found == 0)."""
+    level_a = [{"value": "23%", "source": "FRESH DATA", "status": "FOUND",
+               "matched_in": "data"},
+              {"value": "96.5 million PLN", "source": "Story [1] source text",
+               "status": "NO_SOURCE_TEXT"}]
+    block = _draft_block_dict(verdict="POST", level_a=level_a, offending=[])
+    out = render_draft_message(block, 1)
+    assert "POST · цифры 1/2 — часть чисел не сверена, источник не догружен" in out
+    assert "✅" not in out
+    assert "сверь вручную" not in out
+
+
 # ---------------------------------------------------------------- T14a: футер - номера сюжетов
 #
 # Боевой прогон 03.08: под digest-черновиком из трёх буллетов
