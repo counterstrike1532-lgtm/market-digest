@@ -178,6 +178,18 @@ def build_domain_urls(selected: list[dict]) -> dict[str, str]:
 _COMPACT_MARKET_NAME = {"WIG20 TR (ETF)": "WIG20 TR", "sp500": "S&P500", "nasdaq": "Nasdaq"}
 
 
+def _is_number(value) -> bool:
+    """nan/None из numbers.py (пропуск дня в ряду yfinance/stooq, T-nan) не
+    должны доехать до строки сводки как "+nan%" - см. _render_cifry_compact.
+
+    Сознательный дубль этой же функции есть в numbers.py (T-nan шаг 3) -
+    общий модуль ради трёх строк не заводим, импорт main -> numbers
+    односторонний. Менять - менять обе копии.
+    bool проходит как валидное число (подкласс int) - путь данных такого не
+    порождает, сознательно не отсекаем."""
+    return isinstance(value, (int, float)) and not (isinstance(value, float) and math.isnan(value))
+
+
 def _render_cifry_compact(data: dict) -> list[str]:
     """ЦИФРЫ сообщения 2 в максимум три строки (T10d): валюты/рынки/HICP - по
     одной строке на категорию, без построчного перечисления каждого ключа."""
@@ -192,12 +204,14 @@ def _render_cifry_compact(data: dict) -> list[str]:
             hicp_bits.append(f"{k[len('HICP '):]} {v.get('value')}")
         elif "chg_1d_pct" in v or "chg_1m_pct" in v:
             name = _COMPACT_MARKET_NAME.get(k, k)
-            bits = []
-            if "chg_1d_pct" in v:
-                bits.append(f"{v['chg_1d_pct']:+.1f}% д")
-            if "chg_1m_pct" in v:
-                bits.append(f"{v['chg_1m_pct']:+.1f}% мес")
-            market_bits.append(f"{name} {' / '.join(bits)}")
+            fields = [(field, label) for field, label in
+                     (("chg_1d_pct", "д"), ("chg_1m_pct", "мес")) if field in v]
+            if not any(_is_number(v[field]) for field, _ in fields):
+                market_bits.append(f"{name} нет данных")
+            else:
+                bits = [f"{v[field]:+.1f}% {label}" if _is_number(v[field])
+                        else f"нет данных {label}" for field, label in fields]
+                market_bits.append(f"{name} {' / '.join(bits)}")
 
     lines = []
     if fx_bits:

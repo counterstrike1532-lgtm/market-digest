@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import math
 import os
 import re
 from datetime import date, timedelta
@@ -15,6 +16,16 @@ import yfinance as yf
 
 log = logging.getLogger(__name__)
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; personal-news-digest/1.0)"}
+
+
+def _is_number(value) -> bool:
+    """Сознательный дубль _is_number из main.py — общий модуль ради трёх строк
+    арифметики не заводим, импорт main -> numbers односторонний (numbers -
+    низкоуровневый слой, main - оркестратор), обратная зависимость сломала бы
+    архитектуру. Менять - менять обе копии (main.py и здесь).
+    bool проходит как валидное число (подкласс int) - путь данных такого не
+    порождает, сознательно не отсекаем."""
+    return isinstance(value, (int, float)) and not (isinstance(value, float) and math.isnan(value))
 
 # stooq отдаёт анти-бот "This site requires JavaScript" на дефолтный/непохожий-на-браузер
 # User-Agent. Браузерный UA + Accept как у обычного GET из Chrome.
@@ -52,6 +63,15 @@ def stooq_series(symbols: dict) -> tuple[dict, dict]:
     Возвращает (scalars, series): scalars — как раньше (последнее значение +
     изменения), series — весь ряд дат/close по тем же именам, для графиков.
     CSV и так скачивается целиком, раньше ряд просто выбрасывался.
+
+    nan в value/chg_1d_pct/chg_1m_pct санитизируется в None независимо по
+    полям (T-nan шаг 3) — не пропадает молча, но и не притворяется числом.
+    Сознательно вне охвата, не TODO:
+    - nan в середине ряда попадает в series[name]["close"] как есть и может
+      сломать market_overview / линию графика — не чиним здесь;
+    - len(closes) < 5 считает и элементы-nan как валидные строки — не чиним
+      здесь;
+    - build_message, блок ЦИФРЫ для digest.log — не чиним здесь.
     """
     out, series = {}, {}
     d1 = (date.today() - timedelta(days=45)).strftime("%Y%m%d")
@@ -69,10 +89,13 @@ def stooq_series(symbols: dict) -> tuple[dict, dict]:
                     "stooq %s: получили только %d валидных строк (нужно >=5) - "
                     "пропускаю. Начало ответа: %r", sym, len(closes), r.text[:150])
                 continue
+            value = round(closes[-1], 2)
+            chg_1d_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
+            chg_1m_pct = round((closes[-1] / closes[0] - 1) * 100, 2)
             out[name] = {
-                "value": round(closes[-1], 2),
-                "chg_1d_pct": round((closes[-1] / closes[-2] - 1) * 100, 2),
-                "chg_1m_pct": round((closes[-1] / closes[0] - 1) * 100, 2),
+                "value": value if _is_number(value) else None,
+                "chg_1d_pct": chg_1d_pct if _is_number(chg_1d_pct) else None,
+                "chg_1m_pct": chg_1m_pct if _is_number(chg_1m_pct) else None,
                 "as_of": rows[-1].get("Data"),
             }
             series[name] = {
@@ -87,7 +110,17 @@ def stooq_series(symbols: dict) -> tuple[dict, dict]:
 def yfinance_series(symbols: dict) -> tuple[dict, dict]:
     """Тот же формат вывода, что и stooq_series (T9c) — вызывающий код не видит
     разницы, какой источник в итоге отдал данные. Используется только как
-    каскадный фолбэк на символы, которых stooq не дал (см. market_series)."""
+    каскадный фолбэк на символы, которых stooq не дал (см. market_series).
+
+    nan в value/chg_1d_pct/chg_1m_pct санитизируется в None независимо по
+    полям (T-nan шаг 3), симметрично stooq_series. Сознательно вне охвата,
+    не TODO:
+    - nan в середине ряда попадает в series[name]["close"] как есть и может
+      сломать market_overview / линию графика — не чиним здесь;
+    - len(closes) < 5 считает и элементы-nan как валидные строки — не чиним
+      здесь;
+    - build_message, блок ЦИФРЫ для digest.log — не чиним здесь.
+    """
     out, series = {}, {}
     for name, ticker in symbols.items():
         try:
@@ -98,10 +131,13 @@ def yfinance_series(symbols: dict) -> tuple[dict, dict]:
                 log.warning("yfinance %s: получили только %d валидных строк "
                            "(нужно >=5) - пропускаю", ticker, len(closes))
                 continue
+            value = round(closes[-1], 2)
+            chg_1d_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
+            chg_1m_pct = round((closes[-1] / closes[0] - 1) * 100, 2)
             out[name] = {
-                "value": round(closes[-1], 2),
-                "chg_1d_pct": round((closes[-1] / closes[-2] - 1) * 100, 2),
-                "chg_1m_pct": round((closes[-1] / closes[0] - 1) * 100, 2),
+                "value": value if _is_number(value) else None,
+                "chg_1d_pct": chg_1d_pct if _is_number(chg_1d_pct) else None,
+                "chg_1m_pct": chg_1m_pct if _is_number(chg_1m_pct) else None,
                 "as_of": dates[-1],
             }
             series[name] = {"dates": dates, "close": closes}

@@ -230,6 +230,36 @@ def test_render_summary_shows_domain_link_and_verified_marker():
     assert "текст не догружен" in out
 
 
+def test_render_summary_market_line_replaces_nan_with_placeholder():
+    """Живой кейс 04.08: "S&P500 +nan% д / +nan% мес" - пропуск дня в ряду
+    yfinance/stooq (numbers.py round() на nan не падает, отдаёт nan молча).
+    Оба поля не число -> тикер без "д"/"мес" вообще, просто "нет данных"."""
+    data = {
+        "WIG20 TR (ETF)": {"value": 80.13, "chg_1d_pct": 0.3, "chg_1m_pct": 11.6,
+                           "as_of": "2026-08-04"},
+        "sp500": {"value": float("nan"), "chg_1d_pct": float("nan"),
+                 "chg_1m_pct": float("nan"), "as_of": "2026-08-04"},
+        "nasdaq": {"value": float("nan"), "chg_1d_pct": None,
+                  "chg_1m_pct": None, "as_of": "2026-08-04"},
+    }
+    out = render_summary([], data)
+    assert "nan" not in out
+    assert "S&P500 нет данных" in out
+    assert "Nasdaq нет данных" in out
+
+
+def test_render_summary_market_line_replaces_only_the_bad_field():
+    """Одно поле не число - тикер остаётся с обеими метками, плохое поле
+    получает "нет данных", хорошее печатается как обычно."""
+    data = {
+        "sp500": {"value": 7500.0, "chg_1d_pct": 1.8, "chg_1m_pct": float("nan"),
+                 "as_of": "2026-08-04"},
+    }
+    out = render_summary([], data)
+    assert "nan" not in out
+    assert "S&P500 +1.8% д / нет данных мес" in out
+
+
 def test_render_summary_cifry_at_most_three_lines():
     data = {
         "PLN/USD": {"value": 3.7425, "chg_30d_pct": 0.38, "as_of": "2026-07-31"},
