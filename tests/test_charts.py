@@ -195,6 +195,52 @@ def test_figures_chart_draws_for_clean_single_story_metrics(monkeypatch, tmp_pat
     assert path.exists()
 
 
+# ---------------------------------------------------------------- T14c: Source [N] + quoted value
+
+def test_figures_chart_refuses_source_with_quoted_value_repeat(monkeypatch, tmp_path):
+    """Живой кейс, прогон 05.08 черновик 2: пять label вида
+    'Source [3] ("около 14 proc.")' прошли старую _looks_like_citation (якорный
+    regex ждёт РОВНО "source [n]"), потому что рядом с маркером источника стоит
+    кавычка, повторяющая само число словами - показателя в подписи нет вообще."""
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    figures = [
+        ("14%", 'Source [3] ("około 14 proc.")'),
+        ("3.2%", 'Source [3] ("ok. 3,2 proc.")'),
+        ("7.2%", 'Source [3] ("nie 7,2 proc. PKB")'),
+        ("23.5%", 'Source [3] ("o 23,5 proc.")'),
+        ("50.9%", 'Source [3] ("50,9 proc. PKB")'),
+    ]
+    assert charts.figures_chart(figures, title="Draft 2") is None
+
+
+def test_figures_chart_refuses_single_source_with_quoted_value_among_clean_labels(monkeypatch, tmp_path):
+    """Сигнал срабатывает на паре, даже если рядом стоит нормальный label -
+    одной плохой подписи достаточно, чтобы не рисовать график вообще."""
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    figures = [("3.2%", 'Source [3] ("ok. 3,2 proc.")'), ("21%", "occupancy rate")]
+    assert charts.figures_chart(figures, title="Draft 1") is None
+
+
+def test_figures_chart_refuses_quoted_value_label_without_source_prefix(monkeypatch, tmp_path):
+    """Отсутствие показателя не привязано к наличию маркера Source [N] - label,
+    которая целиком сводится к кавычке с числом словами, без имени показателя,
+    отбраковывается и без префикса."""
+    monkeypatch.setattr(charts, "_OUT_DIR", tmp_path)
+    figures = [("14%", '"około 14 proc."'), ("3.2%", '"ok. 3,2 proc."')]
+    assert charts.figures_chart(figures, title="Draft 1") is None
+
+
+def test_reduces_to_citation_does_not_flag_real_labels_with_a_source_marker():
+    """Регресс-guard: label, где рядом с Source [N] стоит настоящее имя
+    показателя (а не кавычка с числом), не должен ловиться - иначе проверка
+    станет чёрным списком того же класса, что и _CITATION_LABEL."""
+    assert charts._reduces_to_citation('Source [3] ("około 14 proc.")')
+    assert not charts._reduces_to_citation("deficit as share of GDP (Source [3])")
+    assert not charts._reduces_to_citation("occupancy rate")
+    assert not charts._reduces_to_citation("deficit to GDP")
+    assert charts._reduces_to_citation('("ok. 3,2 proc.")')
+
+
 # ---------------------------------------------------------------- T9 fix 1/2: market_overview
 
 _WIG_SERIES = {"close": [80.0, 81.0, 82.0, 83.0, 84.0]}

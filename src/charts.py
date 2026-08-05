@@ -254,6 +254,31 @@ def _looks_like_citation(label: str) -> bool:
     return bool(_CITATION_LABEL.search(label.strip()))
 
 
+# T14c: живой прогон 05.08 - пять label вида 'Source [3] ("około 14 proc.")'
+# прошли _looks_like_citation, потому что якорный _CITATION_LABEL ждёт РОВНО
+# "source [n]", а тут рядом стоит кавычка, повторяющая само значение словами
+# (value="14%", цитата «około 14 proc.») - показателя в подписи нет вообще,
+# только источник и то же число, сказанное иначе.
+#
+# Расширять _CITATION_LABEL новой веткой чёрного списка не годится - он уже
+# протёк один раз ровно на этом regex, вторая ветка даст третью протечку через
+# месяц на следующей форме. Вместо угадывания новых форм шума убираем заведомый
+# шум (маркер Source [N], содержимое кавычек, пунктуацию) и смотрим, осталось
+# ли вообще слово. Пусто - label сводится к цитированию источника/значения, не
+# к имени показателя. Только прямые двойные кавычки ("..."), не «...»/„...” -
+# закрытый список на первую итерацию, как и _QUALIFIERS выше, расширять по
+# факту следующих живых прогонов, не заранее.
+_SOURCE_MARKER = re.compile(r"\bsource\s*\[\s*\d+\s*\]\.?", re.IGNORECASE)
+_QUOTED_SPAN = re.compile(r'"[^"]*"')
+_MEANINGFUL_WORD = re.compile(r"[^\W\d_]{2,}")
+
+
+def _reduces_to_citation(label: str) -> bool:
+    remainder = _SOURCE_MARKER.sub(" ", label)
+    remainder = _QUOTED_SPAN.sub(" ", remainder)
+    return _MEANINGFUL_WORD.search(remainder) is None
+
+
 def figures_chart(figures: list[tuple[str, str]] | None, title: str,
                   theme: str = "light", key: str = "0") -> pathlib.Path | None:
     """2-5 именованных значений ОДНОЙ единицы измерения с источником -> горизонтальные бары.
@@ -274,7 +299,14 @@ def figures_chart(figures: list[tuple[str, str]] | None, title: str,
     sources = [source for _, source in figures]
     if len(set(sources)) < len(sources):
         return None
-    if any(_looks_like_citation(source) for source in sources):
+    # Несопоставимость показателей при одинаковом _kind (все "%", но
+    # "growth share" vs "deficit/GDP" vs "growth rate") сознательно не
+    # проверяется отдельно - единственный носитель этой информации сам label,
+    # и наблюдавшийся случай (05.08) целиком сводился к нечитаемым label,
+    # закрытым проверкой ниже. Не TODO: эвристика "общее слово между label"
+    # будет шумной и глушить нормальные графики чаще, чем ловить реальную
+    # проблему (T14c).
+    if any(_looks_like_citation(source) or _reduces_to_citation(source) for source in sources):
         return None
     parsed = []
     for value, source in figures:

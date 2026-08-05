@@ -617,9 +617,10 @@ def test_draft_card_draft_one_and_two_write_distinct_image_files(monkeypatch, tm
     import src.charts as charts_mod
     monkeypatch.setattr(charts_mod, "_OUT_DIR", tmp_path)
 
-    level_a = [{"value": "1", "source": "x", "status": "FOUND"},
-              {"value": "2", "source": "y", "status": "FOUND"}]
-    block = {"body": "1 and 2 mentioned today.", "figures": "1 -> x\n2 -> y",
+    level_a = [{"value": "1", "source": "unemployment rate", "status": "FOUND"},
+              {"value": "2", "source": "deficit to GDP", "status": "FOUND"}]
+    block = {"body": "1 and 2 mentioned today.",
+            "figures": "1 -> unemployment rate\n2 -> deficit to GDP",
             "source": "https://a.com", "shape": "digest", "_level_a": level_a}
 
     path1 = draft_card(block, 1)
