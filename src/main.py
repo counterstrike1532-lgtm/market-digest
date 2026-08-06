@@ -291,7 +291,8 @@ def _offending_source_quotes(values: list[str], figures_raw: str) -> dict[str, s
     return {v: verify.quoted_source_form(src) for v, src in pairs if v in values}
 
 
-def resolve_draft_source_numbers(block: dict, selected: list[dict] | None) -> list[int]:
+def resolve_draft_source_numbers(block: dict,
+                                 selected: list[dict] | None) -> tuple[list[int], list[int]]:
     """T14a (откат T11c): футер печатает номера сюжетов, не URL. Один голый URL
     под многосюжетным черновиком выдавал себя за источник всего текста (боевой
     прогон 03.08: money.pl под черновиком из money.pl+bankier.pl+bankier.pl) -
@@ -300,14 +301,29 @@ def resolve_draft_source_numbers(block: dict, selected: list[dict] | None) -> li
     Телеграме - T9e). Номер сюжета несёт то, чего URL не несёт: соответствие
     "буллет -> какая по счёту история в СЮЖЕТЫ", по нему и проверяют цифру.
 
-    Номера сюжетов извлекает verify._referenced_story_numbers, отфильтрованы
-    диапазоном selected, без дублей (сам _referenced_story_numbers их уже не
-    даёт), по возрастанию - не в порядке появления в FIGURES."""
-    if not selected:
-        return []
-    numbers = {n for n in verify._referenced_story_numbers(block.get("figures", ""))
-              if 1 <= n <= len(selected)}
-    return sorted(numbers)
+    T15: контракт расширен, отдаёт пару (valid, invalid), а не один список.
+    До этого пустой результат был неразличим между "regex ничего не нашёл" и
+    "нашёл, но все номера вне диапазона selected" - оба схлопывались в []
+    фильтром, и render_draft_message не мог сказать, какая из двух причин
+    сработала (живой прогон 06.08: футер молча пропал третий день подряд,
+    T-nan-класс потери). Оба списка - без дублей, по возрастанию. selected
+    пуст/None - valid всегда пуст (нет диапазона, в который номер мог бы
+    попасть), это не особый случай, а естественное следствие sel_len=0.
+
+    Комбинация "selected пуст, а FIGURES содержит номера" на живом пути
+    недостижима: единственный caller (main.py:576, цикл по draft_blocks)
+    выполняется только внутри ветки main(), которая целиком под условием
+    `elif not selected` (main.py:528) - при пустом selected draft_blocks
+    остаётся [] и цикл не вызывается вовсе. Гарантия держится на этом одном
+    вызове; если появится второй caller без той же гарантии, valid=[] и
+    invalid=raw напечатают "источники: несуществующие сюжеты N, ...", хотя
+    причина - пустой selected, а не выдуманные номера. Это будет шестой
+    исход, которого сейчас нет и тест на который сейчас не заводим."""
+    sel_len = len(selected) if selected else 0
+    raw = verify._referenced_story_numbers(block.get("figures", ""))
+    valid = sorted({n for n in raw if 1 <= n <= sel_len})
+    invalid = sorted({n for n in raw if not (1 <= n <= sel_len)})
+    return valid, invalid
 
 
 def render_draft_message(block: dict, num: int, selected: list[dict] | None = None) -> str:
@@ -371,15 +387,44 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
     if check_first and check_first != "-":
         lines.append(f"CHECK_FIRST: {check_first}")
 
-    # T12a (и T14a поверх него): номер сюжета не разрешился - строку источника
-    # не печатаем вовсе, ни как URL, ни как домен-фолбэк. Настоящие ссылки на
-    # все сюжеты уже есть кликабельными в сводке (сообщение 2).
-    numbers = resolve_draft_source_numbers(block, selected)
-    if numbers:
-        if len(numbers) == 1:
-            lines.append(f"источник: сюжет {numbers[0]}")
+    # T15: строка "источники:" печатается всегда, ни при каком входе не
+    # исчезает - пустой результат раньше (T12a/T14a) читался как "печатать
+    # нечего" и молча пропадал, а на деле означал одно из трёх разных
+    # событий (не заявлены / не распознаны / отфильтрованы), которые
+    # раньше были неразличимы. Порядок проверки важен: "цифры не заявлены"
+    # проверяется ДО обращения к resolve_draft_source_numbers, иначе он
+    # неотличим от "не распознаны" - у обоих сырой список номеров пуст.
+    #
+    # Расширение _STORY_NUM_RE (слово "study", ссылки прозой вроде "from
+    # Nitroerg/KGHM story text" вместо "Story [3]") сознательно вне охвата
+    # этой правки. Сначала нужно увидеть по живым прогонам, как часто
+    # реально встречается исход "не распознаны" - расширение регекса
+    # раньше этого замера закрыло бы симптом и спрятало бы частоту.
+    # T15: это же выражение продублировано побайтово в verify.py
+    # (verify_drafts, тут же где строится _parse_failed) - решение от 05.08,
+    # дубль вместо общего модуля, чтобы места оставались независимыми.
+    # Менять - менять обе копии. charts.parse_figures уже вычисляет то же
+    # условие внутри себя (canon для её None-ветки), но обе копии намеренно
+    # её не вызывают и не сверяются с ней - см. докстринг parse_figures.
+    raw_figures = (block.get("figures") or "").strip()
+    no_figures_declared = (not raw_figures) or raw_figures.lower().startswith("none used")
+    if no_figures_declared:
+        lines.append("источники: цифр не заявлено")
+    else:
+        valid, invalid = resolve_draft_source_numbers(block, selected)
+        if not valid and not invalid:
+            lines.append("источники: не распознаны")
+        elif not valid:
+            lines.append(f"источники: несуществующие сюжеты "
+                         f"{', '.join(str(n) for n in invalid)}")
         else:
-            lines.append(f"источники: сюжеты {', '.join(str(n) for n in numbers)}")
+            head = (f"источник: сюжет {valid[0]}" if len(valid) == 1 else
+                    f"источники: сюжеты {', '.join(str(n) for n in valid)}")
+            if invalid:
+                lines.append(f"{head} · несуществующие "
+                             f"{', '.join(str(n) for n in invalid)}")
+            else:
+                lines.append(head)
 
     return "\n".join(lines)
 

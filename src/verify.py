@@ -745,6 +745,13 @@ def verify_drafts(drafts_text: str, selected: list[dict],
     for b in blocks:
         raw_figures = b["figures"].strip()
         figures = charts.parse_figures(raw_figures)
+        # T15: это же выражение продублировано побайтово в main.py
+        # (render_draft_message, переменная no_figures_declared перед сборкой
+        # футера) - решение от 05.08, дубль вместо общего модуля, чтобы места
+        # оставались независимыми. Менять - менять обе копии. charts.parse_figures
+        # уже вычисляет то же условие внутри себя (canon для её None-ветки),
+        # но обе копии намеренно её не вызывают и не сверяются с ней - см.
+        # докстринг parse_figures.
         no_figures_declared = (not raw_figures) or raw_figures.lower().startswith("none used")
         # текст был, но ни одна пара не распозналась - это НЕ "цифр нет", а сбой
         # парсера. Ложный "все ок" тут хуже, чем явное "проверь руками".

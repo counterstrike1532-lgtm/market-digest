@@ -522,38 +522,145 @@ def test_render_draft_message_footer_singular_form_for_one_number():
     assert "источники" not in out
 
 
-def test_render_draft_message_footer_out_of_range_number_dropped_others_kept():
+def test_render_draft_message_footer_out_of_range_number_shown_alongside_valid():
+    """T15: валидный номер печатается как раньше, но выброшенный больше не
+    пропадает бесследно - виден рядом под "несуществующие"."""
     selected = _bankier_selected()
     block = _draft_block_dict(
         figures='4.1 mln ton -> Story [2] source text\n406 tys. -> Story [9] source text')
     out = render_draft_message(block, 1, selected)
-    assert "источник: сюжет 2" in out
+    assert "источник: сюжет 2 · несуществующие 9" in out
 
 
-def test_render_draft_message_footer_all_numbers_out_of_range_omits_line():
+def test_render_draft_message_footer_all_numbers_out_of_range_shows_nonexistent():
+    """T15 (откат старого контракта T12a/T14a): все номера вне диапазона -
+    это не "печатать нечего", а "модель сослалась на несуществующий сюжет" -
+    строка обязана это назвать, домен по-прежнему не подставляется."""
     selected = _bankier_selected()
     block = _draft_block_dict(figures='406 tys. -> Story [9] source text')
     out = render_draft_message(block, 1, selected)
-    assert "источник" not in out
-
-
-def test_render_draft_message_footer_no_story_numbers_omits_line_entirely():
-    """Приёмка T12a/T14a: FIGURES без номеров сюжетов -> в сообщении нет
-    строки-футера вообще, домен не подставляется никогда."""
-    selected = _bankier_selected()
-    block = _draft_block_dict(figures="6,872 -> Money.pl", source="www.bankier.pl")
-    out = render_draft_message(block, 1, selected)
-    assert "источник" not in out
+    assert "источники: несуществующие сюжеты 9" in out
     assert "bankier.pl" not in out
 
 
-def test_render_draft_message_footer_omitted_without_selected():
-    """T12a: номер сюжета не разрешился (selected пуст/не передан) - строки
-    футера нет, не откат на сырой текст модели в поле SOURCE."""
+def test_render_draft_message_footer_no_story_numbers_shows_not_recognized():
+    """T15 (откат старого контракта T12a/T14a): FIGURES без номеров сюжетов -
+    футер не пропадает, печатает явное "не распознаны"; домен по-прежнему
+    не подставляется никогда."""
+    selected = _bankier_selected()
+    block = _draft_block_dict(figures="6,872 -> Money.pl", source="www.bankier.pl")
+    out = render_draft_message(block, 1, selected)
+    assert "источники: не распознаны" in out
+    assert "bankier.pl" not in out
+
+
+def test_render_draft_message_footer_without_selected_shows_no_figures_declared():
+    """T15 (откат старого контракта T12a): без selected и с figures="none used"
+    это исход "цифры не заявлены", не тишина; SOURCE по-прежнему не течёт
+    в футер как текстовый фолбэк."""
     block = _draft_block_dict(figures="none used", source="www.bankier.pl")
     out = render_draft_message(block, 1, selected=None)
-    assert "источник" not in out
+    assert "источники: цифр не заявлено" in out
     assert "www.bankier.pl" not in out
+
+
+# ---------------------------------------------------------------- T15: футер печатается всегда, пять исходов
+#
+# Живой прогон 06.08: оба черновика без строки "источники:" - regex не видит
+# прозаические ссылки. Прежний контракт читал пустой numbers как "печатать
+# нечего" и футер пропадал молча - тот же класс потери, что чинили в T14b
+# для галочки "все числа проверены". Разница в том, что пустой numbers был
+# на деле тремя разными событиями (не заявлены/не распознаны/отфильтрованы),
+# неразличимыми на выходе. Ниже - по тесту на каждый различимый исход.
+
+def test_render_draft_message_footer_outcome1_no_figures_declared():
+    """Исход 1: FIGURES пусто/"none used" - parse_figures вернёт None, это
+    честное "нечего было заявлять", не "не распознаны". Проверяется первым
+    в render_draft_message, иначе неотличим от исхода 2 (у обоих сырой
+    список номеров пуст)."""
+    selected = _bankier_selected()
+    block = _draft_block_dict(figures="none used")
+    out = render_draft_message(block, 1, selected)
+    assert "источники: цифр не заявлено" in out
+
+
+def test_render_draft_message_footer_outcome2_real_prose_without_anchor():
+    """Исход 2 - живой случай 06.08, третий почти дословный повтор (см.
+    docs/HANDOFF_04-08.md, HANDOFF_05-08.md, HANDOFF_06-08.md): модель пишет
+    источник прозой ("from Nitroerg/KGHM story text"), не "Story [N]" /
+    "Source [N]", _STORY_NUM_RE якорного слова с числом не находит. Этот
+    прогон должен остаться в наборе навсегда - расширение регекса под
+    "study"/прозу сознательно вне охвата этой правки (докстринг у сборки
+    футера в main.py: сначала нужно увидеть, как часто исход 2 встречается
+    в живых прогонах)."""
+    selected = _bankier_selected()
+    block = _draft_block_dict(
+        figures='58,600 tons -> from Nitroerg/KGHM story text')
+    out = render_draft_message(block, 1, selected)
+    assert "источники: не распознаны" in out
+
+
+def test_render_draft_message_footer_outcome3_all_filtered_out():
+    """Исход 3: сырой список номеров непуст, но все вне диапазона selected -
+    "несуществующие", а не тишина и не "не распознаны". Модель что-то
+    сослала, просто не на реальный сюжет - тревожнее исхода 2, поэтому
+    формулировка другая."""
+    selected = _bankier_selected()
+    block = _draft_block_dict(
+        figures='4.1 mln ton -> Story [12] source text\n406 tys. -> Story [15] source text')
+    out = render_draft_message(block, 1, selected)
+    assert "источники: несуществующие сюжеты 12, 15" in out
+
+
+def test_render_draft_message_footer_outcome4_mixed_valid_and_invalid():
+    """Исход 4: часть номеров прошла фильтр, часть выброшена - обе половины
+    видны в одной строке под общим префиксом "источники:", вместо того
+    чтобы молча показать только валидные и спрятать хромую ссылку."""
+    selected = _bankier_selected()
+    block = _draft_block_dict(
+        figures='4.1 mln ton -> Story [1] source text\n'
+               '2.8 mln ton -> Story [4] source text\n'
+               '406 tys. -> Story [12] source text')
+    out = render_draft_message(block, 1, selected)
+    assert "источники: сюжеты 1, 4 · несуществующие 12" in out
+
+
+def test_render_draft_message_footer_outcome5_all_valid_format_unchanged():
+    """Исход 5: всё прошло фильтр - формат из T14a не меняется (регресс уже
+    покрыт test_..._lists_story_numbers_ascending выше), здесь - явная
+    маркировка исхода в общем перечне пяти."""
+    selected = _bankier_selected()
+    block = _draft_block_dict(
+        figures='4.1 mln ton -> Story [1] source text\n2.8 mln ton -> Story [4] source text')
+    out = render_draft_message(block, 1, selected)
+    assert "источники: сюжеты 1, 4" in out
+    assert "несуществующие" not in out
+
+
+def test_render_draft_message_footer_always_present_across_five_outcomes():
+    """Негативный assert: какой бы из пяти исходов ни сработал, в
+    сообщении есть строка футера - ни разу не пропадает молча.
+
+    Это защита ВТОРОГО слоя, не первого. Она ловит только "строка пропала
+    совсем" (весь блок футера снесён). Она НЕ ловит "пропала одна ветка":
+    проверено вручную снятием ветки исхода 1 (no_figures_declared = False) -
+    вход этого исхода проваливался в соседнюю ветку исхода 2 с тем же
+    префиксом "источники:", и этот assert молча проходил, хотя конкретный
+    текст исхода 1 исчез. Основная защита - пять точечных тестов на текст
+    каждого исхода выше; без них общий префикс, добавленный ради глаза
+    утром, маскирует потерю одной ветки именно потому, что префикс общий."""
+    selected = _bankier_selected()
+    cases = [
+        _draft_block_dict(figures="none used"),                                    # 1
+        _draft_block_dict(figures='58,600 tons -> from Nitroerg/KGHM story text'),  # 2
+        _draft_block_dict(figures='406 tys. -> Story [9] source text'),             # 3
+        _draft_block_dict(figures='4.1 mln ton -> Story [1] source text\n'
+                                  '406 tys. -> Story [9] source text'),             # 4
+        _draft_block_dict(figures='4.1 mln ton -> Story [1] source text'),          # 5
+    ]
+    for i, block in enumerate(cases, 1):
+        out = render_draft_message(block, 1, selected)
+        assert "источник" in out, f"outcome {i}: строка футера пропала"
 
 
 def test_digest_log_receives_full_report_with_figures(monkeypatch, tmp_path, caplog):
