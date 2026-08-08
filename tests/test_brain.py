@@ -198,3 +198,17 @@ def test_rank_success_leaves_degraded_flag_false(monkeypatch):
     assert brain.rank_degraded() is False
     assert len(result) == 1
     assert result[0]["item"] is items[0]
+
+
+def test_draft_prompt_bans_two_factless_opening_sentences():
+    """T16 шаг 1: если ни из первого, ни из второго предложения нельзя узнать
+    ни одного факта - выкинуть оба. Framing-строка DRAFT 1 убрана как источник
+    конфликта с FIRST PERSON: OFF BY DEFAULT (07.08: безличные анонсы четыре
+    дня подряд были исполнением этой снятой инструкции, не тиком модели)."""
+    assert 'Frame it as' not in brain.DRAFT_PROMPT
+    assert 'Three things I read this week that stuck with me' not in brain.DRAFT_PROMPT
+    assert 'If neither the first nor the second sentence contains a fact' in brain.DRAFT_PROMPT
+    assert ('BAD: "A few global and local financial developments that stood out this week."'
+            in brain.DRAFT_PROMPT)
+    assert ('BAD: "Three market and policy developments stood out in the news this week."'
+            in brain.DRAFT_PROMPT)

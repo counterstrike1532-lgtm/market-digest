@@ -326,10 +326,9 @@ def rank(items, top_n: int = 12) -> list[dict]:
 # ------------------------------------------------------------------
 DRAFT_PROMPT = """Write exactly 2 LinkedIn post drafts in ENGLISH, in this fixed order:
 
-DRAFT 1 - digest: a roundup of the 2-3 best stories from the selection below. Frame it as
-something like "Three things I read this week that stuck with me" (vary the wording, do not
-copy that line). For each story: one line on what happened, then one or two lines on why it
-is interesting. Keep it light - no deep analysis. 120-170 words.
+DRAFT 1 - digest: a roundup of the 2-3 best stories from the selection below. For each story:
+one line on what happened, then one or two lines on why it is interesting. Keep it light - no
+deep analysis. 120-170 words.
 
 DRAFT 2 - single: one story, the strongest one, examined a bit deeper - a normal analytical
 post. Pick ONE shape for it:
@@ -426,6 +425,10 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
   delve, underscore, pivotal, robust, "it's not just X, it's Y", "here's the thing".
 - Short sentences. At least one sentence in every draft must be under 8 words.
 - Never open with "I'm excited to share", "Let that sink in", or a rhetorical question.
+- If neither the first nor the second sentence contains a fact - a number, a name, a date, a
+  specific event - drop both.
+  BAD: "A few global and local financial developments that stood out this week."
+  BAD: "Three market and policy developments stood out in the news this week."
 - No emoji. Plain "-" bullets only, max 3.
 - Hashtags: 0 or 1. Never generic ones (#finance #macroeconomics #GPW #forex) - they hurt
   classification. Prefer none.
