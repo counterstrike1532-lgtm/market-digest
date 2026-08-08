@@ -452,9 +452,13 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
   pattern to avoid. The other ends on a statement.
 - Whatever a draft ends on, the closing sentence must be a specific, concrete thing - not a
   sentence that restates what was just said in broader words. BAD: "These movements show how
-  quickly regional cost structures and trade policy can reshape corporate performance." If a
-  closing sentence would fit equally well after three different, unrelated stories, it is not
-  concrete enough - end on the last number, name, or fact instead.
+  quickly regional cost structures and trade policy can reshape corporate performance."
+  BAD: "These figures show how easily headline numbers can mask the underlying economic
+  reality."
+  BAD: "Political gridlock is not just a headline. It is a direct driver of bond market
+  supply."
+  If a closing sentence would fit equally well after three different, unrelated stories, it
+  is not concrete enough - end on the last number, name, or fact instead.
 - No links in the body. LinkedIn suppresses reach on posts with external links.
 - Sound like a curious student who read the source, not a consultant summarising it.
 - Never name his own role or status in the text itself: no "for a finance student", "as a

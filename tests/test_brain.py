@@ -229,3 +229,25 @@ def test_draft_prompt_bans_false_instant_causation():
         bullet_end = brain.DRAFT_PROMPT.index("BAD:", bullet_start) + len(
             'BAD: "Yet this surge immediately reignited political debates."')
         assert banned_word not in brain.DRAFT_PROMPT[bullet_start:bullet_end]
+
+
+def test_draft_prompt_closing_generalization_ban_has_three_bad_examples():
+    """T16 шаг 2: запрет закрывающего обобщения формулировку не менял - только
+    добавлены два новых BAD к уже существующему. Второй новый пример ("is not
+    just X, it is Y") нарушает и этот запрет, и отдельный бан "it's not just
+    X, it's Y" в списке VOICE выше - 06.08 черновик нарушил оба запрета одной
+    фразой, и ни один не сработал."""
+    assert ('the closing sentence must be a specific, concrete thing - not a\n'
+            '  sentence that restates what was just said in broader words.'
+            in brain.DRAFT_PROMPT)
+    assert ('BAD: "These movements show how\n'
+            '  quickly regional cost structures and trade policy can reshape corporate '
+            'performance."' in brain.DRAFT_PROMPT)
+    assert ('BAD: "These figures show how easily headline numbers can mask the underlying '
+            'economic\n  reality."' in brain.DRAFT_PROMPT)
+    assert ('BAD: "Political gridlock is not just a headline. It is a direct driver of bond '
+            'market\n  supply."' in brain.DRAFT_PROMPT)
+    normalized = ' '.join(brain.DRAFT_PROMPT.split())
+    assert ('If a closing sentence would fit equally well after three different, unrelated '
+            'stories, it is not concrete enough - end on the last number, name, or fact '
+            'instead.' in normalized)
