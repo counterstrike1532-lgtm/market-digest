@@ -212,3 +212,20 @@ def test_draft_prompt_bans_two_factless_opening_sentences():
             in brain.DRAFT_PROMPT)
     assert ('BAD: "Three market and policy developments stood out in the news this week."'
             in brain.DRAFT_PROMPT)
+
+
+def test_draft_prompt_bans_false_instant_causation():
+    """T16 шаг 3: запрет на класс (утверждение мгновенной причинности без
+    данных о скорости реакции в материале), не на список слов - grep
+    по instantly/immediately 08.08 подтвердил, что этой конструкции в
+    промпте не было; "This decision instantly traps cash" модель придумала
+    сама, дважды дословно, до этой правки."""
+    assert ('Do not claim that one event caused another instantly unless the material '
+            'establishes how' in brain.DRAFT_PROMPT)
+    assert ('BAD: "Yet this surge immediately reignited political debates."'
+            in brain.DRAFT_PROMPT)
+    for banned_word in ("figure", "number", "source", "data"):
+        bullet_start = brain.DRAFT_PROMPT.index("Do not claim that one event caused another")
+        bullet_end = brain.DRAFT_PROMPT.index("BAD:", bullet_start) + len(
+            'BAD: "Yet this surge immediately reignited political debates."')
+        assert banned_word not in brain.DRAFT_PROMPT[bullet_start:bullet_end]

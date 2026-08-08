@@ -434,6 +434,10 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
   classification. Prefer none.
 - Word count is a hard limit per draft: DRAFT 1 (digest) 120-170 words, DRAFT 2
   (single) 110-170 words.
+- Do not claim that one event caused another instantly unless the material establishes how
+  fast the reaction actually was. This bans the claim, not a word list - trading
+  "immediately" for "at once" or "within hours" does not fix it.
+  BAD: "Yet this surge immediately reignited political debates."
 - At most ONE of the 2 drafts may end with a question - not zero forced, not a rule to use
   every time. That one question must invite someone else's expertise, not ask for
   validation: a specific industry professional would answer it better than the author, and
