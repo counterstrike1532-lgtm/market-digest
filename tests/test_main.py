@@ -104,6 +104,19 @@ def test_build_message_hides_level_for_wig20_tr_etf():
     assert "7437.63" in sp_line
 
 
+def test_build_message_handles_none_and_nan_without_error():
+    """Отсутствующие/nan проценты и значения не вызывают TypeError в build_message."""
+    data = {
+        "sp500": {"value": None, "chg_1d_pct": None, "as_of": "2026-08-11"},
+        "nasdaq": {"value": float("nan"), "chg_1d_pct": float("nan"), "as_of": "2026-08-11"},
+    }
+    msg = build_message(selected=[], data=data, drafts="")
+    assert "sp500: нет данных" in msg
+    assert "nasdaq: нет данных" in msg
+    assert "None" not in msg
+    assert "nan" not in msg
+
+
 # ---------------------------------------------------------------- T10b: URL после дедупа
 #
 # Боевой прогон 01.08.2026: у сюжетов 1/2/3 первая ссылка в СЮЖЕТЫ вела на

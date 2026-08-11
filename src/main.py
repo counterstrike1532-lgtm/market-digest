@@ -441,10 +441,12 @@ def build_message(selected, data, drafts) -> str:
     if data:
         figures_lines = ["ЦИФРЫ"]
         for k, v in data.items():
-            bits = [] if k in _LEVEL_HIDDEN else [str(v.get("value"))]
+            val = v.get("value")
+            val_txt = str(val) if _is_number(val) else "нет данных"
+            bits = [] if k in _LEVEL_HIDDEN else [val_txt]
             for f, lbl in (("chg_1d_pct", "д"), ("chg_1m_pct", "мес"),
                            ("chg_30d_pct", "30д"), ("chg_1y_pct", "г")):
-                if f in v:
+                if f in v and _is_number(v[f]):
                     bits.append(f"{v[f]:+.2f}% {lbl}")
             figures_lines.append(f"  {k}: {'  '.join(bits)}   [{v.get('as_of','')}]")
         sections.append("\n".join(figures_lines))
