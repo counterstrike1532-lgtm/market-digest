@@ -664,6 +664,18 @@ def test_bodies_for_source_finds_body_by_number_despite_source_url_typo():
     assert bodies == ["story two body, the real one"]
 
 
+def test_referenced_story_numbers_expanded_words():
+    """_referenced_story_numbers распознаёт Study, Article, Item, #N наравне со Story/Source."""
+    figures = (
+        '100 -> Study [1] source text\n'
+        '200 -> Article #2 source text\n'
+        '300 -> Item 3 source text\n'
+        '400 -> Story #4 source text'
+    )
+    nums = verify._referenced_story_numbers(figures)
+    assert nums == [1, 2, 3, 4]
+
+
 def test_bodies_for_source_falls_back_to_string_match_when_figures_has_no_numbers():
     """FIGURES без ссылок на номер сюжета (например "none used" или числа из
     FRESH DATA) - поведение идентично тому, что было до T11f: сопоставление по

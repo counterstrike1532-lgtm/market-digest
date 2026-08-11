@@ -313,7 +313,7 @@ def _closest_in_text(target: float, text: str) -> str | None:
 # слово ловим в любом варианте, скобки опциональны. Перенесено из main.py в
 # T11f (verify.py его тоже использует теперь, main → verify - существующее
 # направление импорта, обратное дало бы цикл).
-_STORY_NUM_RE = re.compile(r"(?:Story|Source)\s*\[?(\d+)\]?", re.IGNORECASE)
+_STORY_NUM_RE = re.compile(r"(?:Story|Source|Study|Article|Item)\s*#?\s*\[?(\d+)\]?", re.IGNORECASE)
 
 
 def _referenced_story_numbers(figures_raw: str) -> list[int]:
