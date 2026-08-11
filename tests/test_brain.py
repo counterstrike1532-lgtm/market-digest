@@ -251,3 +251,29 @@ def test_draft_prompt_closing_generalization_ban_has_three_bad_examples():
     assert ('If a closing sentence would fit equally well after three different, unrelated '
             'stories, it is not concrete enough - end on the last number, name, or fact '
             'instead.' in normalized)
+
+
+def test_draft_uses_fallback_when_style_text_is_placeholder_template(monkeypatch):
+    """Служебный шаблон style/my_posts.md подменяется на штатный фолбэк в brain.draft."""
+    captured_prompt = []
+
+    def fake_post(url, **kw):
+        captured_prompt.append(kw["json"]["contents"][0]["parts"][0]["text"])
+        return _ok("draft text")
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+    placeholder_text = (
+        "# Мои прошлые посты — эталон стиля\n"
+        "Вставь сюда 3–5 своих реальных постов...\n"
+        "---\n"
+        "(пример структуры — замени на своё)\n"
+        "Poland's HICP came in at X%..."
+    )
+    item = SimpleNamespace(title="t", source="s", url="u", published_known=True)
+    selected = [{"item": item, "angle": "a", "why_nonobvious": "n", "body": "b"}]
+
+    brain.draft(selected, data={}, style_text=placeholder_text, n=1)
+
+    assert len(captured_prompt) == 1
+    assert "No past posts provided yet" in captured_prompt[0]
+    assert "Poland's HICP came in at X%" not in captured_prompt[0]

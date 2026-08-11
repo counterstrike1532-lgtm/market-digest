@@ -522,9 +522,12 @@ def draft(selected: list[dict], data: dict, style_text: str, n: int = 2) -> str:
             f"    SOURCE TEXT: {src}")
 
     data_txt = format_data_block(data)
-    style = style_text.strip() or (
-        "(No past posts provided yet - follow the voice rules above, "
-        "erring on the side of plainer and shorter.)")
+    clean_style = style_text.strip()
+    if not clean_style or "# Мои прошлые посты" in clean_style or "(пример структуры" in clean_style:
+        style = ("(No past posts provided yet - follow the voice rules above, "
+                 "erring on the side of plainer and shorter.)")
+    else:
+        style = clean_style
 
     return _call(DRAFT_PROMPT.format(n=n, stories="\n\n".join(blocks),
                                      data=data_txt, style=style),
