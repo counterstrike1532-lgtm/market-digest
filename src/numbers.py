@@ -83,25 +83,33 @@ def stooq_series(symbols: dict) -> tuple[dict, dict]:
                              headers=STOOQ_HEADERS, timeout=20)
             r.raise_for_status()
             rows = list(csv.DictReader(io.StringIO(r.text)))
-            closes = [float(x["Zamkniecie"]) for x in rows if x.get("Zamkniecie")]
-            if len(closes) < 5:
+            valid_pairs = []
+            for x in rows:
+                dt, val = x.get("Data"), x.get("Zamkniecie")
+                if dt and val:
+                    try:
+                        fv = float(val)
+                        if _is_number(fv):
+                            valid_pairs.append((dt, round(fv, 2)))
+                    except (ValueError, TypeError):
+                        pass
+            if len(valid_pairs) < 5:
                 log.warning(
                     "stooq %s: получили только %d валидных строк (нужно >=5) - "
-                    "пропускаю. Начало ответа: %r", sym, len(closes), r.text[:150])
+                    "пропускаю. Начало ответа: %r", sym, len(valid_pairs), r.text[:150])
                 continue
-            value = round(closes[-1], 2)
+            dates = [p[0] for p in valid_pairs]
+            closes = [p[1] for p in valid_pairs]
+            value = closes[-1]
             chg_1d_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
             chg_1m_pct = round((closes[-1] / closes[0] - 1) * 100, 2)
             out[name] = {
                 "value": value if _is_number(value) else None,
                 "chg_1d_pct": chg_1d_pct if _is_number(chg_1d_pct) else None,
                 "chg_1m_pct": chg_1m_pct if _is_number(chg_1m_pct) else None,
-                "as_of": rows[-1].get("Data"),
+                "as_of": dates[-1],
             }
-            series[name] = {
-                "dates": [x["Data"] for x in rows if x.get("Zamkniecie")],
-                "close": closes,
-            }
+            series[name] = {"dates": dates, "close": closes}
         except Exception as exc:
             log.warning("stooq %s упал: %s", sym, exc)
     return out, series
@@ -111,27 +119,26 @@ def yfinance_series(symbols: dict) -> tuple[dict, dict]:
     """Тот же формат вывода, что и stooq_series (T9c) — вызывающий код не видит
     разницы, какой источник в итоге отдал данные. Используется только как
     каскадный фолбэк на символы, которых stooq не дал (см. market_series).
-
-    nan в value/chg_1d_pct/chg_1m_pct санитизируется в None независимо по
-    полям (T-nan шаг 3), симметрично stooq_series. Сознательно вне охвата,
-    не TODO:
-    - nan в середине ряда попадает в series[name]["close"] как есть и может
-      сломать market_overview / линию графика — не чиним здесь;
-    - len(closes) < 5 считает и элементы-nan как валидные строки — не чиним
-      здесь;
-    - build_message, блок ЦИФРЫ для digest.log — не чиним здесь.
     """
     out, series = {}, {}
     for name, ticker in symbols.items():
         try:
             hist = yf.Ticker(ticker).history(period="2mo", interval="1d")
-            closes = [round(float(v), 2) for v in hist["Close"].tolist()]
-            dates = [d.strftime("%Y-%m-%d") for d in hist.index]
-            if len(closes) < 5:
+            valid_pairs = []
+            for d, v in zip(hist.index, hist["Close"].tolist()):
+                try:
+                    fv = float(v)
+                    if _is_number(fv):
+                        valid_pairs.append((d.strftime("%Y-%m-%d"), round(fv, 2)))
+                except (ValueError, TypeError):
+                    pass
+            if len(valid_pairs) < 5:
                 log.warning("yfinance %s: получили только %d валидных строк "
-                           "(нужно >=5) - пропускаю", ticker, len(closes))
+                           "(нужно >=5) - пропускаю", ticker, len(valid_pairs))
                 continue
-            value = round(closes[-1], 2)
+            dates = [p[0] for p in valid_pairs]
+            closes = [p[1] for p in valid_pairs]
+            value = closes[-1]
             chg_1d_pct = round((closes[-1] / closes[-2] - 1) * 100, 2)
             chg_1m_pct = round((closes[-1] / closes[0] - 1) * 100, 2)
             out[name] = {

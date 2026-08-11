@@ -188,6 +188,7 @@ def test_stooq_series_mixed_symbols_one_fails_one_ok(monkeypatch):
 
 _CSV_NAN_LAST = (
     "Data,Otwarcie,Najwyzszy,Najnizszy,Zamkniecie,Wolumen\n"
+    "2026-05-31,99.0,100.0,98.0,99.5,1000\n"
     "2026-06-01,100.0,101.0,99.0,100.5,1000\n"
     "2026-06-02,100.5,102.0,100.0,101.2,1100\n"
     "2026-06-03,101.2,103.0,101.0,102.0,1050\n"
@@ -197,6 +198,7 @@ _CSV_NAN_LAST = (
 
 _CSV_NAN_SECOND_LAST = (
     "Data,Otwarcie,Najwyzszy,Najnizszy,Zamkniecie,Wolumen\n"
+    "2026-05-31,99.0,100.0,98.0,99.5,1000\n"
     "2026-06-01,100.0,101.0,99.0,100.5,1000\n"
     "2026-06-02,100.5,102.0,100.0,101.2,1100\n"
     "2026-06-03,101.2,103.0,101.0,102.0,1050\n"
@@ -206,7 +208,8 @@ _CSV_NAN_SECOND_LAST = (
 
 _CSV_NAN_FIRST = (
     "Data,Otwarcie,Najwyzszy,Najnizszy,Zamkniecie,Wolumen\n"
-    "2026-06-01,100.0,101.0,99.0,nan,1000\n"
+    "2026-05-31,99.0,100.0,98.0,nan,1000\n"
+    "2026-06-01,100.0,101.0,99.0,100.5,1000\n"
     "2026-06-02,100.5,102.0,100.0,101.2,1100\n"
     "2026-06-03,101.2,103.0,101.0,102.0,1050\n"
     "2026-06-04,102.0,102.5,101.5,101.8,900\n"
@@ -214,34 +217,33 @@ _CSV_NAN_FIRST = (
 )
 
 
-def test_stooq_series_nan_in_last_close_all_scalars_none(monkeypatch):
-    """nan в closes[-1] портит value, chg_1d_pct и chg_1m_pct разом - все три
-    от него зависят. as_of берётся не из closes, остаётся валидным."""
+def test_stooq_series_nan_in_last_close_filters_out_nan_from_series(monkeypatch):
+    """nan в записи отфильтровывается из series[close] и series[dates]."""
     monkeypatch.setattr(numbers.requests, "get",
                         lambda *a, **kw: FakeResponse(200, text=_CSV_NAN_LAST))
     scalars, series = numbers.stooq_series({"wig20": "wig20"})
-    assert scalars["wig20"]["value"] is None
-    assert scalars["wig20"]["chg_1d_pct"] is None
-    assert scalars["wig20"]["chg_1m_pct"] is None
-    assert scalars["wig20"]["as_of"] == "2026-06-05"
+    assert scalars["wig20"]["value"] == 101.8
+    assert scalars["wig20"]["as_of"] == "2026-06-04"
+    assert "nan" not in [str(c) for c in series["wig20"]["close"]]
+    assert len(series["wig20"]["close"]) == 5
 
 
-def test_stooq_series_nan_in_second_last_close_only_chg_1d_none(monkeypatch):
+def test_stooq_series_nan_in_middle_filtered_from_series(monkeypatch):
     monkeypatch.setattr(numbers.requests, "get",
                         lambda *a, **kw: FakeResponse(200, text=_CSV_NAN_SECOND_LAST))
     scalars, series = numbers.stooq_series({"wig20": "wig20"})
     assert scalars["wig20"]["value"] == 103.0
-    assert scalars["wig20"]["chg_1d_pct"] is None
-    assert scalars["wig20"]["chg_1m_pct"] == round((103.0 / 100.5 - 1) * 100, 2)
+    assert "2026-06-04" not in series["wig20"]["dates"]
+    assert len(series["wig20"]["close"]) == 5
 
 
-def test_stooq_series_nan_in_first_close_only_chg_1m_none(monkeypatch):
+def test_stooq_series_nan_in_first_close_filtered_from_series(monkeypatch):
     monkeypatch.setattr(numbers.requests, "get",
                         lambda *a, **kw: FakeResponse(200, text=_CSV_NAN_FIRST))
     scalars, series = numbers.stooq_series({"wig20": "wig20"})
     assert scalars["wig20"]["value"] == 103.0
-    assert scalars["wig20"]["chg_1d_pct"] == round((103.0 / 101.8 - 1) * 100, 2)
-    assert scalars["wig20"]["chg_1m_pct"] is None
+    assert "2026-05-31" not in series["wig20"]["dates"]
+    assert len(series["wig20"]["close"]) == 5
 
 
 # ---------------------------------------------------------------- T9c: yfinance каскад
@@ -280,6 +282,7 @@ class FakeTicker:
 
 _DATES_5 = ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"]
 _CLOSES_5 = [100.5, 101.2, 102.0, 101.8, 103.0]
+_DATES_6 = ["2026-05-31", "2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05"]
 
 
 def test_yfinance_series_valid(monkeypatch):
@@ -291,8 +294,8 @@ def test_yfinance_series_valid(monkeypatch):
     assert series["wig20"]["close"] == _CLOSES_5
 
 
-def test_yfinance_series_too_few_rows_is_skipped(monkeypatch):
-    fake = FakeTicker({"WIG20.WA": (_DATES_5[:2], _CLOSES_5[:2])})
+def test_yfinance_series_fewer_than_5_rows_is_skipped(monkeypatch):
+    fake = FakeTicker({"WIG20.WA": (["2026-06-01"], [100.5])})
     monkeypatch.setattr(numbers.yf, "Ticker", fake)
     scalars, series = numbers.yfinance_series({"wig20": "WIG20.WA"})
     assert scalars == {} and series == {}
@@ -307,34 +310,36 @@ def test_yfinance_series_exception_is_caught(monkeypatch):
 
 # ---------------------------------------------------------------- T-nan шаг 3: nan -> None
 
-def test_yfinance_series_nan_in_last_close_all_scalars_none(monkeypatch):
-    """nan в closes[-1] портит value, chg_1d_pct и chg_1m_pct разом - все три
-    от него зависят. as_of берётся из dates, не из closes, остаётся валидным."""
-    fake = FakeTicker({"WIG20.WA": (_DATES_5, [100.5, 101.2, 102.0, 101.8, float("nan")])})
+def test_yfinance_series_nan_in_last_close_filters_out_nan_from_series(monkeypatch):
+    """nan в closes отфильтровывается из series["close"] и series["dates"]."""
+    fake = FakeTicker({"WIG20.WA": (_DATES_6, [99.5, 100.5, 101.2, 102.0, 101.8, float("nan")])})
     monkeypatch.setattr(numbers.yf, "Ticker", fake)
     scalars, series = numbers.yfinance_series({"wig20": "WIG20.WA"})
-    assert scalars["wig20"]["value"] is None
-    assert scalars["wig20"]["chg_1d_pct"] is None
-    assert scalars["wig20"]["chg_1m_pct"] is None
-    assert scalars["wig20"]["as_of"] == "2026-06-05"
+    assert scalars["wig20"]["value"] == 101.8
+    assert scalars["wig20"]["as_of"] == "2026-06-04"
+    assert "nan" not in [str(c) for c in series["wig20"]["close"]]
+    assert len(series["wig20"]["close"]) == 5
 
 
-def test_yfinance_series_nan_in_second_last_close_only_chg_1d_none(monkeypatch):
-    fake = FakeTicker({"WIG20.WA": (_DATES_5, [100.5, 101.2, 102.0, float("nan"), 103.0])})
-    monkeypatch.setattr(numbers.yf, "Ticker", fake)
-    scalars, series = numbers.yfinance_series({"wig20": "WIG20.WA"})
-    assert scalars["wig20"]["value"] == 103.0
-    assert scalars["wig20"]["chg_1d_pct"] is None
-    assert scalars["wig20"]["chg_1m_pct"] == round((103.0 / 100.5 - 1) * 100, 2)
-
-
-def test_yfinance_series_nan_in_first_close_only_chg_1m_none(monkeypatch):
-    fake = FakeTicker({"WIG20.WA": (_DATES_5, [float("nan"), 101.2, 102.0, 101.8, 103.0])})
+def test_yfinance_series_nan_in_second_last_close_filtered_from_series(monkeypatch):
+    fake = FakeTicker({"WIG20.WA": (_DATES_6, [99.5, 100.5, 101.2, 102.0, float("nan"), 103.0])})
     monkeypatch.setattr(numbers.yf, "Ticker", fake)
     scalars, series = numbers.yfinance_series({"wig20": "WIG20.WA"})
     assert scalars["wig20"]["value"] == 103.0
-    assert scalars["wig20"]["chg_1d_pct"] == round((103.0 / 101.8 - 1) * 100, 2)
-    assert scalars["wig20"]["chg_1m_pct"] is None
+    assert "2026-06-04" not in series["wig20"]["dates"]
+    assert len(series["wig20"]["close"]) == 5
+
+
+def test_yfinance_series_nan_in_first_close_filtered_from_series(monkeypatch):
+    fake = FakeTicker({"WIG20.WA": (_DATES_6, [float("nan"), 100.5, 101.2, 102.0, 101.8, 103.0])})
+    monkeypatch.setattr(numbers.yf, "Ticker", fake)
+    scalars, series = numbers.yfinance_series({"wig20": "WIG20.WA"})
+    assert scalars["wig20"]["value"] == 103.0
+    assert "2026-05-31" not in series["wig20"]["dates"]
+    assert len(series["wig20"]["close"]) == 5
+
+
+
 
 
 def test_market_series_falls_back_to_stooq_for_missing_symbol(monkeypatch, caplog):
