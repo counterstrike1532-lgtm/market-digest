@@ -416,17 +416,24 @@ def test_render_draft_message_parse_failed_shows_manual_check_notice():
 # _offending не входит по замыслу verify.py (не вина модели). Условие галочки
 # теперь строго found == denom > 0, с отдельной веткой на каждый другой исход.
 
-def test_render_draft_message_offending_nonpaired_branch_untouched():
-    """Ветка 1 (offending непуст) - существующее поведение с перечислением,
-    этот шаг её не трогает вообще."""
-    figures = '- 100 -> Story [1] source text ("100")'
-    level_a = [{"value": "100", "source": 'Story [1] source text ("100")',
-               "status": "NOT_FOUND"}]
+def test_render_draft_message_offending_branch_shows_denominator():
+    """Ветка 1 (offending непуст): строка MAYBE/POST содержит знаменатель found/denom при denom > 0."""
+    figures = '- 100 -> Story [1] source text ("100")\n- 200 -> Story [1] source text'
+    level_a = [{"value": "100", "source": 'Story [1] source text ("100")', "status": "NOT_FOUND"},
+               {"value": "200", "source": 'Story [1] source text', "status": "FOUND"}]
     block = _draft_block_dict(verdict="POST", figures=figures, downgrade=True,
                               offending=["100"], level_a=level_a)
     out = render_draft_message(block, 1)
-    assert "MAYBE — сверь" in out
+    assert "MAYBE · цифры 1/2 — сверь" in out
     assert '100 ("100")' in out
+
+
+def test_render_draft_message_offending_branch_without_denom():
+    """Ветка 1 (offending непуст, denom == 0): выводится вердикт и сверь без префикса цифры."""
+    block = _draft_block_dict(verdict="MAYBE", figures="", offending=["x"], level_a=[])
+    out = render_draft_message(block, 1)
+    assert "MAYBE — сверь x" in out
+    assert "цифры" not in out
 
 
 def test_render_draft_message_denom_zero_is_bare_verdict():

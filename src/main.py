@@ -350,13 +350,18 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
         if block.get("_downgrade") and verdict == "POST":
             verdict = "MAYBE"          # эффективный вердикт, не сырой (T9 fix 6)
 
+        countable = [r for r in block.get("_level_a", []) if r["status"] != "YEAR"]
+        denom = len(countable)
+        found = sum(1 for r in countable if r["status"] == "FOUND") if denom else 0
+        cifry_prefix = f" · цифры {found}/{denom}" if denom else ""
+
         offending = block.get("_offending") or []
         if offending:
             quotes = _offending_source_quotes(offending, block.get("figures", ""))
             shown = offending[:3]
             parts = [f'{v} ("{quotes[v]}")' if quotes.get(v) else v for v in shown]
             extra = f" +{len(offending) - 3} more" if len(offending) > 3 else ""
-            lines += ["", f"{verdict} — сверь {', '.join(parts)}{extra}"]
+            lines += ["", f"{verdict}{cifry_prefix} — сверь {', '.join(parts)}{extra}"]
         else:
             # T14b: пустой offending НЕ значит "всё найдено" - NO_SOURCE_TEXT в
             # него не входит по замыслу verify.py (это не вина модели, а
@@ -368,20 +373,16 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
             # уходят в NO_SOURCE_TEXT, если тело сюжета не догрузилось -
             # combined_body общий на весь черновик, а не per-pair. Условие
             # галочки поэтому не "offending пуст", а "found == denom > 0".
-            countable = [r for r in block.get("_level_a", []) if r["status"] != "YEAR"]
-            denom = len(countable)
             if not denom:
                 lines += ["", verdict]
+            elif found == denom:
+                lines += ["", f"{verdict} · цифры {found}/{denom} ✅"]
+            elif found == 0:
+                lines += ["", f"{verdict} · цифры {found}/{denom} — "
+                              "источник не догружен, сверь вручную"]
             else:
-                found = sum(1 for r in countable if r["status"] == "FOUND")
-                if found == denom:
-                    lines += ["", f"{verdict} · цифры {found}/{denom} ✅"]
-                elif found == 0:
-                    lines += ["", f"{verdict} · цифры {found}/{denom} — "
-                                  "источник не догружен, сверь вручную"]
-                else:
-                    lines += ["", f"{verdict} · цифры {found}/{denom} — "
-                                  "часть чисел не сверена, источник не догружен"]
+                lines += ["", f"{verdict} · цифры {found}/{denom} — "
+                              "часть чисел не сверена, источник не догружен"]
 
     check_first = (block.get("check_first") or "").strip()
     if check_first and check_first != "-":
