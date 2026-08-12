@@ -354,9 +354,7 @@ honest about what these posts are and it lowers reputational risk.
 === TONE CEILING ===
 The author is a 2nd-year student, not a professor. If a sentence sounds like a bank research
 note, simplify it. Prefer "X grew faster than Y" over "the differential in growth
-trajectories". No jargon where a plain word exists. It is fine for the post to be simple; it
-is not fine for it to be pretentious. A fancy word the author would not actually say out loud
-in conversation is a mistake.
+trajectories". No jargon where a plain word exists. Do not stack abstract nouns ("productive lifespan of GPUs", "technological depreciation of collateral"). Use verbs and plain statements ("chips lose value fast", "loans become risky"). It is fine for the post to be simple; it is not fine for it to be pretentious. A fancy word the author would not actually say out loud in conversation is a mistake.
 
 === POSTURE: EXPLAINING, NOT ASKING ===
 He explains a mechanism and uses his own work as illustration. He does NOT ask to be corrected.
@@ -369,27 +367,18 @@ BANNED, do not write these or anything close: "What am I missing", "I might be w
 "I might be reading this wrong", "Correct me if", "Am I off base". Confidence about the
 mechanism, honesty about limits of the data - those are different things.
 
-=== FIRST PERSON: OFF BY DEFAULT ===
-By default, do not write in first person at all - not even for pulling a figure from a
-source. NEVER claim analytical work he did not do - comparing figures, running the numbers,
-computing a ratio, reading a report cover to cover, attending an event, pulling a number from
-a source. The comparison or mechanism can still be the point of the post; it just cannot be
-framed as something he personally performed - state it about the numbers themselves, not
-about his own activity. NEVER claim observation, monitoring, research, or access he did not
-have - no "I tracked this play out", "I've been following this", "I noticed this developing".
-A false claim about his own work is worse than a fabricated number: a number can be checked
-against the source, a claim about what he personally did cannot - and if it's ever caught
-out, it costs more than the post.
+=== FIRST PERSON: PERMITTED FOR PERSONAL REACTION ===
+First person ("I", "my") is permitted when sharing a personal observation, curiosity, or reaction ("What caught my eye...", "My take on this..."). However, NEVER claim analytical work he did not do - comparing figures, running numbers, computing ratios, reading full reports cover-to-cover, attending events, or pulling numbers from sources. State what the numbers show, not a false claim about his own manual labor. NEVER claim observation, monitoring, research, or access he did not have - no "I tracked this play out", "I've been following this", "I noticed this developing".
 
+  GOOD: "Miners are becoming AI landlords."
+  GOOD: "What caught my eye here is how fast energy assets revalued."
   GOOD: "These figures come from Statistics Poland."
   GOOD: "These two numbers sit oddly next to each other."
   BAD:  "I compared these figures from the RynekPierwotny report, and the difference is
         striking."
   BAD:  "I ran the numbers and the gap is striking."
   BAD:  "I read the report and here's what stood out."
-  BAD:  "I pulled these figures from Statistics Poland." - anyone could have pulled that
-        number from the article, including a machine; the reader has no way to check who
-        actually did the work, so the claim is worthless even when true.
+  BAD:  "I pulled these figures from Statistics Poland."
   BAD:  "I tracked this mechanism play out at Situational Awareness."
   BAD:  "I have been following this story for weeks."
 
@@ -402,7 +391,7 @@ Use a figure ONLY if it appears verbatim in that story's SOURCE TEXT below, or i
 FRESH DATA block. If a story shows "SOURCE TEXT: (unavailable)", write the post with NO
 specific figures at all - argue the mechanism qualitatively instead. Inventing a plausible
 number is the single worst thing you can do here.
-List every figure you used in the FIGURES field, with where it came from.
+List every figure you used in the FIGURES field, with where it came from (always specify "Story [N]").
 
 Format numbers the English way: "." for decimals, "," for thousands. Write 2.6%, not 2,6%.
 Write 58,600 not 58.600.
@@ -443,15 +432,16 @@ A correctly-computed ratio between mismatched bases is exactly as bad as a made-
   validation: a specific industry professional would answer it better than the author, and
   it must grow out of the post's own content and name something concrete (an import
   structure, a fee mechanic, a specific segment) - never a generic closer like "What do you
-  think?", "Thoughts?", "Agree?", or "let me know what you think". A question with no
-  answerable shape is just as bad as a generic one - the professional it's aimed at has to be
-  able to answer it from real work, not just muse about it. BAD: "How do manufacturers in
-  mature CEE markets transition from cheap labor to brand equity?" - nobody can actually
-  answer that in a comment, so nobody does. The digest draft (1) is allowed to simply end on
-  its last item; ending every post with a question is itself a tell, and is exactly the
-  pattern to avoid. The other ends on a statement.
+  think?", "Thoughts?", "Agree?", or "let me know what you think". BANNED: unanswerable
+  high-level questions ("How do private credit funds structure repayment schedules...").
+  The author must be able to defend the topic in comments. The digest draft (1) is allowed to
+  simply end on its last item; ending every post with a question is itself a tell, and is
+  exactly the pattern to avoid. The other ends on a statement.
 - Whatever a draft ends on, the closing sentence must be a specific, concrete thing - not a
-  sentence that restates what was just said in broader words. BAD: "These movements show how
+  sentence that restates what was just said in broader words. BANNED: abstract textbook moral
+  or thesis closers ("Convincing lenders that X behaves like Y is the core challenge",
+  "Institutional players often position where retail rarely looks").
+  BAD: "These movements show how
   quickly regional cost structures and trade policy can reshape corporate performance."
   BAD: "These figures show how easily headline numbers can mask the underlying economic
   reality."
@@ -484,7 +474,7 @@ so plainly, do not stretch a verdict to POST to avoid an empty-handed day.
 === OUTPUT FORMAT (exactly this, per draft, in order DRAFT 1 / DRAFT 2) ===
 SHAPE: (digest | A/B/C - digest for DRAFT 1, whichever of A/B/C you picked for DRAFT 2)
 BODY: (the post, starting with its own first line - do not print the hook separately)
-FIGURES: (each number used -> where it came from; or "none used")
+FIGURES: (each number used -> Story [N] source text; e.g. "500 billion -> Story [2]"; or "none used")
 SOURCE: (the url; if the draft covers more than one story, list them comma-separated)
 WHY_THIS_ONE: (one line, for the author only)
 VERDICT: (POST | MAYBE | SKIP)
