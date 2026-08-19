@@ -265,7 +265,8 @@ def render_summary(selected: list[dict], data: dict) -> str:
         # эвристический top-N (rank деградировал, T13a) не даёт score модели -
         # "[None]" в сводке выглядело бы как баг, а не как явный статус
         score_txt = s["score"] if "score" in s else "heuristic"
-        lines = [f"{i}. [{score_txt}] {_oneline(it.title)}"]
+        title_str = s.get("title_en") or it.title
+        lines = [f"{i}. [{score_txt}] {_oneline(title_str)}"]
         if i <= _EXPLAINED_TOP_N and s.get("angle"):
             lines.append(f"   {_truncate_at_sentence(_oneline(s['angle']))}")
         lines.append(f"   {it.url}")

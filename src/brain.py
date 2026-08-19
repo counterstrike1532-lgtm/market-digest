@@ -272,7 +272,8 @@ CRITICAL RULES:
 For each item, "angle" is what the post would ARGUE - a claim, not a topic. If you cannot
 write a real claim, the score is below 7.
 
-Return JSON only: an array of objects with keys id, score, angle, why_nonobvious.
+Return JSON only: an array of objects with keys id, score, title_en, angle, why_nonobvious.
+"title_en" must be a clean, concise English translation/adaptation of the headline (max 10 words).
 Include ONLY items scoring 6 or above. Returning 4 excellent items beats 20 mediocre ones.
 
 ITEMS:
@@ -355,6 +356,7 @@ honest about what these posts are and it lowers reputational risk.
 The author is a 2nd-year student, not a professor. If a sentence sounds like a bank research
 note, simplify it. Prefer "X grew faster than Y" over "the differential in growth
 trajectories". No jargon where a plain word exists. Do not stack abstract nouns ("productive lifespan of GPUs", "technological depreciation of collateral"). Use verbs and plain statements ("chips lose value fast", "loans become risky"). It is fine for the post to be simple; it is not fine for it to be pretentious. A fancy word the author would not actually say out loud in conversation is a mistake.
+BANNED: complex institutional derivative hedging instruments and bank treasury mechanics (IRS, FRA contracts, swaptions, ALM hedging). The author is a 2nd-year student who has not studied complex derivative structures - writing about IRS/FRA hedging sounds pretentiously fake and fails the comment test. Keep topics to standard concepts he learns (mortgage rates, net interest margins, inflation, corporate earnings).
 
 === POSTURE: EXPLAINING, NOT ASKING ===
 He explains a mechanism and uses his own work as illustration. He does NOT ask to be corrected.
