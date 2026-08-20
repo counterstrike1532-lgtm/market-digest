@@ -285,3 +285,26 @@ def test_chunks_html_length_within_telegram_limit_on_fixture_with_domain_urls():
     assert "".join(parts) == text
     for part in parts:
         assert len(deliver._to_html(part, domain_urls)) <= deliver.TELEGRAM_LIMIT
+
+
+def test_to_html_preserves_trusted_tags_and_escapes_untrusted():
+    raw = (
+        "<b>Жирный заголовок</b> и <i>курсив</i>\n"
+        "<code>код</code> и <blockquote>цитата</blockquote>\n"
+        '<a href="https://example.com/page">ссылка</a>\n'
+        "Сравнение: 5 < 10 & 20 > 15\n"
+        "<script>alert('xss')</script> и <img src=x onerror=alert(1)>"
+    )
+    out = deliver._to_html(raw)
+    # Доверенные теги сохранены
+    assert "<b>Жирный заголовок</b>" in out
+    assert "<i>курсив</i>" in out
+    assert "<code>код</code>" in out
+    assert "<blockquote>цитата</blockquote>" in out
+    assert '<a href="https://example.com/page">ссылка</a>' in out
+    # Недоверенные спецсимволы и теги экранированы
+    assert "5 &lt; 10 &amp; 20 &gt; 15" in out
+    assert "&lt;script&gt;" in out and "&lt;/script&gt;" in out
+    assert "&lt;img src=x onerror=alert(1)&gt;" in out
+
+

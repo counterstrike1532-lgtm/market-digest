@@ -187,23 +187,39 @@ def _domain_pattern(domain_urls: dict[str, str] | None) -> re.Pattern | None:
     return re.compile(rf"\b(?:{alts})\b")
 
 
+_TRUSTED_TAG_RE = re.compile(
+    r"(</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|tg-spoiler)>|"
+    r'<a\s+href=[\"\']https?://[^\"\']+[\"\']>|'
+    r"</a>)",
+    re.IGNORECASE,
+)
+
+
 def _to_html(text: str, domain_urls: dict[str, str] | None = None) -> str:
-    """Экранирует под parse_mode=HTML, URL оборачивает в <a href>. Текст ссылки —
-    домен, а не весь URL: голый news.google.com/rss/articles/... километровой
-    длины делал сводку нечитаемой, даже будучи кликабельным (T9e).
+    """Экранирует под parse_mode=HTML, сохраняя доверенные теги разметки (b, i, u, s, code, pre, blockquote, a),
+    а сырые URL оборачивает в <a href>. Текст ссылки — домен, а не весь URL.
+    Все остальные спецсимволы и недоверенные теги безопасно экранируются через html.escape().
 
     domain_urls - {домен: URL конкретной статьи} из selected (main.py), для
     случаев, когда модель в поле SOURCE черновика написала голый домен вместо
     ссылки (T9 fix 4). Без этого параметра ведёт себя как раньше."""
     domain_re = _domain_pattern(domain_urls)
-    out, last = [], 0
-    for m in URL_RE.finditer(text):
-        out.append(_wrap_bare_domains(text[last:m.start()], domain_re, domain_urls or {}))
-        url = _strip_utm(m.group())
-        label = html.escape(_domain(url))
-        out.append(f'<a href="{html.escape(url)}">{label}</a>')
-        last = m.end()
-    out.append(_wrap_bare_domains(text[last:], domain_re, domain_urls or {}))
+    parts = _TRUSTED_TAG_RE.split(text)
+    out = []
+    for part in parts:
+        if not part:
+            continue
+        if _TRUSTED_TAG_RE.fullmatch(part):
+            out.append(part)
+        else:
+            last = 0
+            for m in URL_RE.finditer(part):
+                out.append(_wrap_bare_domains(part[last:m.start()], domain_re, domain_urls or {}))
+                url = _strip_utm(m.group())
+                label = html.escape(_domain(url))
+                out.append(f'<a href="{html.escape(url)}">{label}</a>')
+                last = m.end()
+            out.append(_wrap_bare_domains(part[last:], domain_re, domain_urls or {}))
     return "".join(out)
 
 

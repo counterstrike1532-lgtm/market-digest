@@ -7,7 +7,7 @@
 
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet("verify","dry","send","models","score","test")]
+    [ValidateSet("verify","dry","send","models","score","test","hugs-dry","hugs-send")]
     [string]$Mode,
 
     [Parameter(Mandatory=$false)]
@@ -39,7 +39,7 @@ if ($needsSecrets) {
         Write-Host "GEMINI_API_KEY is empty - paste it into secrets.ps1" -ForegroundColor Red
         exit 1
     }
-    if ($Mode -eq "send") {
+    if (($Mode -eq "send") -or ($Mode -eq "hugs-send")) {
         if (-not $env:TELEGRAM_BOT_TOKEN) {
             Write-Host "TELEGRAM_BOT_TOKEN is empty - paste it into secrets.ps1" -ForegroundColor Red
             exit 1
@@ -59,7 +59,7 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 # Live Gemini calls are blocked in brain._call unless this is set. Only the
 # owner's own runs set it - test and score without -Deep must not, so an
 # unattended run can never reach the API by accident.
-if ((@("verify", "models", "dry", "send") -contains $Mode) -or
+if ((@("verify", "models", "dry", "send", "hugs-dry", "hugs-send") -contains $Mode) -or
     (($Mode -eq "score") -and $Deep)) {
     $env:NEWSBOT_ALLOW_LIVE = "1"
 }
@@ -92,5 +92,11 @@ switch ($Mode) {
         if ($Path) { $scoreArgs += $Path }
         if ($Deep) { $scoreArgs += "--deep" }
         & $py -m src.score_draft @scoreArgs
+    }
+    "hugs-dry" {
+        & $py -m src.hugs_workflow --dry --hours 30
+    }
+    "hugs-send" {
+        & $py -m src.hugs_workflow --send --hours 30
     }
 }

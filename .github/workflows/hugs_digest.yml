@@ -1,0 +1,60 @@
+name: hugs fund digest
+
+on:
+  schedule:
+    - cron: "15 4 * * 1-5"      # 06:15 Варшава летом (UTC+2), 05:15 зимой (UTC+1). Будние дни (пн-пт).
+  workflow_dispatch:            # кнопка "Run workflow" для ручного запуска
+    inputs:
+      hours:
+        description: "Окно свежести постов HugsFund (в часах)"
+        default: "30"
+
+concurrency:
+  group: hugs-digest
+  cancel-in-progress: false
+
+jobs:
+  hugs-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Собрать и отправить дайджест HugsFund
+        env:
+          GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_MODEL:       ${{ vars.GEMINI_MODEL }}
+          HOURS:              ${{ github.event.inputs.hours || '30' }}
+          NEWSBOT_ALLOW_LIVE: "1"
+        run: |
+          python -m src.hugs_workflow --hours "$HOURS" --send 2>&1 | tee hugs_digest.log
+
+      - name: Загрузить лог прогона
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hugs-digest-log-${{ github.run_id }}
+          path: hugs_digest.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d chat_id="$TELEGRAM_CHAT_ID" \
+            -d disable_web_page_preview=true \
+            --data-urlencode text="HugsFund дайджест упал. Лог: $RUN_URL"

@@ -13,3 +13,5 @@ __pycache__/
 # Локальные артефакты
 out/
 requirements-local.txt.lock
+*.log
+

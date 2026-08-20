@@ -501,6 +501,21 @@ def format_data_block(data: dict) -> str:
     return "\n".join(f"- {k}: {v}" for k, v in data.items()) or "(нет данных)"
 
 
+def is_default_style_template(text: str) -> bool:
+    """True, если в style/my_posts.md осталась шаблонная инструкция, а не реальные посты."""
+    clean = text.strip()
+    if not clean:
+        return True
+    markers = [
+        "# Мои прошлые посты",
+        "(пример структуры",
+        "Вставь сюда 3–5",
+        "Вставь сюда 3-5",
+        "Poland's HICP came in at X%",
+    ]
+    return any(m in clean for m in markers)
+
+
 def draft(selected: list[dict], data: dict, style_text: str, n: int = 2) -> str:
     blocks = []
     for i, s_ in enumerate(selected[:6], 1):
@@ -515,7 +530,7 @@ def draft(selected: list[dict], data: dict, style_text: str, n: int = 2) -> str:
 
     data_txt = format_data_block(data)
     clean_style = style_text.strip()
-    if not clean_style or "# Мои прошлые посты" in clean_style or "(пример структуры" in clean_style:
+    if is_default_style_template(clean_style):
         style = ("(No past posts provided yet - follow the voice rules above, "
                  "erring on the side of plainer and shorter.)")
     else:
@@ -524,6 +539,7 @@ def draft(selected: list[dict], data: dict, style_text: str, n: int = 2) -> str:
     return _call(DRAFT_PROMPT.format(n=n, stories="\n\n".join(blocks),
                                      data=data_txt, style=style),
                  temperature=0.9, max_tokens=16384)
+
 
 
 # ------------------------------------------------------------------
