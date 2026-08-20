@@ -16,56 +16,43 @@ from .hugs_parser import HugsPost, fetch_channel_posts, filter_posts
 
 log = logging.getLogger("hugs_workflow")
 
-HUGS_ANALYSIS_PROMPT = """You are an elite financial analyst and editor assisting a 2nd-year Finance & Accounting student at Kozminski University (Warsaw) who is preparing for investment banking (IB) and asset management (AM) roles.
+HUGS_ANALYSIS_PROMPT = """You are a ruthless financial editor and analyst assisting a 2nd-year Finance & Accounting student at Kozminski University in Warsaw preparing for investment banking (IB) and asset management (AM) roles.
 
-Below are raw Telegram posts from the financial channel HugsFund from the last 24-30 hours.
+Below are raw posts from the Telegram channel HugsFund from the last 24-30 hours.
 
 TASK:
-Analyze the posts and produce a structured, high-signal morning briefing in RUSSIAN, followed by 2-3 deep post ideas in the author's established style.
+Filter ruthlessly. Ignore commodity news, trivial daily noise, and routine market chatter. Select ONLY the top 3-4 most significant, non-obvious themes (unexpected numbers, structural mechanisms, AI capex reality, debt/treasury mechanics, institutional market structure).
+
+Write the ENTIRE output in ENGLISH, concise and sharp.
 
 ---
-### PART 1: ФАКТЫ И КАТЕГОРИИ (Morning Briefing)
-Group all important events and data into EXACTLY these 4 categories (omit a category only if there are genuinely zero news items for it):
-
-1. 📊 <b>Макроэкономика и геополитика</b>
-(Monetary policy, interest rates, inflation, debt/treasuries, GDP, FX, central banks, geopolitical shifts)
-
-2. 📈 <b>Фондовый рынок и отчеты компаний</b>
-(Equities, indices, earnings reports, valuation multiples, corporate strategy, M&A, sector rotation)
-
-3. 💻 <b>Крипта и AI / Tech</b>
-(AI models, enterprise tech capex, datacenters/semiconductors, crypto market structure, liquidations, stablecoins)
-
-4. 🛢️ <b>Сырье и облигации</b>
-(Commodities, oil/gas, metals, 10Y/30Y Treasury yields, bond auctions, yield curve dynamics, credit spreads)
-
-RULES FOR PART 1:
-- Bullet points only (format: • <b>Headline / core fact</b> — concise explanation).
-- MANDATORY: For EVERY news item, explicitly name the PRIMARY SOURCE in brackets at the end (e.g. [Bloomberg], [WSJ], [Reuters], [Financial Times], [BofA], [The Information], [SEC], [Fed], [Hugs / Аналитика]). If the channel is quoting an analyst or primary report, cite that original source.
-- Preserve hard numbers, percentages, and currencies accurately.
-- No buzzwords or fluff. Focus on economic cause and mechanism.
+### 📌 HIGH-SIGNAL HIGHLIGHTS (Top 3-4 Themes)
+Select ONLY 3 or 4 top stories. For each:
+• <b>Headline / Core Fact</b> — 1-2 terse sentences explaining the economic mechanism and hard figures. MANDATORY: explicitly cite the PRIMARY SOURCE in brackets at the end (e.g. [Bloomberg], [WSJ], [Reuters], [Financial Times], [Deutsche Bank], [BofA], [SEC], [Fed], [Hugs Analysis]).
 
 ---
-### PART 2: ИДЕИ ДЛЯ АВТОРСКИХ ПОСТОВ (2-3 Ideas)
-Suggest 2 or 3 ready-to-write post concepts based on the strongest themes of the day.
+### ✍️ LINKEDIN POST DRAFTS (English, ~100-140 words each)
 
-Target author profile:
-- 2nd-year Kozminski finance student targeting IB/AM.
-- Modest frame ("active student who reads primary sources"), NOT pretending to be a managing director.
-- Explaining posture ("here is how this mechanism works"), NEVER asking ("what am I missing", "correct me if I'm wrong").
-- Tone ceiling: clear and direct financial logic. Banned words: leverage, synergy, landscape, paradigm, unprecedented, game-changer, delve, underscore, pivotal, robust, revolutionary.
+Write exactly 2 concise, ready-to-publish LinkedIn post drafts in ENGLISH:
 
-FORMAT FOR EACH IDEA:
-💡 <b>Идея [N]: [Запоминающийся заголовок / Парадокс / Угол]</b>
-• <b>Категория и источник:</b> [Категория | Первоисточник и ключевая цифра]
-• <b>Структура поста:</b> [Mechanism / Two Numbers / Common Belief vs Reality]
-• <b>Тезисный план аргументации:</b>
-  1. <i>Исходный факт:</i> [Конкретная цифра / событие]
-  2. <i>Экономический механизм:</i> [Как работает стимул, маржинальность, фондирование или баланс]
-  3. <i>Неочевидный вывод:</i> [Конкретный вывод без банальной морали]
+<b>DRAFT 1 — Digest / Roundup (~100-130 words):</b>
+Connect 2 key stories or highlight a core macro tension of the day.
+
+<b>DRAFT 2 — Single Mechanism (~100-140 words):</b>
+One deep story examined through ONE specific shape (do not write the label, write the post):
+- Shape A (Mechanism): Name the financial mechanism, explain how incentives/balance sheets work, show where it appeared.
+- Shape B (Two Numbers): Put two contrasting figures side by side, explain what the pairing reveals.
+- Shape C (Common Belief): State the widespread market assumption, then the hard fact that complicates it.
+
+VOICE & ANTI-SLOP RULES:
+- Author: 2nd-year Kozminski finance student who reads primary sources and runs numbers.
+- Posture: Explaining the mechanism with confidence, NEVER asking ("What am I missing?", "I might be wrong", "Correct me if").
+- Banned AI words: leverage, synergy, landscape, paradigm, unprecedented, game-changer, delve, underscore, pivotal, robust, revolutionary, "it's not just X, it's Y", "let that sink in".
+- No rhetorical questions at opening. End on a concrete number, fact, or mechanism — never an abstract textbook moral.
+- Keep sentences punchy. Zero fluff.
 
 ---
-RAW POSTS FROM HUGSFUND:
+RAW CHANNEL POSTS:
 {posts_text}
 """
 
@@ -86,7 +73,7 @@ def format_posts_for_prompt(posts: list[HugsPost]) -> str:
 def run_llm_analysis(posts: list[HugsPost]) -> str:
     """Запускает аналитическую обработку постов через Gemini."""
     if not posts:
-        return "Нет свежих постов HugsFund за указанный период."
+        return "No fresh HugsFund posts found for the specified period."
 
     posts_text = format_posts_for_prompt(posts)
     prompt = HUGS_ANALYSIS_PROMPT.format(posts_text=posts_text)
@@ -100,10 +87,11 @@ def build_final_message(analysis_text: str, posts_count: int, hours: int) -> str
     """Собирает итоговое сообщение для отправки в Telegram с заголовком."""
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
     header = (
-        f"📊 <b>ДАЙДЖЕСТ HUGS FUND | {now_str}</b>\n"
-        f"<i>Обработано постов: {posts_count} (за последние {hours}ч)</i>\n\n"
+        f"📊 <b>HUGS FUND BRIEFING | {now_str}</b>\n"
+        f"<i>Filtered top stories from {posts_count} posts ({hours}h window)</i>\n\n"
     )
     return header + analysis_text
+
 
 
 def run_workflow(

@@ -240,24 +240,24 @@ def test_format_posts_for_prompt():
 
 
 def test_build_final_message():
-    msg = build_final_message("Аналитический текст сводки", posts_count=5, hours=30)
-    assert "📊 <b>ДАЙДЖЕСТ HUGS FUND |" in msg
-    assert "Обработано постов: 5 (за последние 30ч)" in msg
-    assert "Аналитический текст сводки" in msg
+    msg = build_final_message("Briefing analysis text", posts_count=5, hours=30)
+    assert "📊 <b>HUGS FUND BRIEFING |" in msg
+    assert "Filtered top stories from 5 posts (30h window)" in msg
+    assert "Briefing analysis text" in msg
 
 
 @patch("src.brain._call")
 def test_run_llm_analysis(mock_call):
-    mock_call.return_value = "1. Макроэкономика: инфляция 2.5% [Eurostat]\n\n💡 Идея 1: Спреды доходности"
+    mock_call.return_value = "• Treasury buybacks [Bloomberg]\n\n<b>DRAFT 1:</b> Digest text"
     p = HugsPost(
         post_id="HugsFund/1",
         url="https://t.me/HugsFund/1",
         published_at=datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc),
-        text="Инфляция в еврозоне 2.5%",
+        text="Inflation in eurozone 2.5%",
     )
     result = run_llm_analysis([p])
-    assert "Макроэкономика" in result
-    assert "Идея 1" in result
+    assert "Treasury buybacks" in result
+    assert "DRAFT 1" in result
     assert mock_call.called
 
 
@@ -271,15 +271,15 @@ def test_run_workflow_dry_run(mock_send, mock_brain, mock_fetch):
             post_id="HugsFund/10",
             url="https://t.me/HugsFund/10",
             published_at=now - timedelta(hours=3),
-            text="Рынок акций вырос [Bloomberg]",
+            text="Equities rose [Bloomberg]",
         )
     ]
-    mock_brain.return_value = "📊 Макро: Рынок вырос [Bloomberg]"
+    mock_brain.return_value = "• Equities rose on tech earnings [Bloomberg]"
 
     out = run_workflow(hours=30, dry_run=True, send_telegram=False)
     assert out is not None
-    assert "ДАЙДЖЕСТ HUGS FUND" in out
-    assert "Рынок вырос" in out
+    assert "HUGS FUND BRIEFING" in out
+    assert "Equities rose" in out
     # В dry_run отправка в Telegram не вызывается
     assert not mock_send.called
 
@@ -294,11 +294,12 @@ def test_run_workflow_send(mock_send, mock_brain, mock_fetch):
             post_id="HugsFund/20",
             url="https://t.me/HugsFund/20",
             published_at=now - timedelta(hours=2),
-            text="Цены на нефть Brent упали до $78 [Reuters]",
+            text="Brent crude prices dropped to $78 [Reuters]",
         )
     ]
-    mock_brain.return_value = "🛢️ Сырье: Нефть $78 [Reuters]"
+    mock_brain.return_value = "• Brent crude at $78 [Reuters]"
 
     out = run_workflow(hours=30, dry_run=False, send_telegram=True)
     assert out is not None
     assert mock_send.called
+
