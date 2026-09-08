@@ -22,8 +22,14 @@ import sys
 from . import brain
 
 BANNED_WORDS = [
-    "leverage", "synergy", "landscape", "paradigm", "unprecedented", "game-changer",
+    "synergy", "landscape", "paradigm", "unprecedented", "game-changer",
     "delve", "underscore", "pivotal", "robust", "it's not just", "here's the thing",
+    # New institutional ban-list
+    "plumbing", "double whammy", "lost their shirts", "the house always wins",
+    "selling shovels in a gold rush", "tip of the iceberg", "silver bullet",
+    "the reality is different", "the timing is tricky", "here is the catch",
+    "the numbers are wild", "this pressure is not a straight line",
+    "why? because", "here's why", "why the massive gap", "how did this happen",
 ]
 
 QUESTIONING_PHRASES = [
@@ -34,6 +40,16 @@ QUESTIONING_PHRASES = [
 ROLE_PHRASES = [
     "as a finance student", "as a student", "for a finance student",
     "as someone learning", "as someone studying",
+    "as someone analyzing", "it makes you wonder",
+    "i am watching this space closely", "time will tell",
+]
+
+BANNED_OPENERS = [
+    "what caught my eye", "a few developments caught my eye",
+    "these two numbers", "these two trends",
+    "many investors assume", "most retail investors think",
+    "everyone is watching", "in today's volatile market",
+    "it is no secret that",
 ]
 
 ENGAGEMENT_BAIT = [
@@ -63,9 +79,21 @@ def check_banned_words(text: str, low: str):
     return not hits, ("нет" if not hits else "найдено: " + ", ".join(hits))
 
 
+def check_banned_openers(text: str, low: str):
+    first = re.split(r"(?<=[.!?])\s", low.strip(), maxsplit=1)[0].strip()
+    hits = [o for o in BANNED_OPENERS if o in first]
+    return not hits, ("нет" if not hits else "запрещённый зачин: " + ", ".join(hits))
+
+
 def check_engagement_bait(text: str, low: str):
     hits = _find_any(low[-120:], ENGAGEMENT_BAIT)
     return not hits, ("нет" if not hits else "в конце: " + ", ".join(hits))
+
+
+def check_no_closing_question(text: str, low: str):
+    clean = text.strip().rstrip("`\"' \n\t")
+    ok = not clean.endswith("?")
+    return ok, ("ок" if ok else "заканчивается вопросом")
 
 
 def check_hashtags(text: str, low: str):
@@ -110,7 +138,9 @@ LOCAL_CHECKS = [
     ("длина 110-170 слов", check_length),
     ("есть хотя бы одно число", check_has_number),
     ("нет запрещённых слов", check_banned_words),
+    ("нет запрещённых зачинов", check_banned_openers),
     ("нет engagement-bait в конце", check_engagement_bait),
+    ("не заканчивается вопросом", check_no_closing_question),
     ("хэштегов 0-1, не generic", check_hashtags),
     ("нет ссылок в теле", check_no_links),
     ("не открывается риторическим вопросом", check_no_rhetorical_open),
