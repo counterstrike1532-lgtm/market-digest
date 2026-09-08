@@ -182,27 +182,30 @@ def test_filter_posts():
 
 def test_fetch_channel_posts_pagination():
     mock_client = MagicMock()
-    
+    now = datetime.now(timezone.utc)
+    t1 = (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    t2 = (now - timedelta(hours=35)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
     # Страница 1: свежие посты + ссылка на before=50
-    p1_html = """
+    p1_html = f"""
     <div class="tgme_widget_message_wrap">
       <div class="tgme_widget_message" data-post="HugsFund/51">
         <div class="tgme_widget_message_text">Новость 51</div>
         <div class="tgme_widget_message_footer">
-          <time class="time" datetime="2026-08-20T16:00:00+00:00"></time>
+          <time class="time" datetime="{t1}"></time>
         </div>
       </div>
     </div>
     <link rel="prev" href="/s/HugsFund?before=50" />
     """
-    
+
     # Страница 2: старые посты за пределами 30 часов
-    p2_html = """
+    p2_html = f"""
     <div class="tgme_widget_message_wrap">
       <div class="tgme_widget_message" data-post="HugsFund/49">
         <div class="tgme_widget_message_text">Новость 49</div>
         <div class="tgme_widget_message_footer">
-          <time class="time" datetime="2026-08-18T10:00:00+00:00"></time>
+          <time class="time" datetime="{t2}"></time>
         </div>
       </div>
     </div>
