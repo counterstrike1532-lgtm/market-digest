@@ -30,6 +30,11 @@ BANNED_WORDS = [
     "the reality is different", "the timing is tricky", "here is the catch",
     "the numbers are wild", "this pressure is not a straight line",
     "why? because", "here's why", "why the massive gap", "how did this happen",
+    # Institutional throat-clearing ban-list (CRITIQUE_PROMPT)
+    "is emerging as", "structural shift", "consequently", "far exceeding",
+    "crowding out", "this mechanism shows", "two numbers stand out",
+    "the common view is that", "primary bottleneck", "underlying economic reality",
+    "as net payer nations demand",
 ]
 
 QUESTIONING_PHRASES = [

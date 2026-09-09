@@ -594,6 +594,131 @@ def draft(selected: list[dict], data: dict, style_text: str, n: int = 2) -> str:
                  temperature=0.9, max_tokens=16384)
 
 
+# ------------------------------------------------------------------
+#  ЭТАП 2.5: critique-pass (второй проход). Редактирует готовый пост.
+# ------------------------------------------------------------------
+CRITIQUE_PROMPT = """You are an editor reviewing a LinkedIn draft written by a finance student
+persona — NOT a professional analyst, NOT a sell-side bank note. Your job is
+to cut, simplify, and de-robotify. You do not add new facts, numbers, or
+claims. You do not soften or change any existing number. Style only.
+
+INPUT: a draft LinkedIn post (digest or single-topic), already fact-checked
+upstream. Treat every number and claim in it as fixed and correct.
+
+CHECK THE DRAFT AGAINST THIS LIST, IN ORDER:
+
+1. Opening sentence: flag if it has 3+ participial/gerund clauses, or is
+   over 20 words, or is a pointer sentence that announces what's coming
+   instead of stating the point directly.
+2. Bullets: flag any bullet that packs 3+ distinct concepts into one line.
+   A bullet should read in under 5 seconds.
+3. Closing line: flag if it restates the post's point in more abstract
+   language than the rest of the post ("this shows how X", "this underscores
+   the importance of Y"). The post should end on the last concrete fact or
+   its direct one-line implication — not a summary.
+4. Institutional throat-clearing — flag and rewrite out entirely, do not
+   soften, remove:
+   "is emerging as", "structural shift", "consequently", "far exceeding",
+   "crowding out", "this mechanism shows", "two numbers stand out",
+   "the common view is that", "primary bottleneck", "underlying economic
+   reality", "as net payer nations demand", any sentence that could open a
+   Swiss Re disclosure or an official communiqué.
+5. Abstract nouns standing in for a concrete fact ("margin compression is
+   severe" instead of the actual number or event that happened) — replace
+   with the concrete version already present elsewhere in the draft.
+6. Sentence rhythm: flag if every sentence is roughly the same length and
+   construction. A good post has at least one short (under 8-word) sentence.
+7. A rhetorical question at the end that the reader can't actually answer —
+   cut it or replace with a concrete implication.
+
+HARD LENGTH LIMITS AFTER EDITING:
+- Digest post: 130 words maximum.
+- Single-topic post: 120 words maximum.
+If the draft is over the limit, cut lower-priority facts — do not just
+compress sentences into denser syntax to hit the count.
+
+CALIBRATION — match this ratio of concrete-to-abstract, this sentence
+rhythm, this level of bluntness. These are real before/after pairs from
+review of this same pipeline's output:
+
+Example 1
+Before: "The structural shift of global capital toward defensive asset
+protection and sovereign balance-sheet defense is actively crowding out net
+expansion capex and driving up long-end term premia."
+After: "Global capital is playing defense: sovereign sellers are dumping US
+paper, while corporates burn their capex just staying in place."
+
+Example 2
+Before: "Underwriting capacity limits and P&C balance-sheet concentration
+risk are emerging as the primary physical bottlenecks to hyperscale AI
+infrastructure expansion."
+After: "The next hard ceiling on AI infrastructure isn't chip supply or
+power grids — it's commercial insurance capacity."
+
+Example 3
+Before: "This massive liquidity drain from commercial bank deposits to
+state debt forces banks to bid up funding costs."
+After: "That retail flight from bank deposits to government debt is
+forcing local banks to pay up for liquidity."
+
+Example 4
+Before: "To defend the corridor's viability, regional governments are
+forced into heavy defensive maintenance capex. Kazakhstan has already
+deployed $57 million for dredging at Kuryk..."
+After: "Kazakhstan has already sunk $157M into dredging Kuryk and Aktau
+ports. None of this is expansion — it's pure defensive capex to stop ships
+from scraping bottom."
+
+Full rewrite example (digest, for pacing/length reference):
+"Three signs that global capital is shifting from growth to defense:
+• Reserve dumping: Japan liquidated a record $88B in foreign assets in
+August, while China cut Treasury holdings to a 25-year low. Both are
+burning dollar reserves to protect domestic currencies, steepening
+long-end yields.
+• The maintenance trap: 75% of current US corporate tech capex goes toward
+replacing depreciating hardware. Only 25% actually funds business
+expansion.
+• Uninsurable clusters: With AI campuses costing up to $50B, commercial
+insurers are refusing single-site concentration risk. Big Tech is forced
+to carry that multi-billion liability on its own books.
+When sovereigns sell paper and companies spend just to tread water, real
+hurdle rates rise fast."
+
+OUTPUT:
+Return ONLY the edited draft, ready to publish. No score, no explanation,
+no list of what you changed — unless the calling code explicitly requests
+a review instead of a rewrite (separate mode, not this one)."""
+
+
+def critique_draft(text: str, shape: str = "single") -> str:
+    """Второй проход (critique-pass): редактирует готовый черновик (LinkedIn post body).
+    Не генерирует заново, не меняет и не выдумывает цифры, только правит стиль,
+    вычищает клише и сжимает под лимиты слов (digest <= 130, single <= 120).
+
+    При сбое сети/Gemini возвращает исходный text без падения пайплайна (CLAUDE.md правило 1).
+    """
+    clean_text = (text or "").strip()
+    if not clean_text:
+        return ""
+
+    shape_label = "digest post" if shape == "digest" else "single-topic post"
+    prompt = (
+        f"{CRITIQUE_PROMPT}\n\n"
+        f"DRAFT TYPE: {shape_label}\n\n"
+        f"DRAFT:\n{clean_text}"
+    )
+
+    try:
+        edited = _call(prompt, temperature=0.3, max_tokens=4096)
+        edited = re.sub(r"^```(?:markdown|text)?\s*|\s*```$", "", edited.strip(), flags=re.MULTILINE).strip()
+        if edited:
+            return edited
+        log.warning("critique_draft: пустой ответ модели — сохраняем исходный текст")
+        return clean_text
+    except Exception as exc:
+        log.warning("critique_draft упал: %s — сохраняем исходный текст", exc)
+        return clean_text
+
 
 # ------------------------------------------------------------------
 #  T5: скорер черновиков. Судит уже готовый пост, не переписывает.

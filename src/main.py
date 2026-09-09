@@ -562,6 +562,34 @@ def main() -> int:
             notices.append(f"! черновиков сегодня нет — Gemini недоступен: {str(exc)[:200]}")
 
         if drafts:
+            log.info("--- critique-pass (второй проход) ---")
+            try:
+                raw_blocks = verify.parse_drafts(drafts)
+                if raw_blocks:
+                    critiqued_blocks = []
+                    for b in raw_blocks:
+                        shape = b.get("shape", "single")
+                        orig_body = b.get("body", "")
+                        edited_body = _fix_glued_punctuation(
+                            brain.critique_draft(orig_body, shape=shape))
+                        if edited_body:
+                            b["body"] = edited_body
+                        critiqued_blocks.append(b)
+
+                    drafts = "\n\n".join(
+                        f"SHAPE: {b.get('shape', '')}\n"
+                        f"BODY: {b.get('body', '')}\n"
+                        f"FIGURES: {b.get('figures', '')}\n"
+                        f"SOURCE: {b.get('source', '')}\n"
+                        f"WHY_THIS_ONE: {b.get('why_this_one', '')}\n"
+                        f"VERDICT: {b.get('verdict', '')}\n"
+                        f"WHY: {b.get('why', '')}\n"
+                        f"CHECK_FIRST: {b.get('check_first', '')}"
+                        for b in critiqued_blocks
+                    )
+            except Exception as exc:
+                log.warning("critique-pass упал: %s — продолжаем с исходными черновиками", exc)
+
             log.info("--- верификация цифр ---")
             try:
                 drafts, draft_stats, draft_blocks = verify.verify_drafts(

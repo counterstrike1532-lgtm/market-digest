@@ -277,3 +277,53 @@ def test_draft_uses_fallback_when_style_text_is_placeholder_template(monkeypatch
     assert len(captured_prompt) == 1
     assert "No past posts provided yet" in captured_prompt[0]
     assert "Poland's HICP came in at X%" not in captured_prompt[0]
+
+
+# ---------------------------------------------------------------- critique-pass tests
+
+def test_critique_draft_success(monkeypatch):
+    captured_prompt = []
+
+    def fake_post(url, **kw):
+        captured_prompt.append(kw["json"]["contents"][0]["parts"][0]["text"])
+        return _ok("Edited post text without fluff.")
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+    original = "Draft with institutional throat-clearing."
+    res = brain.critique_draft(original, shape="digest")
+
+    assert res == "Edited post text without fluff."
+    assert len(captured_prompt) == 1
+    assert "DRAFT TYPE: digest post" in captured_prompt[0]
+    assert original in captured_prompt[0]
+    assert "HARD LENGTH LIMITS AFTER EDITING" in captured_prompt[0]
+
+
+def test_critique_draft_strips_markdown_code_block(monkeypatch):
+    monkeypatch.setattr(brain.requests, "post", lambda *a, **kw: _ok("```markdown\nClean edited text\n```"))
+    res = brain.critique_draft("Original text")
+    assert res == "Clean edited text"
+
+
+def test_critique_draft_empty_input():
+    assert brain.critique_draft("") == ""
+    assert brain.critique_draft("   ") == ""
+
+
+def test_critique_draft_fallback_on_empty_response(monkeypatch):
+    monkeypatch.setattr(brain.requests, "post", lambda *a, **kw: _ok(""))
+    original = "Draft text that should be kept."
+    res = brain.critique_draft(original)
+    assert res == original
+
+
+def test_critique_draft_fallback_on_network_error(monkeypatch):
+    def fake_post(*a, **kw):
+        raise RuntimeError("API failure")
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+    original = "Draft text that should be kept on error."
+    res = brain.critique_draft(original)
+    assert res == original
+
+

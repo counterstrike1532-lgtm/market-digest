@@ -70,9 +70,20 @@ def test_role_phrases_detects_amateur_framing():
         assert not ok, f"Expected '{text}' to fail role phrases check"
 
 
+def test_banned_words_detects_institutional_throat_clearing():
+    text = "Bottleneck is emerging as a structural shift consequently far exceeding capacity."
+    low = text.lower()
+    ok, detail = score_draft.check_banned_words(text, low)
+    assert not ok
+    assert "is emerging as" in detail
+    assert "structural shift" in detail
+    assert "consequently" in detail
+    assert "far exceeding" in detail
+
+
 def test_full_institutional_draft_passes_local_checks():
     draft = (
-        "The pristine balance sheets of Big Tech are masking a structural shift from debt capital to off-balance-sheet operating leverage.\n\n"
+        "The pristine balance sheets of Big Tech are masking a strategic move from debt capital to off-balance-sheet operating leverage.\n\n"
         "Alphabet, Amazon, Meta, and Microsoft currently hold over $2.4 trillion in total contractual commitments. "
         "Because these obligations take the form of long-term power purchase agreements, colocation capacity contracts, and land reservations, "
         "they bypass headline balance-sheet debt metrics.\n\n"

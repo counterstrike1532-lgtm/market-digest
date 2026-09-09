@@ -149,7 +149,7 @@ def test_verify_fails_entirely_drafts_still_sent_one_notice_line(monkeypatch, tm
 
     rc = main.main()
     assert rc == 0
-    assert len(calls) == 2, "verify не должен добавлять новые попытки Gemini при падении"
+    assert len(calls) == 3, "verify не должен добавлять новые попытки Gemini при падении (1 rank + 1 draft + 1 critique)"
 
     assert sent
     assert len(sent) == 2, "сводка + ровно один черновик должны уйти"

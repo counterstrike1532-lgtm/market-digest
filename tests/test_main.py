@@ -1025,3 +1025,79 @@ def test_main_dry_run_does_not_write_metrics(monkeypatch, tmp_path):
     assert rc == 0
     assert not metrics_path.exists()
     assert not seen_path.exists()
+
+
+# ---------------------------------------------------------------- critique-pass: main integration
+
+def test_main_critique_pass_updates_draft_body_before_verify(monkeypatch, tmp_path):
+    _stub_common_run(monkeypatch, tmp_path, ["main.py", "--no-charts", "--dry"])
+    original_draft = (
+        "SHAPE: digest\n"
+        "BODY: Unedited draft with institutional throat-clearing.\n"
+        "FIGURES: none used\n"
+        "SOURCE: https://example.com/story1\n"
+        "WHY_THIS_ONE: test\n"
+        "VERDICT: POST\n"
+        "WHY: test\n"
+        "CHECK_FIRST: -"
+    )
+    monkeypatch.setattr(brain, "draft", lambda *a, **kw: original_draft)
+
+    critique_calls = []
+    def fake_critique(text, shape="single"):
+        critique_calls.append((text, shape))
+        return "Edited clean body with zero fluff."
+
+    monkeypatch.setattr(brain, "critique_draft", fake_critique)
+
+    verified_payloads = []
+    orig_verify = verify.verify_drafts
+    def fake_verify(drafts_text, selected, data_text):
+        verified_payloads.append(drafts_text)
+        return orig_verify(drafts_text, selected, data_text)
+
+    monkeypatch.setattr(verify, "verify_drafts", fake_verify)
+
+    rc = main.main()
+    assert rc == 0
+    assert len(critique_calls) == 1
+    assert critique_calls[0][0] == "Unedited draft with institutional throat-clearing."
+    assert critique_calls[0][1] == "digest"
+
+    assert len(verified_payloads) == 1
+    assert "Edited clean body with zero fluff." in verified_payloads[0]
+    assert "Unedited draft with institutional throat-clearing." not in verified_payloads[0]
+
+
+def test_main_critique_pass_failure_falls_back_to_original_drafts(monkeypatch, tmp_path):
+    _stub_common_run(monkeypatch, tmp_path, ["main.py", "--no-charts", "--dry"])
+    original_draft = (
+        "SHAPE: digest\n"
+        "BODY: Original body that must survive failure.\n"
+        "FIGURES: none used\n"
+        "SOURCE: https://example.com/story1\n"
+        "WHY_THIS_ONE: test\n"
+        "VERDICT: POST\n"
+        "WHY: test\n"
+        "CHECK_FIRST: -"
+    )
+    monkeypatch.setattr(brain, "draft", lambda *a, **kw: original_draft)
+
+    def exploding_critique(*a, **kw):
+        raise RuntimeError("Critique crashed")
+
+    monkeypatch.setattr(brain, "critique_draft", exploding_critique)
+
+    verified_payloads = []
+    orig_verify = verify.verify_drafts
+    def fake_verify(drafts_text, selected, data_text):
+        verified_payloads.append(drafts_text)
+        return orig_verify(drafts_text, selected, data_text)
+
+    monkeypatch.setattr(verify, "verify_drafts", fake_verify)
+
+    rc = main.main()
+    assert rc == 0
+    assert len(verified_payloads) == 1
+    assert "Original body that must survive failure." in verified_payloads[0]
+
