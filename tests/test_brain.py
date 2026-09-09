@@ -327,3 +327,24 @@ def test_critique_draft_fallback_on_network_error(monkeypatch):
     assert res == original
 
 
+def test_draft_prompt_amendment_length_sentence_and_banned_phrases():
+    prompt = brain.DRAFT_PROMPT
+    assert "HARD LENGTH LIMIT: digest post ≤130 words, single-topic post ≤120 words." in prompt
+    assert "SENTENCE RULE: one sentence = one fact + one implication." in prompt
+    assert 'BANNED PHRASES (do not use in any form): "structural shift"' in prompt
+    assert "style/banned_phrases.md" in prompt
+
+
+def test_banned_phrases_file_exists_and_contains_required_phrases():
+    import pathlib
+    p = pathlib.Path("style/banned_phrases.md")
+    assert p.exists()
+    content = p.read_text(encoding="utf-8")
+    for phrase in [
+        "structural shift", "is emerging as", "consequently", "far exceeding",
+        "crowding out net expansion", "this mechanism shows", "two numbers stand out",
+        "the common view is that", "primary bottleneck", "underlying economic reality"
+    ]:
+        assert f"`{phrase}`" in content
+
+

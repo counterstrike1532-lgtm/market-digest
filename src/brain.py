@@ -545,6 +545,22 @@ CHECK_FIRST: (one concrete action before publishing - which number to verify and
 
 --- INSTITUTIONAL RESEARCH BENCHMARKS (match this analytical rigor and voice) ---
 {style}
+
+=== MANDATORY CONSTRAINTS (AMENDMENT) ===
+HARD LENGTH LIMIT: digest post ≤130 words, single-topic post ≤120 words.
+If the story has more facts than fit in the limit, drop the
+lower-priority facts — do not just compress sentences into denser syntax to
+fit everything in.
+
+SENTENCE RULE: one sentence = one fact + one implication. No sentence
+over ~20 words. Include at least one short sentence (under 8 words) per
+post.
+
+BANNED PHRASES (do not use in any form): "structural shift", "is
+emerging as", "consequently", "far exceeding", "crowding out net
+expansion", "this mechanism shows", "two numbers stand out", "the common
+view is that", "primary bottleneck", "underlying economic reality".
+Full growing list: style/banned_phrases.md — check it before writing.
 """
 
 
