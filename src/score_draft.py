@@ -27,7 +27,7 @@ BANNED_WORDS = [
     # New institutional ban-list
     "plumbing", "double whammy", "lost their shirts", "the house always wins",
     "selling shovels in a gold rush", "tip of the iceberg", "silver bullet",
-    "the reality is different", "the timing is tricky", "here is the catch",
+    "bottleneck", "the reality is different", "the timing is tricky", "here is the catch",
     "the numbers are wild", "this pressure is not a straight line",
     "why? because", "here's why", "why the massive gap", "how did this happen",
     # Institutional throat-clearing ban-list (CRITIQUE_PROMPT)
@@ -35,6 +35,10 @@ BANNED_WORDS = [
     "crowding out", "this mechanism shows", "two numbers stand out",
     "the common view is that", "primary bottleneck", "underlying economic reality",
     "as net payer nations demand",
+    # Academic & sell-side filler / Childish
+    "characterized by a shift toward", "consequently, the persistence of",
+    "serves as a testament to", "are emerging as the primary",
+    "piggy banks", "paying the bill", "expensive spot market",
 ]
 
 QUESTIONING_PHRASES = [
@@ -46,15 +50,16 @@ ROLE_PHRASES = [
     "as a finance student", "as a student", "for a finance student",
     "as someone learning", "as someone studying",
     "as someone analyzing", "it makes you wonder",
-    "i am watching this space closely", "time will tell",
+    "i am watching this space", "i am watching this space closely", "time will tell",
 ]
 
 BANNED_OPENERS = [
-    "what caught my eye", "a few developments caught my eye",
-    "these two numbers", "these two trends",
+    "what caught my eye", "a few developments caught my eye", "a few stories caught my eye",
+    "i've been tracking", "these two numbers", "these two trends", "at the same time",
     "many investors assume", "most retail investors think",
-    "everyone is watching", "in today's volatile market",
-    "it is no secret that",
+    "everyone is watching", "everyone is talking about",
+    "in today's volatile market", "in today's fast-paced world",
+    "it is no secret that", "the market is shifting",
 ]
 
 ENGAGEMENT_BAIT = [
