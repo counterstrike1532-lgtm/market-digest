@@ -1042,5 +1042,34 @@
 "sp500": "yfinance",
 "nasdaq": "yfinance"
 }
+},
+{
+"date": "2026-09-17T10:02:18.984653+00:00",
+"collected": 217,
+"after_dedup": 216,
+"after_freshness": 216,
+"prefiltered": 100,
+"ranked": 8,
+"drafted": 2,
+"verdicts": {
+"POST": 1,
+"MAYBE": 1,
+"SKIP": 0
+},
+"figures": {
+"found": 3,
+"not_found": 0,
+"mismatch": 1,
+"unparsed": 0,
+"no_source": 0
+},
+"gemini_successful": 5,
+"gemini_quota_refused": 0,
+"draft_model": "gemini-3.5-flash",
+"market_source": {
+"WIG20 TR (ETF)": "yfinance",
+"sp500": "yfinance",
+"nasdaq": "yfinance"
+}
 }
 ]
