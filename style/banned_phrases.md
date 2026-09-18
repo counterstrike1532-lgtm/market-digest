@@ -74,8 +74,36 @@
 - `It is no secret that...`
 - `The market is shifting...`
 
-## Childish & Vague Descriptions
+## Childish & Vague Descriptions / Conversational Sloppiness
 
 - `piggy banks`
 - `paying the bill`
+- `pay the bill`
+- `snapped up the debt`
 - `expensive spot market`
+
+## Telegraphic Fragments
+
+- `The price:`
+- `This pushes borrowing costs higher`
+- `Supply chains remain tight`
+- `The problem is...`
+- `The problem is`
+- `The central bank is stepping in`
+
+## Childish Bullet Headers
+
+- `Expensive imports`
+- `The fuel tax`
+- `The bank squeeze`
+
+## Empty Final Dramatic One-Liners
+
+- `earnings get crushed`
+- `Expect de-rating if growth slows`
+- `corporate margins shrink`
+
+## Prompt Leaks (Anti-Leak Check)
+
+- `AI data centers are running into an insurance wall`
+- `Persistent energy inflation and heavy debt issuance are breaking the market's rate-cut bets`

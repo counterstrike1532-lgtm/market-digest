@@ -83,14 +83,118 @@ def test_banned_words_detects_institutional_throat_clearing():
 
 def test_full_institutional_draft_passes_local_checks():
     draft = (
-        "The pristine balance sheets of Big Tech are masking a strategic move from debt capital to off-balance-sheet operating leverage.\n\n"
+        "Hyperscale tech balance sheets are masking a strategic move from debt capital to off-balance-sheet operating leverage.\n\n"
         "Alphabet, Amazon, Meta, and Microsoft currently hold over $2.4 trillion in total contractual commitments. "
         "Because these obligations take the form of long-term power purchase agreements, colocation capacity contracts, and land reservations, "
         "they bypass headline balance-sheet debt metrics.\n\n"
-        "Yet economically, they carry the exact same credit risk as senior secured debt: they are non-cancellable, multi-decade cash outflow mandates, "
-        "and they subordinate common equity holders by creating a massive, senior fixed-charge burden against future operating cash flow.\n\n"
-        "When hyperscalers commit trillions off-balance-sheet to lock in physical energy and compute real estate, they are trading operational flexibility for capacity certainty. "
-        "When modeling terminal tech cash flows, ignoring footnote commitments misprices the true enterprise cost of capital."
+        "Yet economically, they carry the exact same credit risk as senior secured debt: "
+        "they are non-cancellable, multi-decade cash outflow mandates that subordinate equity holders through senior fixed-charge burdens.\n\n"
+        "When hyperscalers commit trillions off-balance-sheet to secure power, they trade operational flexibility for capacity certainty. "
+        "Ignoring footnote commitments misprices the true enterprise cost of capital."
     )
     results, passed = score_draft.run_local_checks(draft)
     assert passed, f"Checks failed: {[(name, detail) for name, ok, detail in results if not ok]}"
+
+
+def test_word_count_gate_single_and_digest():
+    # Single topic (100-120 words)
+    words_90 = "word " * 89 + "$100."
+    ok, _ = score_draft.check_length(words_90, words_90.lower(), shape="single")
+    assert not ok
+
+    words_105 = "word " * 104 + "$100."
+    ok, _ = score_draft.check_length(words_105, words_105.lower(), shape="single")
+    assert ok
+
+    words_125 = "word " * 124 + "$100."
+    ok, _ = score_draft.check_length(words_125, words_125.lower(), shape="single")
+    assert not ok
+
+    # Digest (110-130 words)
+    digest_78 = "Header:\n• 1. Item one: " + "word " * 35 + "\n• 2. Item two: " + "word " * 35 + "$100."
+    ok, _ = score_draft.check_length(digest_78, digest_78.lower(), shape="digest")
+    assert not ok
+
+    digest_115 = "Header:\n• 1. Item one: " + "word " * 54 + "\n• 2. Item two: " + "word " * 54 + "$100."
+    ok, _ = score_draft.check_length(digest_115, digest_115.lower(), shape="digest")
+    assert ok
+
+    digest_135 = "Header:\n• 1. Item one: " + "word " * 64 + "\n• 2. Item two: " + "word " * 64 + "$100."
+    ok, _ = score_draft.check_length(digest_135, digest_135.lower(), shape="digest")
+    assert not ok
+
+
+def test_truncation_gate():
+    ok_dot = "The sovereign debt servicing cost climbed across a $40T debt load."
+    ok, _ = score_draft.check_truncation(ok_dot, ok_dot.lower())
+    assert ok
+
+    ok_excl = "The sovereign debt servicing cost climbed across a $40T debt load!"
+    ok, _ = score_draft.check_truncation(ok_excl, ok_excl.lower())
+    assert ok
+
+    fail_truncated = "The sovereign debt servicing cost climbed across a $40T debt load"
+    ok, detail = score_draft.check_truncation(fail_truncated, fail_truncated.lower())
+    assert not ok
+    assert "закрывающей пунктуацией" in detail
+
+    fail_comma = "The sovereign debt servicing cost climbed across a $40T debt load,"
+    ok, _ = score_draft.check_truncation(fail_comma, fail_comma.lower())
+    assert not ok
+
+
+def test_digest_bullets_gate():
+    digest_2 = "Macro thesis line:\n• 1. Defense capex: $10B deployed.\n• 2. Margin squeeze: spreads hit 2.5%."
+    ok, _ = score_draft.check_digest_bullets(digest_2, digest_2.lower(), shape="digest")
+    assert ok
+
+    digest_3 = "Macro thesis line:\n• 1. Defense capex: $10B.\n• 2. Margin squeeze: 2.5%.\n• 3. Reserve drain: $5B."
+    ok, _ = score_draft.check_digest_bullets(digest_3, digest_3.lower(), shape="digest")
+    assert ok
+
+    digest_4 = "Macro thesis line:\n• 1. One: $1B.\n• 2. Two: $2B.\n• 3. Three: $3B.\n• 4. Four: $4B."
+    ok, detail = score_draft.check_digest_bullets(digest_4, digest_4.lower(), shape="digest")
+    assert not ok
+    assert "4 буллетов" in detail
+
+    digest_1 = "Macro thesis line:\n• 1. Only one item: $1B."
+    ok, _ = score_draft.check_digest_bullets(digest_1, digest_1.lower(), shape="digest")
+    assert not ok
+
+
+def test_anti_leak_gate():
+    leaked_1 = "AI data centers are running into an insurance wall. Capital expenditure reached $50B."
+    ok, detail = score_draft.check_anti_leak(leaked_1, leaked_1.lower())
+    assert not ok
+    assert "утечка из промпта" in detail
+
+    leaked_2 = "Persistent energy inflation and heavy debt issuance are breaking the market's rate-cut bets: yields hit 4.8%."
+    ok, detail = score_draft.check_anti_leak(leaked_2, leaked_2.lower())
+    assert not ok
+    assert "утечка из промпта" in detail
+
+    fresh = "Convective storm clusters in northern Texas are capping insurance syndication for $50B compute hubs."
+    ok, _ = score_draft.check_anti_leak(fresh, fresh.lower())
+    assert ok
+
+
+def test_expanded_banned_words():
+    bad_samples = [
+        ("The price: 50 million PLN.", "the price:"),
+        ("This pushes borrowing costs higher across 10-year bonds.", "this pushes borrowing costs higher"),
+        ("Supply chains remain tight for 5nm packaging.", "supply chains remain tight"),
+        ("The problem is refinancing at 6% yields.", "the problem is"),
+        ("The central bank is stepping in with $6B buybacks.", "the central bank is stepping in"),
+        ("Hedge funds snapped up the debt at parity.", "snapped up the debt"),
+        ("Taxpayers pay the bill for sovereign liabilities.", "pay the bill"),
+        ("Expensive imports drove the current account deficit to $3B.", "expensive imports"),
+        ("The fuel tax reduced operating cash flows by 4%.", "the fuel tax"),
+        ("The bank squeeze tightened net interest margins to 2.1%.", "the bank squeeze"),
+        ("When yields spike, corporate margins shrink rapidly.", "corporate margins shrink"),
+        ("Expect de-rating if growth slows to 1%.", "expect de-rating if growth slows"),
+        ("If margins drop, earnings get crushed in Q4.", "earnings get crushed"),
+    ]
+    for text, target in bad_samples:
+        ok, detail = score_draft.check_banned_words(text, text.lower())
+        assert not ok, f"Expected '{text}' to fail banned words on '{target}'"
+        assert target in detail

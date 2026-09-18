@@ -38,7 +38,23 @@ BANNED_WORDS = [
     # Academic & sell-side filler / Childish
     "characterized by a shift toward", "consequently, the persistence of",
     "serves as a testament to", "are emerging as the primary",
-    "piggy banks", "paying the bill", "expensive spot market",
+    "piggy banks", "paying the bill", "pay the bill", "expensive spot market",
+    # Telegraphic fragments
+    "the price:", "this pushes borrowing costs higher", "supply chains remain tight",
+    "the problem is", "the central bank is stepping in",
+    # Conversational sloppiness
+    "snapped up the debt",
+    # Childish bullet headers
+    "expensive imports", "the fuel tax", "the bank squeeze",
+    # Empty final dramatic one-liners
+    "earnings get crushed", "expect de-rating if growth slows", "corporate margins shrink",
+]
+
+PROMPT_LEAK_PHRASES = [
+    "ai data centers are running into an insurance wall",
+    "persistent energy inflation and heavy debt issuance are breaking the market's rate-cut bets",
+    "if you want to see how the state governance discount works in real time, look at orlen",
+    "if you want to see how the state governance discount works in real time",
 ]
 
 QUESTIONING_PHRASES = [
@@ -74,9 +90,50 @@ def _find_any(text_low: str, phrases: list[str]) -> list[str]:
     return [p for p in phrases if p in text_low]
 
 
-def check_length(text: str, low: str):
+def get_digest_bullets(text: str) -> list[str]:
+    pattern = r"(?:^|\n)\s*(?:•|\-|\*|\d+[.)])\s+([^\n]+)"
+    return re.findall(pattern, text)
+
+
+def detect_shape(text: str, shape: str = "auto") -> str:
+    if shape in ("single", "digest"):
+        return shape
+    bullets = get_digest_bullets(text)
+    return "digest" if len(bullets) >= 2 else "single"
+
+
+def check_length(text: str, low: str, shape: str = "auto"):
     n = len(text.split())
-    return 110 <= n <= 170, f"{n} слов (нужно 110-170)"
+    eff_shape = detect_shape(text, shape)
+    if eff_shape == "digest":
+        ok = 110 <= n <= 130
+        return ok, f"{n} слов ({'ок' if ok else 'FAIL: для Digest нужно строго 110-130 слов'})"
+    else:
+        ok = 100 <= n <= 120
+        return ok, f"{n} слов ({'ок' if ok else 'FAIL: для Single Topic нужно строго 100-120 слов'})"
+
+
+def check_truncation(text: str, low: str):
+    clean = text.strip().rstrip("`\"' \n\t")
+    ok = clean.endswith((".", "!"))
+    return ok, ("ок" if ok else "текст не завершён закрывающей пунктуацией (. / !), возможен обрыв")
+
+
+def check_digest_bullets(text: str, low: str, shape: str = "auto"):
+    bullets = get_digest_bullets(text)
+    eff_shape = detect_shape(text, shape)
+    if eff_shape == "digest":
+        count = len(bullets)
+        ok = 2 <= count <= 3
+        return ok, (f"{count} буллетов (ок, 2-3)" if ok else f"{count} буллетов (для Digest нужно строго 2-3 темы)")
+    else:
+        ok = len(bullets) <= 1
+        return ok, ("ок" if ok else f"в Single Topic не должно быть дайджест-буллетов, найдено: {len(bullets)}")
+
+
+def check_anti_leak(text: str, low: str):
+    hits = _find_any(low, PROMPT_LEAK_PHRASES)
+    return not hits, ("нет" if not hits else "утечка из промпта (дословный копипаст примера): " + ", ".join(hits))
 
 
 def check_has_number(text: str, low: str):
@@ -145,7 +202,10 @@ def check_questioning_posture(text: str, low: str):
 
 
 LOCAL_CHECKS = [
-    ("длина 110-170 слов", check_length),
+    ("контроль объёма (Word Count Gate)", check_length),
+    ("проверка на обрыв (Truncation Gate)", check_truncation),
+    ("ограничение тем в Digest (2-3 буллета)", check_digest_bullets),
+    ("защита от утечек из промпта (Anti-Leak Gate)", check_anti_leak),
     ("есть хотя бы одно число", check_has_number),
     ("нет запрещённых слов", check_banned_words),
     ("нет запрещённых зачинов", check_banned_openers),
@@ -160,9 +220,17 @@ LOCAL_CHECKS = [
 ]
 
 
-def run_local_checks(text: str) -> tuple[list[tuple[str, bool, str]], bool]:
+def run_local_checks(text: str, shape: str = "auto") -> tuple[list[tuple[str, bool, str]], bool]:
+    import inspect
     low = text.lower()
-    results = [(name, *fn(text, low)) for name, fn in LOCAL_CHECKS]
+    results = []
+    for name, fn in LOCAL_CHECKS:
+        sig = inspect.signature(fn)
+        if "shape" in sig.parameters:
+            ok, detail = fn(text, low, shape=shape)
+        else:
+            ok, detail = fn(text, low)
+        results.append((name, ok, detail))
     return results, all(ok for _, ok, _ in results)
 
 
@@ -190,6 +258,7 @@ def print_deep_results(result: dict) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("path", nargs="?", help="файл с черновиком; без аргумента - stdin")
+    ap.add_argument("--shape", choices=["single", "digest", "auto"], default="auto", help="тип черновика")
     ap.add_argument("--deep", action="store_true", help="+ смысловая проверка Gemini")
     args = ap.parse_args()
 
@@ -199,7 +268,7 @@ def main() -> int:
         print("пустой ввод", file=sys.stderr)
         return 1
 
-    results, passed = run_local_checks(text)
+    results, passed = run_local_checks(text, shape=args.shape)
     print_local_results(results)
 
     if not passed:
