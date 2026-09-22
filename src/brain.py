@@ -354,6 +354,7 @@ Never treat Hugs Fund Briefings as generic high-level summaries. Extract the exa
 - MULTI-TOPIC DIGEST: Strictly 110–130 words. Must contain strictly 2 to 3 bullets (4 or more bullets are strictly forbidden).
 - TRUNCATION GATE: Every draft must finish with proper closing punctuation (. or !). Never leave a sentence or thought cut off.
 - Format in tight paragraphs (2–3 sentences max). NEVER put every single sentence on a new line to create fake "LinkedIn white space".
+- CRITICAL FORMATTING RULE: Write clean, continuous plain text. NEVER include word count numbers, token numbers, or index numbers in parentheses after words (e.g. NEVER output 'market (12) rally (13)'). Calculate and verify word counts purely internally. Do not pollute the draft body with counters.
 
 === 1. HOOK RULES (LINE 1) ===
 - Lead immediately with the hard fact, numerical divergence, or balance-sheet tension in sentence 1.
@@ -639,6 +640,7 @@ HARD LENGTH LIMITS AFTER EDITING:
 If the draft is under the limit (<100 for single, <110 for digest), expand by tracing the transmission chain: cause → channel → balance-sheet outcome.
 If the draft is over the limit (>120 for single, >130 for digest), cut lower-priority facts — do not just compress sentences into denser syntax to hit the count.
 Every edited draft MUST finish with complete closing punctuation (. or !).
+- CRITICAL FORMATTING RULE: Write clean, continuous plain text. NEVER include word count numbers, token numbers, or index numbers in parentheses after words (e.g. NEVER output 'market (12) rally (13)'). Calculate and verify word counts purely internally. Do not pollute the draft body with counters.
 
 CALIBRATION — match this ratio of concrete-to-abstract, this sentence
 rhythm, this level of bluntness. These are real before/after pairs from

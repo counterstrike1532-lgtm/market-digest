@@ -201,11 +201,22 @@ def check_questioning_posture(text: str, low: str):
     return not hits, ("нет" if not hits else "вопросительная позиция: " + ", ".join(hits))
 
 
+WORD_COUNTER_RE = re.compile(r"(?:(?:\b\w+\s*\(\d{1,3}\)|\(\d{1,3}\)\s*\w+)[^\w]*\s*){3,}")
+
+
+def check_word_counter_leak(text: str, low: str) -> tuple[bool, str]:
+    hit = WORD_COUNTER_RE.search(text)
+    if hit:
+        return False, f"Word Counter Leakage: обнаружена нумерация слов ({hit.group(0).strip()[:60]})"
+    return True, "ок"
+
+
 LOCAL_CHECKS = [
     ("контроль объёма (Word Count Gate)", check_length),
     ("проверка на обрыв (Truncation Gate)", check_truncation),
     ("ограничение тем в Digest (2-3 буллета)", check_digest_bullets),
     ("защита от утечек из промпта (Anti-Leak Gate)", check_anti_leak),
+    ("защита от утечки счётчика слов (Word Counter Leakage)", check_word_counter_leak),
     ("есть хотя бы одно число", check_has_number),
     ("нет запрещённых слов", check_banned_words),
     ("нет запрещённых зачинов", check_banned_openers),

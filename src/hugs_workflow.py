@@ -82,6 +82,7 @@ Do not use elementary toddler words, but DO NOT use bloated bureaucratic academi
   * MULTI-TOPIC DIGEST: Strictly 110–130 words. Must contain strictly 2 to 3 bullets (4 or more bullets are strictly forbidden).
 - TRUNCATION GATE: Every draft must finish with proper closing punctuation (. or !). Never leave a sentence or thought cut off.
 - Format in tight paragraphs (2–3 sentences max). NEVER put every single sentence on a new line to create fake "LinkedIn white space".
+- CRITICAL FORMATTING RULE: Write clean, continuous plain text. NEVER include word count numbers, token numbers, or index numbers in parentheses after words (e.g. NEVER output 'market (12) rally (13)'). Calculate and verify word counts purely internally. Do not pollute the draft body with counters.
 - SENTENCE RULE: one sentence = one fact + one implication. No sentence over ~20 words. Include at least one short sentence (under 8 words) per post.
 - DRAFT 1 (DIGEST): Line 1 frames the single core conflict immediately. Give every item a bold 2–4 word header stating the exact action or mechanism (e.g. `• <b>1. Off-budget defense spending:</b>`). NEVER use lazy transitions ("Meanwhile...", "At the same time...", "Finally...").
 - DRAFT 2 (SINGLE TOPIC): Deep dive into the strongest balance-sheet or structural market mechanism.
@@ -116,6 +117,7 @@ Do not use elementary toddler words, but DO NOT use bloated bureaucratic academi
 - Use pure Telegram HTML (<b>, <i>, <code>, <a>).
 - NEVER use markdown headers (### or ####).
 - Use divider: ───────────────
+- CRITICAL FORMATTING RULE: Write clean, continuous plain text. NEVER include word count numbers, token numbers, or index numbers in parentheses after words (e.g. NEVER output 'market (12) rally (13)'). Calculate and verify word counts purely internally. Do not pollute the draft body with counters.
 
 OUTPUT STRUCTURE:
 

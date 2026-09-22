@@ -198,3 +198,30 @@ def test_expanded_banned_words():
         ok, detail = score_draft.check_banned_words(text, text.lower())
         assert not ok, f"Expected '{text}' to fail banned words on '{target}'"
         assert target in detail
+
+
+def test_word_counter_leakage():
+    # 3+ parenthetical counters between words -> FAIL
+    bad_text = "The government is capping (75) daily (76) fuel (77) prices (78) at retail stations."
+    ok, detail = score_draft.check_word_counter_leak(bad_text, bad_text.lower())
+    assert not ok
+    assert "Word Counter Leakage" in detail
+
+    # Check full run_local_checks rejects it
+    results, all_ok = score_draft.run_local_checks(bad_text)
+    assert not all_ok
+    leak_check = next(r for r in results if "Word Counter Leakage" in r[0])
+    assert leak_check[1] is False
+    assert "Word Counter Leakage" in leak_check[2]
+
+    # Clean text without numbering -> PASS
+    good_text = "The government is capping daily fuel prices at retail stations to stabilize consumer inflation."
+    ok_good, detail_good = score_draft.check_word_counter_leak(good_text, good_text.lower())
+    assert ok_good
+    assert detail_good == "ок"
+
+    # Normal text with 1 or 2 parenthetical numbers -> PASS
+    normal_text = "Section (1) specifies that the fund (2) cannot invest in distressed debt."
+    ok_normal, _ = score_draft.check_word_counter_leak(normal_text, normal_text.lower())
+    assert ok_normal
+
