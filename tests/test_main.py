@@ -1044,11 +1044,11 @@ def test_main_critique_pass_updates_draft_body_before_verify(monkeypatch, tmp_pa
     monkeypatch.setattr(brain, "draft", lambda *a, **kw: original_draft)
 
     critique_calls = []
-    def fake_critique(text, shape="single"):
-        critique_calls.append((text, shape))
+    def fake_critique(text, draft_type="single"):
+        critique_calls.append((text, draft_type))
         return "Edited clean body with zero fluff."
 
-    monkeypatch.setattr(brain, "critique_draft", fake_critique)
+    monkeypatch.setattr(brain, "edit_and_humanize_draft", fake_critique)
 
     verified_payloads = []
     orig_verify = verify.verify_drafts
@@ -1086,7 +1086,7 @@ def test_main_critique_pass_failure_falls_back_to_original_drafts(monkeypatch, t
     def exploding_critique(*a, **kw):
         raise RuntimeError("Critique crashed")
 
-    monkeypatch.setattr(brain, "critique_draft", exploding_critique)
+    monkeypatch.setattr(brain, "edit_and_humanize_draft", exploding_critique)
 
     verified_payloads = []
     orig_verify = verify.verify_drafts

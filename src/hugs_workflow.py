@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from typing import Optional
@@ -182,6 +183,43 @@ def run_llm_analysis(posts: list[HugsPost]) -> str:
     return response.strip()
 
 
+def humanize_hugs_briefing(analysis_text: str) -> str:
+    """Применяет edit_and_humanize_draft к секциям DRAFT 1 (digest) и DRAFT 2 (single)
+    внутри сгенерированного брифинга HugsFund."""
+    if not analysis_text:
+        return analysis_text
+
+    text = analysis_text
+
+    # 1. Секция DRAFT 1 (Digest)
+    d1_pattern = re.compile(
+        r"((?:📝\s*)?<b>\s*DRAFT\s*1[^<]*</b>[^\n]*\n+)(.*?)(?=(\n+─{3,}|\n+---|\n+(?:💡\s*)?<b>\s*DRAFT\s*2|\Z))",
+        re.DOTALL | re.IGNORECASE,
+    )
+    m1 = d1_pattern.search(text)
+    if m1:
+        raw_d1 = m1.group(2).strip()
+        if raw_d1:
+            edited_d1 = brain.edit_and_humanize_draft(raw_d1, draft_type="digest")
+            if edited_d1:
+                text = text[:m1.start(2)] + edited_d1 + "\n\n" + text[m1.end(2):]
+
+    # 2. Секция DRAFT 2 (Single Topic)
+    d2_pattern = re.compile(
+        r"((?:💡\s*)?<b>\s*DRAFT\s*2[^<]*</b>[^\n]*\n+)(.*?)(?=(\n+─{3,}|\n+---|\Z))",
+        re.DOTALL | re.IGNORECASE,
+    )
+    m2 = d2_pattern.search(text)
+    if m2:
+        raw_d2 = m2.group(2).strip()
+        if raw_d2:
+            edited_d2 = brain.edit_and_humanize_draft(raw_d2, draft_type="single")
+            if edited_d2:
+                text = text[:m2.start(2)] + edited_d2 + ("\n" if not edited_d2.endswith("\n") else "") + text[m2.end(2):]
+
+    return text
+
+
 def build_final_message(analysis_text: str, posts_count: int, hours: int) -> str:
     """Собирает итоговое сообщение для отправки в Telegram с заголовком."""
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
@@ -224,6 +262,7 @@ def run_workflow(
     # 3. LLM-анализ
     try:
         analysis = run_llm_analysis(filtered)
+        analysis = humanize_hugs_briefing(analysis)
     except Exception as exc:
         log.error("Ошибка при обработке LLM: %s", exc)
         # Фолбэк: если LLM недоступен, формируем краткий список заголовков/постов

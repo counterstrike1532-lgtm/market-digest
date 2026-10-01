@@ -6,12 +6,22 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import time
 
 import requests
 
 log = logging.getLogger(__name__)
+logger = log
+
+GOLDEN_REWRITES_PATH = Path(__file__).resolve().parent.parent / "style" / "golden_rewrites.md"
+
+
+def load_golden_rewrites() -> str:
+    if GOLDEN_REWRITES_PATH.exists():
+        return GOLDEN_REWRITES_PATH.read_text(encoding="utf-8")
+    return ""
 
 API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
@@ -58,7 +68,8 @@ def quota_summary() -> dict:
 
 
 def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
-          max_tokens: int = 32768, retries: int = 3, no_thinking: bool = False) -> str:
+          max_tokens: int = 32768, retries: int = 3, no_thinking: bool = False,
+          system_instruction: str | None = None) -> str:
     """Перебирает модели из MODELS. На 400 не долбит одним и тем же телом, а упрощает запрос.
 
     no_thinking: у thinking-моделей токены размышлений тратятся из maxOutputTokens,
@@ -90,6 +101,8 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
         while attempt < retries:
             attempt += 1
             body = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": gen}
+            if system_instruction:
+                body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
             try:
                 r = requests.post(API.format(model=model),
                                   headers={"x-goog-api-key": key,
@@ -112,6 +125,11 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                     if "responseMimeType" in gen:
                         log.warning("%s: 400, снимаю responseMimeType. Ответ: %s", model, detail)
                         gen.pop("responseMimeType")
+                        attempt -= 1
+                        continue
+                    if "systemInstruction" in body:
+                        log.warning("%s: 400, снимаю systemInstruction. Ответ: %s", model, detail)
+                        body.pop("systemInstruction")
                         attempt -= 1
                         continue
                     log.warning("%s: 400 без вариантов упрощения. Ответ: %s", model, detail)
@@ -166,6 +184,13 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
             "Free tier сбрасывается около полуночи по тихоокеанскому времени "
             "(~09:00-10:00 UTC) - раньше запросы не пройдут.")
     raise RuntimeError(f"Gemini недоступен. Последнее: {last}")
+
+
+def call_gemini_api(prompt: str, system_instruction: str | None = None,
+                    temperature: float = 0.7, max_tokens: int = 4096) -> str:
+    """Вызов Gemini API через существующий в brain.py клиент."""
+    return _call(prompt, temperature=temperature, max_tokens=max_tokens,
+                 system_instruction=system_instruction)
 
 
 def _parse_json(raw: str):
@@ -723,6 +748,75 @@ def critique_draft(text: str, shape: str = "single") -> str:
     except Exception as exc:
         log.warning("critique_draft упал: %s — сохраняем исходный текст", exc)
         return clean_text
+
+
+# ------------------------------------------------------------------
+#  ЭТАП 2: Editor / Humanizer Pass (Вариант А: style/golden_rewrites.md)
+# ------------------------------------------------------------------
+EDITOR_HUMANIZER_PROMPT = """
+You are an expert financial editor refining LinkedIn drafts.
+Author Persona: A 22-year-old top-tier finance student and sharp macro/equity practitioner talking to peers in a room.
+Audience: Institutional investors, hedge fund analysts, founders, and portfolio managers.
+
+YOUR SOLE MISSION:
+Rewrite the raw input draft into a punchy, authentic, human post that sounds like a real young practitioner. Strip out all AI markers, robotic phrasing, academic bloat, and telegraphic fragments while preserving 100% of the hard numbers and transmission mechanics.
+
+STRICT EDITING RULES:
+1. VOICE & VOCABULARY:
+   - Use simple, conversational words for complex mechanics. 
+   - Never use 35-word academic sentences ("Empirical tracking of corporate mortality reveals...").
+   - Never use telegraphic fragments ("Fuel security is tight.", "The price: WIBOR...", "Liquidity is drying up.").
+   - Never use childish metaphors ("piggy banks", "the math is simple").
+   - Contextual validity: "circular vendor financing loop" applies ONLY when a vendor invests in a customer to buy its goods. Do not use it for standard bank syndicates or routine software licensing.
+
+2. TRUNCATION & COMPLETION (NON-NEGOTIABLE):
+   - The post MUST be 100% complete. The final sentence MUST end with proper punctuation (. or !). Never cut off mid-thought.
+
+3. HARD LENGTH LIMITS:
+   - Single Topic Post: STRICTLY 100–120 words.
+   - Multi-Topic Digest: STRICTLY 110–130 words (strictly 2–3 bullets).
+   - If draft is under limit, expand by tracing the transmission chain: cause → channel → balance-sheet outcome.
+   - If draft is over limit, cut secondary commentary.
+
+4. ANTI-TEMPLATE BLEED:
+   - Do NOT copy verbatim lines from the golden examples (e.g., do NOT start with "Persistent energy inflation and heavy debt issuance" or use "insurance wall" unless that exact topic is being discussed).
+
+OUTPUT FORMAT:
+Return ONLY the final edited post text. No introductory remarks, no quotes, no word count labels in brackets.
+"""
+
+
+def edit_and_humanize_draft(raw_draft: str, draft_type: str = "single", context_summary: str = "") -> str:
+    clean_draft = (raw_draft or "").strip()
+    if not clean_draft:
+        return ""
+
+    golden_examples = load_golden_rewrites()
+    
+    prompt = f"""{golden_examples}
+
+--- YOUR TASK ---
+Edit the following raw {draft_type} draft. 
+Preserve all hard facts and transmission mechanics, but rewrite into our author's authentic, punchy voice.
+Strictly obey word limits ({ '100-120 words' if draft_type == 'single' else '110-130 words' }) and ensure complete closing punctuation.
+
+[RAW INPUT DRAFT]:
+{clean_draft}
+
+[TARGET EDITED POST]:"""
+
+    try:
+        # Вызов Gemini API через существующий в brain.py клиент
+        # Используем температуру 0.25 для строгого следования стилю без галлюцинаций
+        response = call_gemini_api(prompt, system_instruction=EDITOR_HUMANIZER_PROMPT, temperature=0.25)
+        edited_text = response.strip()
+        edited_text = re.sub(r"^```(?:markdown|text)?\s*|\s*```$", "", edited_text, flags=re.MULTILINE).strip()
+        if edited_text:
+            return edited_text
+    except Exception as e:
+        logger.warning(f"Editor pass failed, falling back to raw draft: {e}")
+    
+    return raw_draft
 
 
 # ------------------------------------------------------------------

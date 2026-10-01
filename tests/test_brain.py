@@ -348,3 +348,67 @@ def test_banned_phrases_file_exists_and_contains_required_phrases():
         assert f"`{phrase}`" in content
 
 
+# ---------------------------------------------------------------- editor / humanizer pass tests
+
+def test_load_golden_rewrites_success():
+    content = brain.load_golden_rewrites()
+    assert content, "style/golden_rewrites.md должен успешно считываться"
+    assert "GOLDEN REWRITES: FEW-SHOT EDITING EXAMPLES" in content
+    assert "EXAMPLE 1: SINGLE TOPIC" in content
+    assert "EXAMPLE 2: SINGLE TOPIC" in content
+    assert "EXAMPLE 3: MULTI-TOPIC DIGEST" in content
+    assert "EXAMPLE 4: MULTI-TOPIC DIGEST" in content
+
+
+def test_edit_and_humanize_draft_success(monkeypatch):
+    captured_calls = []
+
+    def fake_call_api(prompt, system_instruction=None, temperature=0.7, max_tokens=4096):
+        captured_calls.append({"prompt": prompt, "system_instruction": system_instruction, "temperature": temperature})
+        return "Edited clean authentic text by student practitioner."
+
+    monkeypatch.setattr(brain, "call_gemini_api", fake_call_api)
+    raw = "Raw bot draft about tech capex and debt issuance."
+    res = brain.edit_and_humanize_draft(raw, draft_type="single")
+
+    assert res == "Edited clean authentic text by student practitioner."
+    assert len(captured_calls) == 1
+    call = captured_calls[0]
+    assert call["temperature"] == 0.25
+    assert call["system_instruction"] == brain.EDITOR_HUMANIZER_PROMPT
+    assert raw in call["prompt"]
+    assert "--- YOUR TASK ---" in call["prompt"]
+    assert "100-120 words" in call["prompt"]
+
+
+def test_edit_and_humanize_draft_digest_word_limits(monkeypatch):
+    captured_calls = []
+
+    def fake_call_api(prompt, system_instruction=None, temperature=0.7, max_tokens=4096):
+        captured_calls.append({"prompt": prompt, "system_instruction": system_instruction})
+        return "Edited clean digest text."
+
+    monkeypatch.setattr(brain, "call_gemini_api", fake_call_api)
+    raw = "Raw digest draft."
+    res = brain.edit_and_humanize_draft(raw, draft_type="digest")
+
+    assert res == "Edited clean digest text."
+    assert "110-130 words" in captured_calls[0]["prompt"]
+
+
+def test_edit_and_humanize_draft_fallback_on_error(monkeypatch):
+    def exploding_api(*a, **kw):
+        raise RuntimeError("Gemini API connection error")
+
+    monkeypatch.setattr(brain, "call_gemini_api", exploding_api)
+    raw = "Raw draft that must be preserved on API error."
+    res = brain.edit_and_humanize_draft(raw, draft_type="single")
+    assert res == raw
+
+
+def test_edit_and_humanize_draft_empty_input():
+    assert brain.edit_and_humanize_draft("") == ""
+    assert brain.edit_and_humanize_draft("   ") == ""
+
+
+

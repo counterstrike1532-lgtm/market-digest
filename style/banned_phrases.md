@@ -43,6 +43,7 @@
 - `How did this happen? It's simple.`
 - `Here's why:`
 - `The reason is simple.`
+- `The math is simple`
 
 ## Student Insecurities & Amateur Persona
 
@@ -90,6 +91,8 @@
 - `The problem is...`
 - `The problem is`
 - `The central bank is stepping in`
+- `Fuel security is tight`
+- `Liquidity is drying up`
 
 ## Childish Bullet Headers
 

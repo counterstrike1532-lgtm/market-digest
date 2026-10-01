@@ -306,3 +306,34 @@ def test_run_workflow_send(mock_send, mock_brain, mock_fetch):
     assert out is not None
     assert mock_send.called
 
+
+def test_humanize_hugs_briefing(monkeypatch):
+    from src.hugs_workflow import humanize_hugs_briefing
+
+    humanize_calls = []
+
+    def fake_edit(draft, draft_type="single", context_summary=""):
+        humanize_calls.append((draft, draft_type))
+        return f"HUMANIZED_{draft_type.upper()}: {draft}"
+
+    monkeypatch.setattr("src.brain.edit_and_humanize_draft", fake_edit)
+
+    sample_briefing = (
+        "📌 <b>KEY HIGHLIGHTS</b>\n\n"
+        "• Story 1 [Bloomberg]\n\n"
+        "───────────────\n\n"
+        "📝 <b>DRAFT 1 — DIGEST</b> (110-130 words)\n\n"
+        "Raw digest body text here.\n\n"
+        "───────────────\n\n"
+        "💡 <b>DRAFT 2 — SINGLE TOPIC</b> (100-120 words)\n\n"
+        "Raw single topic body text here.\n"
+    )
+
+    result = humanize_hugs_briefing(sample_briefing)
+    assert len(humanize_calls) == 2
+    assert humanize_calls[0] == ("Raw digest body text here.", "digest")
+    assert humanize_calls[1] == ("Raw single topic body text here.", "single")
+    assert "HUMANIZED_DIGEST: Raw digest body text here." in result
+    assert "HUMANIZED_SINGLE: Raw single topic body text here." in result
+
+

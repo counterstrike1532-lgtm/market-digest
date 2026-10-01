@@ -39,9 +39,11 @@ BANNED_WORDS = [
     "characterized by a shift toward", "consequently, the persistence of",
     "serves as a testament to", "are emerging as the primary",
     "piggy banks", "paying the bill", "pay the bill", "expensive spot market",
+    "the math is simple",
     # Telegraphic fragments
     "the price:", "this pushes borrowing costs higher", "supply chains remain tight",
     "the problem is", "the central bank is stepping in",
+    "fuel security is tight", "liquidity is drying up",
     # Conversational sloppiness
     "snapped up the debt",
     # Childish bullet headers
@@ -50,12 +52,15 @@ BANNED_WORDS = [
     "earnings get crushed", "expect de-rating if growth slows", "corporate margins shrink",
 ]
 
-PROMPT_LEAK_PHRASES = [
-    "ai data centers are running into an insurance wall",
+TEMPLATE_BLEED_PHRASES = [
+    "running into an insurance wall",
     "persistent energy inflation and heavy debt issuance are breaking the market's rate-cut bets",
+    "persistent energy inflation and heavy debt issuance are breaking rate-cut bets",
     "if you want to see how the state governance discount works in real time, look at orlen",
     "if you want to see how the state governance discount works in real time",
+    "ai data centers are running into an insurance wall",
 ]
+PROMPT_LEAK_PHRASES = TEMPLATE_BLEED_PHRASES
 
 QUESTIONING_PHRASES = [
     "what am i missing", "i might be wrong", "i might be reading this wrong",
@@ -114,9 +119,9 @@ def check_length(text: str, low: str, shape: str = "auto"):
 
 
 def check_truncation(text: str, low: str):
-    clean = text.strip().rstrip("`\"' \n\t")
-    ok = clean.endswith((".", "!"))
-    return ok, ("ок" if ok else "текст не завершён закрывающей пунктуацией (. / !), возможен обрыв")
+    clean = text.strip().rstrip("` \t\r\n")
+    ok = bool(clean) and (clean[-1] in ('.', '!', '?', '"') or clean.endswith(('."', '!"', '?"')))
+    return ok, ("ок" if ok else "текст не завершён закрывающей пунктуацией (. / ! / ? / \"), возможен обрыв")
 
 
 def check_digest_bullets(text: str, low: str, shape: str = "auto"):
@@ -131,9 +136,12 @@ def check_digest_bullets(text: str, low: str, shape: str = "auto"):
         return ok, ("ок" if ok else f"в Single Topic не должно быть дайджест-буллетов, найдено: {len(bullets)}")
 
 
-def check_anti_leak(text: str, low: str):
-    hits = _find_any(low, PROMPT_LEAK_PHRASES)
-    return not hits, ("нет" if not hits else "утечка из промпта (дословный копипаст примера): " + ", ".join(hits))
+def check_anti_template_bleed(text: str, low: str):
+    hits = _find_any(low, TEMPLATE_BLEED_PHRASES)
+    return not hits, ("нет" if not hits else "утечка из промпта / совпадение зачина из эталонов (template bleed): " + ", ".join(hits))
+
+
+check_anti_leak = check_anti_template_bleed
 
 
 def check_has_number(text: str, low: str):
@@ -215,7 +223,7 @@ LOCAL_CHECKS = [
     ("контроль объёма (Word Count Gate)", check_length),
     ("проверка на обрыв (Truncation Gate)", check_truncation),
     ("ограничение тем в Digest (2-3 буллета)", check_digest_bullets),
-    ("защита от утечек из промпта (Anti-Leak Gate)", check_anti_leak),
+    ("защита от утечек из шаблона и промпта (check_anti_template_bleed)", check_anti_template_bleed),
     ("защита от утечки счётчика слов (Word Counter Leakage)", check_word_counter_leak),
     ("есть хотя бы одно число", check_has_number),
     ("нет запрещённых слов", check_banned_words),

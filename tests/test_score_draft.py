@@ -225,3 +225,54 @@ def test_word_counter_leakage():
     ok_normal, _ = score_draft.check_word_counter_leak(normal_text, normal_text.lower())
     assert ok_normal
 
+
+def test_check_truncation_additional_rules():
+    # Valid endings
+    assert score_draft.check_truncation("Text ending with dot.", "text ending with dot.")[0] is True
+    assert score_draft.check_truncation("Text ending with exclamation!", "text ending with exclamation!")[0] is True
+    assert score_draft.check_truncation('Text ending with quote."', 'text ending with quote."')[0] is True
+    assert score_draft.check_truncation('Text ending with question mark?', 'text ending with question mark?')[0] is True
+
+    # Invalid endings (FAIL)
+    fail_no_punct = score_draft.check_truncation("Text ending abruptly without punctuation", "text ending abruptly without punctuation")
+    assert fail_no_punct[0] is False
+    assert "закрывающей пунктуацией" in fail_no_punct[1]
+
+    fail_comma = score_draft.check_truncation("Text ending with a comma,", "text ending with a comma,")
+    assert fail_comma[0] is False
+
+    fail_colon = score_draft.check_truncation("Text ending with a colon:", "text ending with a colon:")
+    assert fail_colon[0] is False
+
+
+def test_anti_template_bleed_new_cases():
+    bleed_1 = "Hyperscale tech is running into an insurance wall as syndicates pull capacity."
+    ok, detail = score_draft.check_anti_template_bleed(bleed_1, bleed_1.lower())
+    assert not ok
+    assert "template bleed" in detail
+
+    bleed_2 = "Persistent energy inflation and heavy debt issuance are breaking the market's rate-cut bets across G10."
+    ok, detail = score_draft.check_anti_template_bleed(bleed_2, bleed_2.lower())
+    assert not ok
+    assert "template bleed" in detail
+
+    clean_text = "European defense contractors are locking in multi-year procurement backlogs."
+    ok, detail = score_draft.check_anti_template_bleed(clean_text, clean_text.lower())
+    assert ok
+    assert detail == "нет"
+
+
+def test_new_banned_words_local_checker():
+    new_banned = [
+        ("The math is simple: expenses exceed revenues.", "the math is simple"),
+        ("Fuel security is tight across Central Europe.", "fuel security is tight"),
+        ("Liquidity is drying up in secondary corporate credit.", "liquidity is drying up"),
+        ("Expect de-rating if growth slows below 2%.", "expect de-rating if growth slows"),
+        ("If margins contract, earnings get crushed in H2.", "earnings get crushed"),
+    ]
+    for text, target in new_banned:
+        ok, detail = score_draft.check_banned_words(text, text.lower())
+        assert not ok, f"Expected '{text}' to fail banned words on '{target}'"
+        assert target in detail
+
+
