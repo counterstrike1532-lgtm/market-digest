@@ -61,8 +61,8 @@ def parse_drafts(raw: str) -> list[dict]:
 _MAGNITUDE = {
     "thousand": 1e3, "tys": 1e3,
     "million": 1e6, "mln": 1e6,
-    "billion": 1e9, "mld": 1e9,
-    "trillion": 1e12,
+    "billion": 1e9, "mld": 1e9, "miliard": 1e9, "miliardy": 1e9, "miliardów": 1e9, "miliardow": 1e9,
+    "trillion": 1e12, "bln": 1e12, "bilion": 1e12, "biliony": 1e12, "bilionów": 1e12, "bilionow": 1e12,
 }
 
 _NUM_AND_SUFFIX = re.compile(r"^(\$?\d[\d,.%$]*)\s*(.*)$")
@@ -222,9 +222,14 @@ _UNIT_SYNONYMS: dict[str, list[str]] = {
     "euro": ["euro", "EUR"],
     "euros": ["euro", "EUR"],
     "million": ["mln"],
-    "billion": ["mld"],
+    "billion": ["mld", "miliard", "miliardy", "miliardów", "miliardow"],
+    "trillion": ["bln", "bilion", "biliony", "bilionów", "bilionow"],
     "thousand": ["tys."],
     "percent": ["proc.", "%"],
+    "points": ["pkt proc.", "pkt. proc.", "p.p.", "pp", "punktów procentowych", "punkty procentowe"],
+    "percentage": ["pkt proc.", "pkt. proc.", "p.p.", "pp", "punktów procentowych", "punkty procentowe", "proc.", "%"],
+    "pp": ["pkt proc.", "pkt. proc.", "p.p.", "pp", "punktów procentowych", "punkty procentowe"],
+    "bps": ["pkt proc.", "pkt. proc.", "p.p.", "pp", "punktów procentowych", "punkty procentowe", "bps"],
 }
 
 
@@ -390,6 +395,36 @@ def _find_first(text: str, variants: list[str]) -> tuple[int, str] | None:
     return None
 
 
+_POLISH_MLD_RE = re.compile(r'\b(?:mld|miliard(?:y|ów|ow|a|em|zie)?)\b', re.IGNORECASE)
+_POLISH_BLN_RE = re.compile(r'\b(?:bln|bilion(?:y|ów|ow|a|em|zie)?)\b', re.IGNORECASE)
+_POLISH_PKT_PROC_RE = re.compile(r'\b(?:pkt\s*proc\.?|punkt(?:y|ów|ow)?\s*procentow(?:ych|e|y)|p\.p\.)\b', re.IGNORECASE)
+
+_ENGLISH_TRILLION_RE = re.compile(r'\b(?:trillion|trill|T)\b', re.IGNORECASE)
+_ENGLISH_BILLION_RE = re.compile(r'\b(?:billion|bill|B)\b', re.IGNORECASE)
+_ENGLISH_PERCENT_RE = re.compile(r'%|\bpercent\b', re.IGNORECASE)
+_ENGLISH_PP_CONTEXT_RE = re.compile(r'\b(?:pkt|point|points|pp|p\.p\.|bps|basis|spread|change|chg|margin|widened|narrowed|difference)\b', re.IGNORECASE)
+
+
+def _check_polish_scale(value: str, sentence: str) -> tuple[str, str] | None:
+    """Проверяет соответствие масштаба и единиц между польским источником и черновиком."""
+    # 1. mld ($10^9) в польском -> английский обязан использовать billion / B, trillion -> MISMATCH
+    if _POLISH_MLD_RE.search(sentence):
+        if _ENGLISH_TRILLION_RE.search(value):
+            return "MISMATCH", "Polish source has 'mld' (10^9), draft uses trillion (10^12)"
+
+    # 2. bln ($10^12) в польском -> английский обязан использовать trillion / T, billion -> MISMATCH
+    if _POLISH_BLN_RE.search(sentence):
+        if _ENGLISH_BILLION_RE.search(value):
+            return "MISMATCH", "Polish source has 'bln' (10^12), draft uses billion (10^9)"
+
+    # 3. pkt proc. в польском -> чистый процент без контекста изменения/спреда/bps -> MAYBE
+    if _POLISH_PKT_PROC_RE.search(sentence):
+        if _ENGLISH_PERCENT_RE.search(value) and not _ENGLISH_PP_CONTEXT_RE.search(value):
+            return "MAYBE", "Polish source uses percentage points (pkt proc.), draft uses plain percent without change/spread context"
+
+    return None
+
+
 def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
                          data_text: str) -> list[dict]:
     """Уровень a. Каждая запись: {value, source, status, matched_in?, closest?}.
@@ -436,6 +471,17 @@ def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
                        "matched_in": "data"})
             continue
         if combined_body and any(v in combined_body for v in variants):
+            hit_v = next(v for v in variants if v in combined_body)
+            idx = combined_body.find(hit_v)
+            start = _sentence_start(combined_body, idx)
+            end = _sentence_end(combined_body, idx + len(hit_v))
+            sentence = combined_body[start:end]
+            scale_issue = _check_polish_scale(value, sentence)
+            if scale_issue:
+                status, reason = scale_issue
+                out.append({"value": value, "source": source, "status": status,
+                           "reason": reason, "matched_in": "body"})
+                continue
             out.append({"value": value, "source": source, "status": "FOUND",
                        "matched_in": "body"})
             continue
@@ -446,7 +492,14 @@ def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
                 idx, matched = core_hit
                 start = _sentence_start(combined_body, idx)
                 end = _sentence_end(combined_body, idx + len(matched))
-                if _unit_matches_in_sentence(value, combined_body[start:end]):
+                sentence = combined_body[start:end]
+                scale_issue = _check_polish_scale(value, sentence)
+                if scale_issue:
+                    status, reason = scale_issue
+                    out.append({"value": value, "source": source, "status": status,
+                               "reason": reason, "matched_in": "body"})
+                    continue
+                if _unit_matches_in_sentence(value, sentence):
                     out.append({"value": value, "source": source, "status": "FOUND",
                                "matched_in": "body"})
                     continue
@@ -599,12 +652,19 @@ def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, l
     mismatches = []
     mismatched_values = set()
     for r in countable:
+        if r["status"] == "MISMATCH":
+            mismatches.append((r, {"why": r.get("reason", "scale mismatch")}))
+            mismatched_values.add(r["value"])
+            continue
         if r["status"] != "FOUND":
             continue
         lb = level_b.get(r["value"])
         if lb and lb.get("verdict") == "MISMATCH":
             mismatches.append((r, lb))
             mismatched_values.add(r["value"])
+
+    maybes = [r for r in countable if r["status"] == "MAYBE"]
+    maybe_values = {r["value"] for r in maybes}
 
     found = [r for r in countable
              if r["status"] == "FOUND" and r["value"] not in mismatched_values]
@@ -615,7 +675,7 @@ def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, l
             False, []
 
     offending = ([r["value"] for r in not_found] + [v for v in mismatched_values]
-                + [r["value"] for r in unparsed])
+                + [r["value"] for r in unparsed] + [v for v in maybe_values])
     downgrade = bool(offending)
 
     problems = []
@@ -633,6 +693,11 @@ def _render(level_a: list[dict], level_b: dict[str, dict]) -> tuple[str, bool, l
         why = (lb.get("why") or "").strip()
         extra = f" +{len(mismatches) - 1} more" if len(mismatches) > 1 else ""
         problems.append(f'"{r["value"]}" context mismatch - {why}{extra}')
+    if maybes:
+        r = maybes[0]
+        why = (r.get("reason") or "verify percentage points").strip()
+        extra = f" +{len(maybes) - 1} more" if len(maybes) > 1 else ""
+        problems.append(f'"{r["value"]}" - {why}{extra}')
     if unparsed:
         vals = ", ".join(f'"{r["value"]}"' for r in unparsed)
         problems.append(f"{len(unparsed)} unparsed ({vals})")
@@ -701,6 +766,8 @@ def _stats_from_blocks(blocks: list[dict]) -> dict:
             if status == "FOUND":
                 lb = b["_level_b"].get(r["value"])
                 key = "mismatch" if lb and lb.get("verdict") == "MISMATCH" else "found"
+            elif status in ("MISMATCH", "MAYBE"):
+                key = "mismatch"
             elif status == "NOT_FOUND":
                 key = "not_found"
             elif status == "UNPARSED":

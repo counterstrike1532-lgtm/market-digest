@@ -44,8 +44,8 @@ CRITICAL FORMATTING & READABILITY RULES:
    - Vary the closing: contrast stock vs bond expectations, show who pays the bill, or state a blunt valuation calculation.
 
 4. HARD WORD COUNT DISCIPLINE:
-   - Single Topic: STRICTLY 100–120 words.
-   - Digest: STRICTLY 110–130 words (strictly 2–3 bullets with action headers like "1. Buying your own customer:").
+   - Single Topic: STRICTLY 105–115 words (allowable: 95–135 words).
+   - Digest: STRICTLY 115–125 words (allowable: 105–140 words) (strictly 2–3 bullets with action headers like "1. Buying your own customer:").
    - Every post MUST end with complete closing punctuation (. or !). Never cut off mid-thought.
 
 OUTPUT FORMAT:
@@ -225,6 +225,7 @@ def humanize_hugs_briefing(analysis_text: str) -> str:
         return analysis_text
 
     text = analysis_text
+    badge = " ⚠️ [RAW DRAFT: EDITOR FAILED]"
 
     # 1. Секция DRAFT 1 (Digest)
     d1_pattern = re.compile(
@@ -236,7 +237,11 @@ def humanize_hugs_briefing(analysis_text: str) -> str:
         raw_d1 = m1.group(2).strip()
         if raw_d1:
             edited_d1 = brain.edit_and_humanize_draft(raw_d1, draft_type="digest")
-            if edited_d1:
+            if brain.FALLBACK_BADGE in edited_d1:
+                clean_body = edited_d1.replace(brain.FALLBACK_BADGE, "").strip()
+                header = m1.group(1).rstrip("\n") + badge + "\n\n"
+                text = text[:m1.start(1)] + header + clean_body + "\n\n" + text[m1.end(2):]
+            elif edited_d1:
                 text = text[:m1.start(2)] + edited_d1 + "\n\n" + text[m1.end(2):]
 
     # 2. Секция DRAFT 2 (Single Topic)
@@ -249,7 +254,11 @@ def humanize_hugs_briefing(analysis_text: str) -> str:
         raw_d2 = m2.group(2).strip()
         if raw_d2:
             edited_d2 = brain.edit_and_humanize_draft(raw_d2, draft_type="single")
-            if edited_d2:
+            if brain.FALLBACK_BADGE in edited_d2:
+                clean_body = edited_d2.replace(brain.FALLBACK_BADGE, "").strip()
+                header = m2.group(1).rstrip("\n") + badge + "\n\n"
+                text = text[:m2.start(1)] + header + clean_body + ("\n" if not clean_body.endswith("\n") else "") + text[m2.end(2):]
+            elif edited_d2:
                 text = text[:m2.start(2)] + edited_d2 + ("\n" if not edited_d2.endswith("\n") else "") + text[m2.end(2):]
 
     return text

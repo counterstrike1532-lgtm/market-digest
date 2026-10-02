@@ -780,13 +780,16 @@ CRITICAL FORMATTING & READABILITY RULES:
    - Vary the closing: contrast stock vs bond expectations, show who pays the bill, or state a blunt valuation calculation.
 
 4. HARD WORD COUNT DISCIPLINE:
-   - Single Topic: STRICTLY 100–120 words.
-   - Digest: STRICTLY 110–130 words (strictly 2–3 bullets with action headers like "1. Buying your own customer:").
+   - Single Topic: STRICTLY 105–115 words (allowable: 95–135 words).
+   - Digest: STRICTLY 115–125 words (allowable: 105–140 words) (strictly 2–3 bullets with action headers like "1. Buying your own customer:").
    - Every post MUST end with complete closing punctuation (. or !). Never cut off mid-thought.
 
 OUTPUT FORMAT:
 Return ONLY the final edited post text. No introductory remarks, no quotes, no word counts in brackets.
 """
+
+
+FALLBACK_BADGE = "⚠️ [RAW DRAFT: EDITOR FAILED]"
 
 
 def edit_and_humanize_draft(raw_draft: str, draft_type: str = "single", context_summary: str = "") -> str:
@@ -801,7 +804,7 @@ def edit_and_humanize_draft(raw_draft: str, draft_type: str = "single", context_
 --- YOUR TASK ---
 Edit the following raw {draft_type} draft. 
 Preserve all hard facts and transmission mechanics, but rewrite into our author's authentic, punchy voice.
-Strictly obey word limits ({ '100-120 words' if draft_type == 'single' else '110-130 words' }) and ensure complete closing punctuation.
+Strictly obey word limits ({ '105-115 words' if draft_type == 'single' else '115-125 words' }) and ensure complete closing punctuation.
 
 [RAW INPUT DRAFT]:
 {clean_draft}
@@ -815,11 +818,22 @@ Strictly obey word limits ({ '100-120 words' if draft_type == 'single' else '110
         edited_text = response.strip()
         edited_text = re.sub(r"^```(?:markdown|text)?\s*|\s*```$", "", edited_text, flags=re.MULTILINE).strip()
         if edited_text:
-            return edited_text
+            from . import score_draft
+            ok_trunc, trunc_msg = score_draft.check_truncation(edited_text, edited_text.lower())
+            if len(edited_text.split()) >= 50 or len(clean_draft.split()) >= 50:
+                ok_len, len_msg = score_draft.check_length(edited_text, edited_text.lower(), shape=draft_type)
+            else:
+                ok_len, len_msg = True, "short test draft"
+            ok_nums, num_msg = score_draft.check_number_preservation(clean_draft, edited_text)
+
+            if ok_trunc and ok_len and ok_nums:
+                return edited_text
+            else:
+                logger.warning(f"Editor pass validation failed (trunc={ok_trunc}, len={len_msg}, nums={num_msg}), using raw draft with badge")
     except Exception as e:
         logger.warning(f"Editor pass failed, falling back to raw draft: {e}")
     
-    return raw_draft
+    return f"{FALLBACK_BADGE}\n\n{raw_draft}" 
 
 
 # ------------------------------------------------------------------

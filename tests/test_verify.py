@@ -910,3 +910,66 @@ def test_dry_run_evening_0803_broken_source_url_falls_to_no_source_text():
     out = render_draft_message(blocks[0], 1, selected=selected)
     assert "✅" not in out
     assert "POST · цифры 0/3 — источник не догружен, сверь вручную" in out
+
+
+# ---------------------------------------------------------------- Polish numeric scales (mld / bln / pkt proc.)
+
+def test_to_float_polish_magnitudes():
+    assert verify._to_float("1.2 mld zł") == 1.2e9
+    assert verify._to_float("1.2 bln PLN") == 1.2e12
+    assert verify._to_float("5 miliardów") == 5e9
+    assert verify._to_float("3 biliony") == 3e12
+
+
+def test_check_polish_scale_mld_mismatch():
+    sentence = "Spółka przeznaczy 10 mld PLN na inwestycje w infrastrukturę przesyłową."
+    # English uses trillion instead of billion -> MISMATCH
+    issue = verify._check_polish_scale("10 trillion PLN", sentence)
+    assert issue is not None
+    status, reason = issue
+    assert status == "MISMATCH"
+    assert "10^9" in reason
+
+    # English uses billion -> OK
+    assert verify._check_polish_scale("10 billion PLN", sentence) is None
+
+
+def test_check_polish_scale_bln_mismatch():
+    sentence = "Łączne zadłużenie sektora publicznego sięga 2 bln zł."
+    # English uses billion instead of trillion -> MISMATCH
+    issue = verify._check_polish_scale("2 billion PLN", sentence)
+    assert issue is not None
+    status, reason = issue
+    assert status == "MISMATCH"
+    assert "10^12" in reason
+
+    # English uses trillion -> OK
+    assert verify._check_polish_scale("2 trillion PLN", sentence) is None
+
+
+def test_check_polish_scale_pkt_proc_maybe_and_ok():
+    sentence = "Marża banku wzrosła w IV kwartale o 1,5 pkt proc. rok do roku."
+    # Plain percent without context -> MAYBE
+    issue = verify._check_polish_scale("1.5%", sentence)
+    assert issue is not None
+    status, reason = issue
+    assert status == "MAYBE"
+    assert "pkt proc." in reason
+
+    # With percentage points or bps or spread -> OK
+    assert verify._check_polish_scale("1.5 percentage points", sentence) is None
+    assert verify._check_polish_scale("150 bps spread", sentence) is None
+
+
+def test_verify_figures_local_detects_polish_mld_bln_mismatch():
+    body = "Orlen zanotował 15,8 mld PLN zysku netto przy przychodach 300 mld PLN."
+    pairs = [
+        ("15.8 trillion PLN", "source"),
+        ("300 billion PLN", "source"),
+    ]
+    res = verify.verify_figures_local(pairs, bodies=[body], data_text="")
+    assert len(res) == 2
+    assert res[0]["status"] == "MISMATCH"
+    assert "mld" in res[0]["reason"]
+    assert res[1]["status"] == "FOUND"
+

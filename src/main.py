@@ -334,7 +334,8 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
     ставит рендерер - строку модели "DRAFT n (...)" сюда не пускаем вовсе,
     её и не было в распарсенных полях block."""
     body = block.get("body", "").strip()
-    header = f"ЧЕРНОВИК {num} — {block.get('shape') or '?'}, {_word_count(body)} слов"
+    badge = " ⚠️ [RAW DRAFT: EDITOR FAILED]" if block.get("_editor_failed") else ""
+    header = f"ЧЕРНОВИК {num} — {block.get('shape') or '?'}, {_word_count(body)} слов{badge}"
     lines = [header, "", body]
 
     if block.get("_parse_failed"):
@@ -572,8 +573,14 @@ def main() -> int:
                         orig_body = b.get("body", "")
                         edited_body = _fix_glued_punctuation(
                             brain.edit_and_humanize_draft(orig_body, draft_type=draft_type))
-                        if edited_body:
+                        if brain.FALLBACK_BADGE in edited_body:
+                            b["_editor_failed"] = True
+                            b["body"] = edited_body.replace(brain.FALLBACK_BADGE, "").strip()
+                        elif edited_body:
                             b["body"] = edited_body
+                        else:
+                            b["_editor_failed"] = True
+                            b["body"] = orig_body
                         critiqued_blocks.append(b)
 
                     drafts = "\n\n".join(

@@ -111,11 +111,11 @@ def check_length(text: str, low: str, shape: str = "auto"):
     n = len(text.split())
     eff_shape = detect_shape(text, shape)
     if eff_shape == "digest":
-        ok = 110 <= n <= 130
-        return ok, f"{n} слов ({'ок' if ok else 'FAIL: для Digest нужно строго 110-130 слов'})"
+        ok = 105 <= n <= 140
+        return ok, f"{n} слов ({'ок' if ok else 'FAIL: для Digest нужно 105-140 слов'})"
     else:
-        ok = 100 <= n <= 120
-        return ok, f"{n} слов ({'ок' if ok else 'FAIL: для Single Topic нужно строго 100-120 слов'})"
+        ok = 95 <= n <= 135
+        return ok, f"{n} слов ({'ок' if ok else 'FAIL: для Single Topic нужно 95-135 слов'})"
 
 
 def check_truncation(text: str, low: str):
@@ -309,3 +309,93 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+_WORD_NUMS: dict[str, str] = {
+    "1": "one", "2": "two", "3": "three", "4": "four", "5": "five",
+    "6": "six", "7": "seven", "8": "eight", "9": "nine", "10": "ten",
+    "20": "twenty", "30": "thirty", "40": "forty", "50": "fifty",
+}
+
+_NUM_TOKEN_RE = re.compile(r'(?<![A-Za-z0-9])(\d+(?:[.,]\d+)?)(?=[A-Za-z%]?|[^\w]|$)')
+_RANGE_RE = re.compile(r'(\d+(?:[.,]\d+)?)\s*%?\s*(?:to|–|-)\s*(\d+(?:[.,]\d+)?)', re.IGNORECASE)
+
+
+def extract_numbers(text: str) -> list[str]:
+    """Извлекает числовые токены (целые и десятичные), исключая маркеры списков в начале строк."""
+    cleaned_lines = []
+    for line in text.splitlines():
+        cl = re.sub(r'^\s*(?:[•\-*]|\d+[.)])\s*(?:\d+[.)]\s*)?', '', line)
+        cleaned_lines.append(cl)
+    cleaned = "\n".join(cleaned_lines)
+    matches = _NUM_TOKEN_RE.finditer(cleaned)
+    return [m.group(1).replace(',', '.') for m in matches]
+
+
+def check_number_preservation(stage1_text: str, stage2_text: str) -> tuple[bool, str]:
+    """Сверяет сохранение ключевых числовых значений из Stage 1 в Stage 2 (Multiset Number Diff)."""
+    if not stage1_text.strip():
+        return True, "ок"
+
+    s1_nums = extract_numbers(stage1_text)
+    s2_nums = extract_numbers(stage2_text)
+    s2_low = stage2_text.lower()
+
+    ranges = _RANGE_RE.findall(stage1_text)
+    range_pairs = [(r[0].replace(',', '.'), r[1].replace(',', '.')) for r in ranges]
+
+    missing = []
+    for n_str in s1_nums:
+        try:
+            val = float(n_str)
+        except ValueError:
+            continue
+
+        matched = False
+        for s2_val_str in s2_nums:
+            try:
+                if abs(float(s2_val_str) - val) < 1e-6:
+                    matched = True
+                    break
+            except ValueError:
+                pass
+        if matched:
+            continue
+
+        in_range = False
+        for low_r, high_r in range_pairs:
+            if n_str in (low_r, high_r):
+                other = high_r if n_str == low_r else low_r
+                for s2_val_str in s2_nums:
+                    try:
+                        if abs(float(s2_val_str) - float(other)) < 1e-6:
+                            in_range = True
+                            break
+                    except ValueError:
+                        pass
+            if in_range:
+                break
+        if in_range:
+            continue
+
+        if "bps" in s2_low or "basis point" in s2_low:
+            bps_val = val * 100.0
+            for s2_val_str in s2_nums:
+                try:
+                    if abs(float(s2_val_str) - bps_val) < 1e-4:
+                        matched = True
+                        break
+                except ValueError:
+                    pass
+            if matched:
+                continue
+
+        if n_str in _WORD_NUMS and re.search(rf"\b{_WORD_NUMS[n_str]}\b", s2_low):
+            continue
+
+        missing.append(n_str)
+
+    if missing:
+        unique_missing = list(dict.fromkeys(missing))
+        return False, f"числа из Stage 1 отсутствуют в Stage 2: {', '.join(unique_missing)}"
+    return True, "ок"

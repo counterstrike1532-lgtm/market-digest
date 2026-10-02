@@ -97,30 +97,56 @@ def test_full_institutional_draft_passes_local_checks():
 
 
 def test_word_count_gate_single_and_digest():
-    # Single topic (100-120 words)
+    # Single topic (95-135 words)
     words_90 = "word " * 89 + "$100."
     ok, _ = score_draft.check_length(words_90, words_90.lower(), shape="single")
     assert not ok
+
+    words_95 = "word " * 94 + "$100."
+    ok, _ = score_draft.check_length(words_95, words_95.lower(), shape="single")
+    assert ok
 
     words_105 = "word " * 104 + "$100."
     ok, _ = score_draft.check_length(words_105, words_105.lower(), shape="single")
     assert ok
 
-    words_125 = "word " * 124 + "$100."
-    ok, _ = score_draft.check_length(words_125, words_125.lower(), shape="single")
+    words_135 = "word " * 134 + "$100."
+    ok, _ = score_draft.check_length(words_135, words_135.lower(), shape="single")
+    assert ok
+
+    words_140 = "word " * 139 + "$100."
+    ok, _ = score_draft.check_length(words_140, words_140.lower(), shape="single")
     assert not ok
 
-    # Digest (110-130 words)
-    digest_78 = "Header:\n• 1. Item one: " + "word " * 35 + "\n• 2. Item two: " + "word " * 35 + "$100."
-    ok, _ = score_draft.check_length(digest_78, digest_78.lower(), shape="digest")
+    # Digest (105-140 words)
+    prefix_d = "Header:\n• 1. Item one: "
+    mid_d = "\n• 2. Item two: "
+    end_d = " $100."
+    fixed_count = len((prefix_d + mid_d + end_d).split())
+
+    digest_100 = prefix_d + " ".join(["word"] * (100 - fixed_count)) + mid_d + end_d
+    assert len(digest_100.split()) == 100
+    ok, _ = score_draft.check_length(digest_100, digest_100.lower(), shape="digest")
     assert not ok
 
-    digest_115 = "Header:\n• 1. Item one: " + "word " * 54 + "\n• 2. Item two: " + "word " * 54 + "$100."
+    digest_105 = prefix_d + " ".join(["word"] * (105 - fixed_count)) + mid_d + end_d
+    assert len(digest_105.split()) == 105
+    ok, _ = score_draft.check_length(digest_105, digest_105.lower(), shape="digest")
+    assert ok
+
+    digest_115 = prefix_d + " ".join(["word"] * (115 - fixed_count)) + mid_d + end_d
+    assert len(digest_115.split()) == 115
     ok, _ = score_draft.check_length(digest_115, digest_115.lower(), shape="digest")
     assert ok
 
-    digest_135 = "Header:\n• 1. Item one: " + "word " * 64 + "\n• 2. Item two: " + "word " * 64 + "$100."
-    ok, _ = score_draft.check_length(digest_135, digest_135.lower(), shape="digest")
+    digest_140 = prefix_d + " ".join(["word"] * (140 - fixed_count)) + mid_d + end_d
+    assert len(digest_140.split()) == 140
+    ok, _ = score_draft.check_length(digest_140, digest_140.lower(), shape="digest")
+    assert ok
+
+    digest_145 = prefix_d + " ".join(["word"] * (145 - fixed_count)) + mid_d + end_d
+    assert len(digest_145.split()) == 145
+    ok, _ = score_draft.check_length(digest_145, digest_145.lower(), shape="digest")
     assert not ok
 
 
@@ -289,10 +315,64 @@ def test_multiparagraph_draft_with_blank_lines_passes_length_and_local_checks():
         "Stock investors are still chasing sales headlines. Bond investors have already started pricing in loan default risk."
     )
     words = post.split()
-    assert 100 <= len(words) <= 120
+    assert 95 <= len(words) <= 135
     ok, msg = score_draft.check_length(post, post.lower(), shape="single")
     assert ok, f"Length check failed: {msg}"
     ok_trunc, msg_trunc = score_draft.check_truncation(post, post.lower())
     assert ok_trunc, f"Truncation check failed: {msg_trunc}"
     results, passed = score_draft.run_local_checks(post, shape="single")
     assert passed, f"Local checks failed: {[(n, d) for n, o, d in results if not o]}"
+
+
+def test_check_number_preservation_identical():
+    s1 = "Broadcom opened a $42 billion credit line covering $125.2 billion order with 5.1% yield."
+    s2 = "Covering $125.2 billion order, Broadcom opened a $42 billion credit facility at 5.1% yield."
+    ok, msg = score_draft.check_number_preservation(s1, s2)
+    assert ok
+    assert msg == "ок"
+
+
+def test_check_number_preservation_mutated_number():
+    s1 = "Broadcom opened a $42 billion credit line."
+    s2 = "Broadcom opened a $24 billion credit line."
+    ok, msg = score_draft.check_number_preservation(s1, s2)
+    assert not ok
+    assert "Stage 1" in msg
+    assert "42" in msg
+
+
+def test_check_number_preservation_lost_number():
+    s1 = "Broadcom committed $42 billion and $125.2 billion across 5 facilities."
+    s2 = "Broadcom committed $42 billion across 5 facilities."
+    ok, msg = score_draft.check_number_preservation(s1, s2)
+    assert not ok
+    assert "125.2" in msg
+
+
+def test_check_number_preservation_percentage_to_bps():
+    s1 = "Spreads widened by 0.5% across primary issuance."
+    s2 = "Spreads widened by 50 bps across primary issuance."
+    ok, msg = score_draft.check_number_preservation(s1, s2)
+    assert ok
+
+
+def test_check_number_preservation_word_numbers():
+    s1 = "The facility matures in 30 years with 2 tranches."
+    s2 = "The facility matures in thirty years with two tranches."
+    ok, msg = score_draft.check_number_preservation(s1, s2)
+    assert ok
+
+
+def test_check_number_preservation_ranges():
+    s1 = "Capex is projected at 20 to 22 billion PLN, absorbing 40% to 45% of free cash flow."
+    s2 = "Projected capex reaches up to 22 billion PLN, taking 45% of free cash flow."
+    ok, msg = score_draft.check_number_preservation(s1, s2)
+    assert ok
+
+
+def test_check_number_preservation_comma_decimal():
+    s1 = "Net profit reached 15,8 mld PLN with 22% ROE."
+    s2 = "Net profit was 15.8 billion PLN with 22% return on equity."
+    ok, msg = score_draft.check_number_preservation(s1, s2)
+    assert ok
+
