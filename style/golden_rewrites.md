@@ -1,37 +1,37 @@
 # GOLDEN REWRITES: FEW-SHOT EDITING EXAMPLES
 
 ---
-## EXAMPLE 1: SINGLE TOPIC (Tech Capex & Unit Economics)
+## EXAMPLE 1: SINGLE TOPIC (Tech Capex & Vendor Financing)
 
 [RAW INPUT DRAFT]:
-AI data centers are running into an insurance wall. As Meta and other tech giants push for massive compute expansion, the circular financing loop where hardware suppliers provide equity or venture capital to fund customer infrastructure is hitting a liquidity ceiling. The underlying issue is that subscription models fail to cover massive compute costs. As interest rates remain at 19-year highs, this debt-heavy strategy is compressing equity multiples and increasing the risk of balance-sheet write-downs. Expect de-rating if growth slows.
+Broadcom is underwriting its own demand by extending a massive $42 billion credit line to Anthropic. The facility funds a third of Anthropic’s five-year, $125.2 billion TPU processor commitment. While this circular vendor financing locks in long-term silicon shipments, it concentrates acute counterparty credit risk on Broadcom’s balance sheet. If Anthropic's downstream enterprise monetization stalls, Broadcom eats the loan impairment directly. Credit markets are already punishing this playbook. Oracle’s widening CDS spreads show that institutional bondholders refuse to ignore balance-sheet leverage taken on to subsidize hyperscale buildouts. Borrowing at multi-decade high interest rates to fund client hardware purchases guarantees multiple compression as credit risk reprices.
 
 [TARGET EDITED POST]:
-Consumer AI pricing has hit a severe unit-economic mismatch: flat-rate software pricing cannot cover dedicated compute costs.
+Broadcom isn't just selling AI chips to Anthropic. It’s lending them the money to buy them.
 
-Meta pricing its Muse AI agent at a flat $20 monthly subscription exposes the problem. Running dedicated virtual machines for up to 100 million active users requires massive, continuous inference power that completely outstrips the fixed subscription intake. To bridge the cash gap between heavy server depreciation and delayed software profitability, tech giants are forced to lean on corporate debt.
+Broadcom opened a $42 billion credit line to cover a third of Anthropic’s $125 billion TPU order. The mechanic is simple: Broadcom books massive silicon sales today, but takes all the customer credit risk directly onto its own balance sheet. If enterprise software monetization stalls, that loan doesn't vanish—Broadcom eats the write-down.
 
-With 10-year Treasury yields anchored above 5.1%, funding subsidized compute through borrowing inflates interest expense, destroying cash flow and triggering multiple compression across Big Tech.
+Credit desks already see the trap. Look at Oracle: surging debt insurance costs (CDS) prove that bondholders will not ignore heavy borrowing used to subsidize cloud hardware.
+
+Stock investors are still chasing the sales headlines. Bond investors have already started pricing in the loan default risk.
 
 ---
-## EXAMPLE 2: SINGLE TOPIC (Corporate Governance & Balance Sheet Risk)
+## EXAMPLE 2: SINGLE TOPIC (Corporate Governance & Capital Allocation)
 
 [RAW INPUT DRAFT]:
 Many investors assume that record profits at state-controlled companies mean massive dividends. When Orlen reported a net profit of 15.8 billion PLN, minority shareholders expected a major payout. The reality is different. Instead of a dividend, the state wants Orlen to buy a 40% to 45% stake in PGZ for 20 to 22 billion PLN. Warsaw is using Orlen as an off-budget piggy bank. Private shareholders get diluted to swallow unlisted defense assets. When the government treats public markets this way, private investors pay the bill.
 
 [TARGET EDITED POST]:
-The classic state governance discount playing out in real time:
+If you want to see how the state governance discount works in real time, look at Orlen.
 
-Orlen posts a 15.8 billion PLN net profit, but shareholders won't see a normalized payout. Instead, the Polish state is directing the refiner to absorb a 40–45% stake in unlisted defense giant PGZ for up to 22 billion PLN.
+The refiner posted a 15.8 billion PLN net profit. But instead of paying dividends, the Polish state is directing management to spend up to 22 billion PLN buying a 45% stake in PGZ, an unlisted state defense giant. 
 
-The balance-sheet mechanics are obvious:
-1. Warsaw funds defense procurement off-budget, bypassing statutory EU deficit caps.
-2. Minority shareholders are forced to carry an illiquid, unlisted asset with no path to cash generation or secondary exit.
+The maneuver is straightforward: Warsaw funds military hardware off-budget to bypass statutory deficit limits, while public shareholders get stuck holding an illiquid asset that generates zero dividend yield.
 
-When investing in state-controlled champions, you aren't just betting on refining margins—you're underwriting fiscal policy risk.
+When you buy shares in state-controlled champions, you aren't just betting on refining margins. You are underwriting state budget risk.
 
 ---
-## EXAMPLE 3: MULTI-TOPIC DIGEST (Macro Debt & Global Yield Contagion)
+## EXAMPLE 3: MULTI-TOPIC DIGEST (Macro Yields & Liquidity)
 
 [RAW INPUT DRAFT]:
 Global debt has hit $365 trillion. This massive burden is triggering a bond sell-off:
@@ -40,26 +40,9 @@ Global debt has hit $365 trillion. This massive burden is triggering a bond sell
 Heavy state borrowing keeps global discount rates high. This forces corporate borrowing
 
 [TARGET EDITED POST]:
-A $365 trillion global debt overhang is pulling liquidity away from productive capital investment:
+A $365 trillion global debt pile is draining capital away from real investment:
 
-1. Crowding out real growth: Advanced economies burned $3.3T purely servicing sovereign debt last year, completely eclipsing the $2.6T spent globally on AI, defense, and energy transition combined. Governments are issuing fresh debt just to roll over maturing coupons, turning public budgets into interest-servicing vehicles.
-2. Global yield contagion: A weak $70B US Treasury auction pushed 5-year yields past 5%, dragging Japan’s 10-year yield to a 30-year high of 3.055% as Tokyo hikes to defend the yen against dollar strength.
+1. Debt servicing beats innovation: Rich nations spent $3.3 trillion purely paying bond interest last year, completely topping the $2.6 trillion spent globally on AI, defense, and green energy combined. Budgets are turning into debt-refinancing vehicles.
+2. Contagion across bond markets: A weak $70 billion US Treasury auction pushed 5-year yields over 5%. That spike spilled straight into Tokyo, dragging Japan’s 10-year yield to a 30-year high of 3.055% as policymakers fight to defend the weak yen.
 
-When sovereign debt issuance absorbs global liquidity, long-term discount rates remain pinned at generational highs, putting sustained downward pressure on corporate equity multiples.
-
----
-## EXAMPLE 4: MULTI-TOPIC DIGEST (Energy Logistics Shock & Chokepoints)
-
-[RAW INPUT DRAFT]:
-Persistent energy inflation and heavy debt issuance are breaking rate-cut bets:
-- Strait of Hormuz transit collapsed from 130 ships a day to just 4. Shippers are cutting transponders to evade missiles, forcing insurers to spike premiums and eat into shipping margins. Fuel security is tight.
-- Bank of Japan raised rates to 1.25%, but the yen still weakened past 157. A split 7-2 vote signaled hesitation.
-When shipping lanes freeze and rate hikes can't save a currency, corporate margins shrink.
-
-[TARGET EDITED POST]:
-Physical trade chokepoints and currency defense failures are breaking macro assumptions:
-
-1. Chokepoint shutdown: Daily transit through the Strait of Hormuz collapsed from 130 ships to just four. With tankers turning off transponders to avoid missile strikes, insurers are hiking war-risk premiums, adding massive freight surcharges to crude and LNG cargoes headed for Europe and Asia.
-2. Currency defense limits: The Bank of Japan raised rates to 1.25%, yet the yen still weakened past 157 per dollar. The split 7-2 vote signaled that the central bank cannot hike fast enough to close the yield gap with the US.
-
-When critical supply corridors freeze and higher rates fail to defend a currency, import costs spike, eating directly into corporate margins.
+When governments absorb this much market liquidity, long-term borrowing costs stay high for everyone, putting permanent downward pressure on corporate stock valuations.

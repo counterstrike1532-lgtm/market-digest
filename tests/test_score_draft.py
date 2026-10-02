@@ -276,3 +276,23 @@ def test_new_banned_words_local_checker():
         assert target in detail
 
 
+
+
+def test_multiparagraph_draft_with_blank_lines_passes_length_and_local_checks():
+    # Two/three-part structure with \n\n blank lines separating paragraphs
+    post = (
+        "Broadcom isn't just selling AI chips to Anthropic. It’s lending them the money to buy them.\n\n"
+        "Broadcom opened a $42 billion credit line to cover a third of Anthropic’s $125 billion TPU order. "
+        "The mechanic is simple: Broadcom books massive silicon sales today, but takes all the customer credit risk directly onto its own balance sheet. "
+        "If enterprise software monetization stalls, that loan doesn't vanish—Broadcom eats the write-down.\n\n"
+        "Credit desks already see the trap. Surging debt insurance costs prove that bondholders will not ignore heavy borrowing used to subsidize cloud hardware.\n\n"
+        "Stock investors are still chasing sales headlines. Bond investors have already started pricing in loan default risk."
+    )
+    words = post.split()
+    assert 100 <= len(words) <= 120
+    ok, msg = score_draft.check_length(post, post.lower(), shape="single")
+    assert ok, f"Length check failed: {msg}"
+    ok_trunc, msg_trunc = score_draft.check_truncation(post, post.lower())
+    assert ok_trunc, f"Truncation check failed: {msg_trunc}"
+    results, passed = score_draft.run_local_checks(post, shape="single")
+    assert passed, f"Local checks failed: {[(n, d) for n, o, d in results if not o]}"
