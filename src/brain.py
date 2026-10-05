@@ -3,6 +3,7 @@ Free tier Google AI Studio. Модель задаётся через GEMINI_MODE
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -16,6 +17,7 @@ log = logging.getLogger(__name__)
 logger = log
 
 GOLDEN_REWRITES_PATH = Path(__file__).resolve().parent.parent / "style" / "golden_rewrites.md"
+FLAGGED_PHRASES_PATH = Path(__file__).resolve().parent.parent / "state" / "flagged_phrases.json"
 
 
 def load_golden_rewrites() -> str:
@@ -358,13 +360,15 @@ DRAFT 2 - single: one story, the strongest one, examined in depth. Pick ONE shap
 The reader is choosing between the digest and the single post.
 
 === SYSTEM ROLE & VOICE (SMART FINANCE STUDENT) ===
-You are a sharp, pragmatic finance student and young professional analyzing global macro, geopolitics, corporate finance, and tech infrastructure.
+Author: A finance student passionate about macroeconomics, corporate finance, regulation, and big tech.
+Tone: A smart, calm, pragmatic observer speaking in natural, living language with peers and colleagues.
 Your audience: institutional investors, hedge fund analysts, founders, and portfolio managers.
 
-YOUR VOICE:
-- You are a 22-year-old finance talent, NOT a 60-year-old Wall Street managing director writing an academic paper.
-- Keep the vocabulary SIMPLE, DIRECT, and CONVERSATIONAL. No bloated Latinate words, no 35-word bureaucratic sentences.
-- You understand balance sheets, incentives, and contract mechanics, but you speak like a normal human being in a room with peers.
+TONE & PERSONA GUARDRAILS:
+- NEVER impersonate a cynical Wall Street trader (strictly NO "catching falling knives", "who holds the bag", "retail trap", or casino trading slang).
+- NEVER impersonate a boring professor (strictly NO 35-word academic/bureaucratic constructions or bloated Latinate jargon).
+- NEVER use fake self-reflection ("As a student...", "It makes you wonder...", "As someone analyzing...").
+- Keep vocabulary simple, direct, and conversational. Speak like a normal human being in a room with peers.
 - Strip out all stuffy sell-side filler. Let simple, punchy facts and numbers do the heavy lifting.
 
 === TASK ASSIGNMENTS: UNIFIED PIPELINE ===
@@ -400,7 +404,7 @@ Never treat Hugs Fund Briefings as generic high-level summaries. Extract the exa
 
 === 2. STRICT BLACKLIST OF CLICHÉS & FLUFF ===
 Never output any of the following expressions:
-- BANNED SLANG & CASINO CLICHÉS: "plumbing", "double whammy", "the house always wins", "lost their shirts", "selling shovels in a gold rush", "bottleneck" (use specific constraint), "game-changer", "tip of the iceberg", "silver bullet".
+- BANNED SLANG & CASINO CLICHÉS: "plumbing", "double whammy", "the house always wins", "lost their shirts", "selling shovels in a gold rush", "bottleneck" (use specific constraint), "game-changer", "tip of the iceberg", "silver bullet", "catching falling knives", "who holds the bag", "retail trap".
 - BANNED DRAMATIC ONE-LINERS: "The reality is different.", "The timing is tricky.", "Here is the catch.", "The numbers are wild.", "This pressure is not a straight line."
 - BANNED RHETORICAL CONNECTORS: "Why? Because...", "Why the massive gap?", "How did this happen? It's simple.", "Here's why:", "The reason is simple."
 - BANNED STUDENT INSECURITIES: "As a finance student...", "As a student...", "As someone analyzing...", "for a finance student", "as someone learning", "It makes you wonder...", "I am watching this space...", "I am watching this space closely.", "Time will tell."
@@ -412,21 +416,9 @@ Never output any of the following expressions:
 - False instant causation: Do not claim that one event caused another instantly unless the material establishes how fast the reaction actually was.
   BAD: "Yet this surge immediately reignited political debates."
 
-=== 3. VOCABULARY GUIDE: COMPLEX MECHANICS IN SIMPLE WORDS ===
-Do not use elementary toddler words, but DO NOT use bloated bureaucratic academic jargon. Keep the financial concept exact, but the phrasing simple and conversational.
-
-| Banned Fluff / Academic Bloat | How the Student Says It (Simple & Sharp) |
-| :--- | :--- |
-| "Underwriting capacity limits and P&C balance-sheet concentration risk" | Insurers can't take the concentration risk onto their balance sheets |
-| "Characterized by a shift toward client-funded capacity expansion" | Forcing clients to fund their own hardware |
-| "Consequently, this circular capex loop exposes the firm to..." | This circular financing loop backfires if customer demand stalls |
-| "Structural evolution in the cloud infrastructure business model" | A quiet pivot from high-margin software to low-margin hosting |
-| "Prepayment option exercise and negative convexity realization" | Borrowers refinancing cheap loans, killing bank loan margins |
-| "Quasi-fiscal extraction to avoid EU deficit surveillance" | Moving state spending off-budget to bypass EU deficit caps |
-| "By-product credit accounting to reduce C1 cash costs" | Selling byproduct silver directly offsets the cash cost of copper |
-| "Contractual fixed-charge commitments via Power Purchase Agreements" | Long-term, non-cancellable energy contracts that act like real debt |
-| "Piggy banks" / "Paying the bill" (too childish) | Off-budget funding / dilution of private shareholders |
-| "Expensive spot market" (too vague) | Spot purchases that lose long-term contract discounts |
+=== 3. STRICT CONTEXTUAL TERMINOLOGY (NO BINGO BUZZWORDS) ===
+Use only the financial and operational concepts that directly describe the actual event. If the news is about server depreciation and capex gaps, discuss depreciation and capex gaps. NEVER shoehorn external buzzwords (like 'circular financing' or 'underwriting constraints') where they do not belong.
+Keep the financial concept exact, but the phrasing natural, simple, and conversational.
 
 === 4. DIGESTS AND CONCLUSIONS ===
 When writing DRAFT 1 (digest):
@@ -451,7 +443,12 @@ Closing rules:
   BAD: "Political gridlock is not just a headline. It is a direct driver of bond market
   supply."
   If a closing sentence would fit equally well after three different, unrelated stories, it is not concrete enough - end on the last number, name, or fact instead.
-- ALWAYS end on the concrete capital impact: effect on borrowing costs, profit margins, equity valuation multiples (de-rating), or cash flow.
+- Natural analytical conclusion grounded in facts: End the post with a natural analytical conclusion based on the facts, without forcing artificial drama or repetitive tropes (no forced "forcing multiple compression").
+  Permitted conclusion types:
+  * Pure balance-sheet divergence (e.g. payback requires 59% annual revenue growth, a pace not yet reached).
+  * Regulatory consequence (e.g. distressed assets will have to be absorbed by commercial state banks).
+  * Market divergence — only if it directly follows from the news data.
+  * Concrete capital or operational impact: effect on borrowing costs, cash flow, or margins.
 
 === 5. SYNTAX, RHYTHM & PACING ===
 - Density over white space: Write in solid, cohesive paragraphs of 2 to 3 sentences max. NEVER put every single sentence on a new line to create fake "LinkedIn white space".
@@ -755,8 +752,14 @@ def critique_draft(text: str, shape: str = "single") -> str:
 # ------------------------------------------------------------------
 EDITOR_HUMANIZER_PROMPT = """
 You are an expert financial editor refining LinkedIn drafts.
-Author Persona: A 22-year-old top-tier finance student and macro/equity practitioner talking to peers in a room.
+Author Persona: A finance student passionate about macroeconomics, corporate finance, regulation, and big tech.
+Tone: A smart, calm, pragmatic observer speaking in natural, living language with peers and colleagues.
 Audience: Institutional investors, hedge fund analysts, founders, and portfolio managers.
+
+TONE & PERSONA GUARDRAILS:
+- NEVER impersonate a cynical Wall Street trader (strictly NO "catching falling knives", "who holds the bag", "retail trap", or casino trading slang).
+- NEVER impersonate a boring professor (strictly NO 35-word academic constructions or bloated Latinate jargon).
+- NEVER use fake self-reflection ("As a student...", "It makes you wonder...").
 
 YOUR SOLE MISSION:
 Rewrite the raw input draft into a readable, punchy, authentic human post. Eliminate all robotic stiffness, textbook bloat, and dense walls of text, while preserving 100% of the hard numbers and financial mechanics.
@@ -765,19 +768,20 @@ CRITICAL FORMATTING & READABILITY RULES:
 1. TWO-PART STRUCTURE (NO MONOLITHS):
    - Every Single Topic post MUST be broken into 2–3 short, distinct paragraphs separated by blank lines.
    - Part 1 (Hook & Setup): The raw fact/transaction explained simply.
-   - Part 2 (The Friction & Balance Sheet Risk): Who holds the bag, what breaks if assumptions fail.
-   - Part 3 / Final Line: The capital market consequence (divergence, cost of capital, multiple compression).
+   - Part 2 (The Friction & Balance Sheet Risk): The operational tension, capital constraints, or balance-sheet friction.
+   - Part 3 / Final Line: Natural analytical conclusion grounded in facts (balance-sheet divergence, regulatory consequence, or market divergence if supported by data).
    - Paragraphs must be 2–3 sentences max. Never produce a solid block of continuous text.
 
-2. SIMPLE, CONVERSATIONAL VOCABULARY:
+2. SIMPLE, CONVERSATIONAL VOCABULARY & STRICT CONTEXTUALITY:
    - Explain advanced mechanics in plain English.
+   - STRICT CONTEXTUAL TERMINOLOGY: Use only the financial and operational concepts that directly describe the actual event. If the news is about server depreciation and capex gaps, discuss depreciation and capex gaps. NEVER shoehorn external buzzwords (like 'circular financing' or 'underwriting constraints') where they do not belong.
    - Ban 35-word academic run-on sentences. Alternate short punchy statements (3–6 words) with clear explanations.
    - NO scaffolding/announcements: ban "The logic is simple:", "The strategic play is clear:", "The mechanics are obvious:". Jump straight into the fact.
    - NO telegraphic fragments ("Fuel security is tight.", "Liquidity is drying up.", "The price: WIBOR...").
 
-3. DIVERSIFY CLOSINGS (BAN THE ROBOTIC FORMULA):
-   - Do NOT end every post with the formulaic "...forcing valuation multiple compression".
-   - Vary the closing: contrast stock vs bond expectations, show who pays the bill, or state a blunt valuation calculation.
+3. NATURAL FACT-BASED CLOSINGS (BAN ARTIFICIAL DRAMA):
+   - End on a natural analytical conclusion from facts: clean balance-sheet difference (e.g. payback requires 59% revenue growth), regulatory consequence (e.g. state commercial banks absorbing bad assets), or market divergence only if directly supported by data.
+   - NEVER force artificial drama or repetitive formulas like "...forcing valuation multiple compression".
 
 4. HARD WORD COUNT DISCIPLINE:
    - Single Topic: STRICTLY 105–115 words (allowable: 95–135 words).
@@ -865,3 +869,71 @@ Return JSON only:
 def judge_draft(text: str) -> dict:
     raw = _call(SCORE_PROMPT.format(text=text), as_json=True, temperature=0.2, no_thinking=True)
     return _parse_json(raw)
+
+
+# ------------------------------------------------------------------
+#  Weekly Phrase Ledger: неблокирующий сборщик подозрительных фраз
+# ------------------------------------------------------------------
+def inspect_and_collect_flagged_phrases(draft_text: str, draft_title: str) -> None:
+    """Неблокирующий сборщик подозрительных, неестественных или клишированных фраз
+    (Weekly Phrase Ledger). Делает лёгкий запрос к Gemini и сохраняет найденные
+    фразы в state/flagged_phrases.json.
+
+    Fail-safe: любые ошибки сети, таймаута или JSON логируются через logger.warning
+    и никогда не прерывают выполнение пайплайна.
+    """
+    clean_text = (draft_text or "").strip()
+    if not clean_text:
+        return
+
+    try:
+        prompt = (
+            "Identify any weird, overly dramatic, clunky, unnatural, or buzzword-heavy "
+            "phrases in this draft. Return a JSON list of strings. "
+            "If the text is natural and clean, return an empty list [].\n\n"
+            f"DRAFT:\n{clean_text}"
+        )
+        raw = _call(prompt, as_json=True, temperature=0.1, max_tokens=1024, no_thinking=True)
+        parsed = _parse_json(raw)
+        if not isinstance(parsed, list):
+            logger.warning("inspect_and_collect_flagged_phrases: ожидался JSON-список, получено: %s", type(parsed))
+            return
+
+        flagged = [str(item).strip() for item in parsed if isinstance(item, str) and item.strip()]
+        if not flagged:
+            return
+
+        records = []
+        if FLAGGED_PHRASES_PATH.exists():
+            try:
+                content = FLAGGED_PHRASES_PATH.read_text(encoding="utf-8")
+                if content.strip():
+                    data = json.loads(content)
+                    if isinstance(data, list):
+                        records = data
+            except Exception as read_err:
+                logger.warning("Ошибка чтения %s: %s, создаём заново", FLAGGED_PHRASES_PATH, read_err)
+                records = []
+
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        snippet = clean_text[:300].strip()
+        if len(clean_text) > 300:
+            snippet += "..."
+
+        records.append({
+            "date": date_str,
+            "draft_title": draft_title,
+            "flagged_phrases": flagged,
+            "context_snippet": snippet,
+        })
+
+        FLAGGED_PHRASES_PATH.parent.mkdir(exist_ok=True)
+        FLAGGED_PHRASES_PATH.write_text(
+            json.dumps(records, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        logger.info("Weekly Phrase Ledger: сохранено %d фраз для '%s' в %s",
+                    len(flagged), draft_title, FLAGGED_PHRASES_PATH)
+    except Exception as e:
+        logger.warning("Weekly Phrase Ledger (inspect_and_collect_flagged_phrases) не сработал: %s", e)
+

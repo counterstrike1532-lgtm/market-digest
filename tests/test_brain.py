@@ -428,4 +428,138 @@ def test_edit_and_humanize_draft_empty_input():
     assert brain.edit_and_humanize_draft("   ") == ""
 
 
+# ---------------------------------------------------------------- Weekly Phrase Ledger & Persona tests
+
+import json
+from pathlib import Path
+
+
+def test_inspect_and_collect_flagged_phrases_writes_json(monkeypatch, tmp_path):
+    target_json = tmp_path / "flagged_phrases.json"
+    monkeypatch.setattr(brain, "FLAGGED_PHRASES_PATH", target_json)
+
+    def fake_call(prompt, **kwargs):
+        return '["quiet cleanup", "catching falling knives"]'
+
+    monkeypatch.setattr(brain, "_call", fake_call)
+    draft_body = "This is a test draft with quiet cleanup and catching falling knives."
+    brain.inspect_and_collect_flagged_phrases(draft_body, "DRAFT 2 — SINGLE TOPIC")
+
+    assert target_json.exists()
+    data = json.loads(target_json.read_text(encoding="utf-8"))
+    assert len(data) == 1
+    record = data[0]
+    assert record["draft_title"] == "DRAFT 2 — SINGLE TOPIC"
+    assert record["flagged_phrases"] == ["quiet cleanup", "catching falling knives"]
+    assert "quiet cleanup" in record["context_snippet"]
+    assert "date" in record
+
+
+def test_inspect_and_collect_flagged_phrases_appends_to_existing(monkeypatch, tmp_path):
+    target_json = tmp_path / "flagged_phrases.json"
+    initial_records = [{
+        "date": "2026-10-01",
+        "draft_title": "DRAFT 1 — DIGEST",
+        "flagged_phrases": ["old phrase"],
+        "context_snippet": "old snippet"
+    }]
+    target_json.write_text(json.dumps(initial_records), encoding="utf-8")
+    monkeypatch.setattr(brain, "FLAGGED_PHRASES_PATH", target_json)
+
+    monkeypatch.setattr(brain, "_call", lambda *a, **kw: '["new buzzword"]')
+    brain.inspect_and_collect_flagged_phrases("Another draft text", "DRAFT 2 — SINGLE TOPIC")
+
+    data = json.loads(target_json.read_text(encoding="utf-8"))
+    assert len(data) == 2
+    assert data[0]["flagged_phrases"] == ["old phrase"]
+    assert data[1]["flagged_phrases"] == ["new buzzword"]
+
+
+def test_inspect_and_collect_flagged_phrases_empty_list_does_not_record(monkeypatch, tmp_path):
+    target_json = tmp_path / "flagged_phrases.json"
+    monkeypatch.setattr(brain, "FLAGGED_PHRASES_PATH", target_json)
+
+    monkeypatch.setattr(brain, "_call", lambda *a, **kw: '[]')
+    brain.inspect_and_collect_flagged_phrases("Clean and natural text", "DRAFT 1 — DIGEST")
+
+    assert not target_json.exists()
+
+
+def test_inspect_and_collect_flagged_phrases_empty_draft_early_return(monkeypatch):
+    called = []
+    monkeypatch.setattr(brain, "_call", lambda *a, **kw: called.append(True))
+    brain.inspect_and_collect_flagged_phrases("", "DRAFT 1")
+    brain.inspect_and_collect_flagged_phrases("   ", "DRAFT 2")
+    assert len(called) == 0
+
+
+def test_inspect_and_collect_flagged_phrases_failsafe_on_exception(monkeypatch, caplog):
+    def exploding_call(*a, **kw):
+        raise RuntimeError("API timeout or connection dropped")
+
+    monkeypatch.setattr(brain, "_call", exploding_call)
+    import logging
+    with caplog.at_level(logging.WARNING):
+        # Should not raise exception
+        brain.inspect_and_collect_flagged_phrases("Draft text", "DRAFT 1 — DIGEST")
+
+    assert "Weekly Phrase Ledger" in caplog.text
+
+
+def test_inspect_and_collect_flagged_phrases_failsafe_on_invalid_json(monkeypatch, caplog):
+    monkeypatch.setattr(brain, "_call", lambda *a, **kw: "invalid json string")
+    import logging
+    with caplog.at_level(logging.WARNING):
+        brain.inspect_and_collect_flagged_phrases("Draft text", "DRAFT 1 — DIGEST")
+
+
+def test_editor_humanizer_prompt_persona_and_no_vocabulary_guide():
+    prompt = brain.EDITOR_HUMANIZER_PROMPT
+    # Проверка новой ролевой установки студента финансов
+    assert "Author Persona: A finance student passionate about macroeconomics, corporate finance, regulation, and big tech." in prompt
+    assert "smart, calm, pragmatic observer" in prompt
+    assert "catching falling knives" in prompt
+    assert "who holds the bag" in prompt
+    assert "retail trap" in prompt
+    assert "As a student..." in prompt
+
+    # Проверка строгого правила терминологической контекстности
+    assert "STRICT CONTEXTUAL TERMINOLOGY: Use only the financial and operational concepts that directly describe the actual event." in prompt
+
+    # Проверка отсутствия старой таблицы vocabulary guide и навязанных терминов
+    assert "Vocabulary Guide" not in prompt
+    assert "| Banned Fluff" not in prompt
+    assert "circular capex loop" not in prompt
+    assert "take-or-pay" not in prompt
+
+
+def test_draft_prompt_persona_and_no_vocabulary_guide():
+    prompt = brain.DRAFT_PROMPT
+    assert "Author: A finance student passionate about macroeconomics, corporate finance, regulation, and big tech." in prompt
+    assert "smart, calm, pragmatic observer" in prompt
+    assert "catching falling knives" in prompt
+    assert "who holds the bag" in prompt
+    assert "retail trap" in prompt
+
+    assert "Use only the financial and operational concepts that directly describe the actual event." in prompt
+    assert "Vocabulary Guide" not in prompt
+    assert "| Banned Fluff" not in prompt
+    assert "circular capex loop" not in prompt
+
+
+def test_hugs_workflow_prompts_persona_and_no_vocabulary_guide():
+    from src import hugs_workflow
+    for prompt in (hugs_workflow.EDITOR_HUMANIZER_PROMPT, hugs_workflow.HUGS_ANALYSIS_PROMPT):
+        assert "finance student passionate about macroeconomics, corporate finance, regulation, and big tech" in prompt
+        assert "smart, calm, pragmatic observer" in prompt
+        assert "catching falling knives" in prompt
+        assert "who holds the bag" in prompt
+        assert "retail trap" in prompt
+        assert "Use only the financial and operational concepts that directly describe the actual event." in prompt
+        assert "Vocabulary Guide" not in prompt
+        assert "| Banned Fluff" not in prompt
+        assert "circular capex loop" not in prompt
+
+
+
 
