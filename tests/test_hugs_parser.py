@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import bs4
 import pytest
 
+from src import brain
 from src.hugs_parser import (
     HugsPost,
     clean_post_text,
@@ -335,5 +336,74 @@ def test_humanize_hugs_briefing(monkeypatch):
     assert humanize_calls[1] == ("Raw single topic body text here.", "single")
     assert "HUMANIZED_DIGEST: Raw digest body text here." in result
     assert "HUMANIZED_SINGLE: Raw single topic body text here." in result
+
+
+def test_prune_digest_bullets_normalizes_four_to_three():
+    four_bullet_draft = (
+        "Persistent energy inflation is breaking rate-cut bets:\n\n"
+        "• <b>1. Fuel reserve drain:</b> SPR fell to historic lows under 350M barrels.\n"
+        "• <b>2. Sovereign debt surge:</b> Deficit widened to $1.8T while yields hit 4.8%.\n"
+        "• <b>3. Corporate margin squeeze:</b> Refinancing costs rose by 150 bps.\n"
+        "• <b>4. AI hardware commitments:</b> Cloud capex jumped to $52B annually.\n\n"
+        "Higher discount rates will force equity multiple compression across the board."
+    )
+    pruned = brain.prune_digest_bullets(four_bullet_draft, max_bullets=3)
+
+    assert "1. Fuel reserve drain" in pruned
+    assert "2. Sovereign debt surge" in pruned
+    assert "3. Corporate margin squeeze" in pruned
+    assert "4. AI hardware commitments" not in pruned
+    assert "$52B" not in pruned
+    assert "Higher discount rates will force equity multiple compression across the board." in pruned
+    assert "Persistent energy inflation is breaking rate-cut bets:" in pruned
+
+    # Проверка, что 2-3 буллета не затрагиваются
+    two_bullet_draft = (
+        "Hook line:\n\n"
+        "• <b>1. One:</b> $10B.\n"
+        "• <b>2. Two:</b> $20B.\n\n"
+        "Closing line."
+    )
+    assert brain.prune_digest_bullets(two_bullet_draft, max_bullets=3) == two_bullet_draft
+
+
+def test_humanize_hugs_briefing_prunes_four_bullets_before_editor(monkeypatch):
+    from src.hugs_workflow import humanize_hugs_briefing
+
+    passed_drafts = []
+
+    def fake_edit(draft, draft_type="single", context_summary=""):
+        passed_drafts.append((draft, draft_type))
+        return f"EDITED: {draft}"
+
+    monkeypatch.setattr("src.brain.edit_and_humanize_draft", fake_edit)
+
+    sample_briefing = (
+        "📌 <b>KEY HIGHLIGHTS</b>\n\n"
+        "• Story 1 [Bloomberg]\n\n"
+        "───────────────\n\n"
+        "📝 <b>DRAFT 1 — DIGEST</b> (110-130 words)\n\n"
+        "Persistent energy inflation is breaking rate-cut bets:\n\n"
+        "• <b>1. Topic one:</b> $10B.\n"
+        "• <b>2. Topic two:</b> $20B.\n"
+        "• <b>3. Topic three:</b> $30B.\n"
+        "• <b>4. Topic four:</b> $40B.\n\n"
+        "Terminal conclusion.\n\n"
+        "───────────────\n\n"
+        "💡 <b>DRAFT 2 — SINGLE TOPIC</b> (100-120 words)\n\n"
+        "Single topic text.\n"
+    )
+
+    result = humanize_hugs_briefing(sample_briefing)
+    assert len(passed_drafts) == 2
+    d1_text, d1_type = passed_drafts[0]
+    assert d1_type == "digest"
+    assert "Topic one" in d1_text
+    assert "Topic two" in d1_text
+    assert "Topic three" in d1_text
+    assert "Topic four" not in d1_text
+    assert "$40B" not in d1_text
+    assert "Terminal conclusion." in d1_text
+
 
 

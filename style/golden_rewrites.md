@@ -1,17 +1,17 @@
 # GOLDEN REWRITES: FEW-SHOT EDITING EXAMPLES
 
 ---
-## EXAMPLE 1: SINGLE TOPIC (Tech Capex & Vendor Financing)
+## EXAMPLE 1: SINGLE TOPIC (Anthropic Take-or-Pay Compute Liabilities)
 
 [RAW INPUT DRAFT]:
-Broadcom is underwriting its own demand by extending a massive $42 billion credit line to Anthropic. The facility funds a third of Anthropic’s five-year, $125.2 billion TPU processor commitment. While this circular vendor financing locks in long-term silicon shipments, it concentrates acute counterparty credit risk on Broadcom’s balance sheet. If Anthropic's downstream enterprise monetization stalls, Broadcom eats the loan impairment directly. Credit markets are already punishing this playbook. Oracle’s widening CDS spreads show that institutional bondholders refuse to ignore balance-sheet leverage taken on to subsidize hyperscale buildouts. Borrowing at multi-decade high interest rates to fund client hardware purchases guarantees multiple compression as credit risk reprices.
+Anthropic's IPO prospectus reveals a massive $518 billion 10-year compute commitment, with 80% ($413.7 billion) structured as take-or-pay liabilities benefiting major shareholders Google and Amazon. The bulk of these multi-billion-dollar payments flow directly to cloud providers who also serve as equity backers. Anthropic's current run-rate revenue sits at $46 billion, while annual compute obligations average $52 billion. Operating margins will remain heavily compressed until enterprise software monetization outpaces hardware spend.
 
 [TARGET EDITED POST]:
-Broadcom opened a $42 billion credit line to finance customer purchases of its own hardware, covering a third of Anthropic’s $125.2 billion processor order.
+Anthropic’s IPO prospectus reveals a staggering $518 billion ten-year compute commitment, with 80% structured as rigid take-or-pay liabilities.
 
-The arrangement books upfront silicon revenue today, but moves severe customer credit risk directly onto Broadcom's balance sheet. If enterprise software monetization slows, that loan remains a live corporate liability, forcing Broadcom to absorb the write-down directly.
+These cash outflows flow straight to Google, Amazon, and Broadcom, who simultaneously act as the startup's anchor equity backers and hardware suppliers. The unit economics show an acute operational mismatch: Anthropic’s $52 billion annual server obligation already exceeds its entire $46 billion run-rate revenue, forcing permanent reliance on external equity rounds to cover baseline inference costs.
 
-Surging credit default swaps at Oracle show that bondholders are penalizing debt taken on to subsidize cloud capacity. While equity analysts track gross hardware deliveries, credit markets are pricing the underlying loan default risk.
+Operating margins will stay heavily compressed by fixed infrastructure debt until enterprise software monetization finally outgrows the mandatory hardware spend.
 
 ---
 ## EXAMPLE 2: SINGLE TOPIC (Corporate Governance & Fiscal Extraction)

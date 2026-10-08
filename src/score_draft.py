@@ -325,7 +325,7 @@ def extract_numbers(text: str) -> list[str]:
     """Извлекает числовые токены (целые и десятичные), исключая маркеры списков в начале строк."""
     cleaned_lines = []
     for line in text.splitlines():
-        cl = re.sub(r'^\s*(?:[•\-*]|\d+[.)])\s*(?:\d+[.)]\s*)?', '', line)
+        cl = re.sub(r'^\s*(?:[•\-*]\s*)?(?:<\w+>\s*)?(?:\d+[.)]\s*)?', '', line)
         cleaned_lines.append(cl)
     cleaned = "\n".join(cleaned_lines)
     matches = _NUM_TOKEN_RE.finditer(cleaned)

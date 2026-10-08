@@ -354,7 +354,7 @@ def rank(items, top_n: int = 12) -> list[dict]:
 # ------------------------------------------------------------------
 DRAFT_PROMPT = """Write exactly 2 LinkedIn post drafts in ENGLISH, in this fixed order:
 
-DRAFT 1 - digest: a thematic roundup of 2-3 stories from the selection below, unified under a single macro principle. Strictly 110–130 words.
+DRAFT 1 - digest: a thematic roundup of strictly 2-3 stories (maximum 3, never 4) from the selection below, unified under a single macro principle. Strictly 110–130 words.
 DRAFT 2 - single: one story, the strongest one, examined in depth. Pick ONE shape for it (A. MECHANISM, B. TWO NUMBERS, C. COMMON BELIEF). Strictly 100–120 words.
 
 The reader is choosing between the digest and the single post.
@@ -380,7 +380,7 @@ Never treat Hugs Fund Briefings as generic high-level summaries. Extract the exa
 
 === STRICT WORD COUNT LIMITS & POST FORMATS ===
 - SINGLE TOPIC POST: Strictly 100–120 words.
-- MULTI-TOPIC DIGEST: Strictly 110–130 words. Must contain strictly 2 to 3 bullets (4 or more bullets are strictly forbidden).
+- MULTI-TOPIC DIGEST: Strictly 110–130 words. Must contain strictly 2 to 3 bullets (hard limit: strictly maximum 3, never 4; 4 or more bullets are strictly forbidden).
 - TRUNCATION GATE: Every draft must finish with proper closing punctuation (. or !). Never leave a sentence or thought cut off.
 - Format in tight paragraphs (2–3 sentences max). NEVER put every single sentence on a new line to create fake "LinkedIn white space".
 - CRITICAL FORMATTING RULE: Write clean, continuous plain text. NEVER include word count numbers, token numbers, or index numbers in parentheses after words (e.g. NEVER output 'market (12) rally (13)'). Calculate and verify word counts purely internally. Do not pollute the draft body with counters.
@@ -423,7 +423,7 @@ Keep the financial concept exact, but the phrasing natural, simple, and conversa
 === 4. DIGESTS AND CONCLUSIONS ===
 When writing DRAFT 1 (digest):
 1. Line 1 of a Digest frames the single core conflict immediately.
-2. Must contain strictly 2 to 3 bullets (4 or more bullets are strictly forbidden).
+2. Must contain strictly 2 to 3 bullets (hard limit: strictly maximum 3, never 4; 4 or more bullets are strictly forbidden).
 3. Each bullet has a bold 2–4 word header stating the exact action or mechanism:
    * "1. Off-budget defense spending:"
    * "2. Refinancing margin squeeze:"
@@ -591,7 +591,8 @@ def is_default_style_template(text: str) -> bool:
 
 def draft(selected: list[dict], data: dict, style_text: str, n: int = 2) -> str:
     blocks = []
-    for i, s_ in enumerate(selected[:6], 1):
+    # Жесткий лимит: передавать модели ровно 3 (максимум) или 2 сюжета для дайджеста
+    for i, s_ in enumerate(selected[:3], 1):
         body = (s_.get("body") or "").strip()
         src = body[:2500] if body else "(unavailable - use NO specific figures for this story)"
         blocks.append(
@@ -796,10 +797,52 @@ Return ONLY the final edited post text. No introductory remarks, no quotes, no w
 FALLBACK_BADGE = "⚠️ [RAW DRAFT: EDITOR FAILED]"
 
 
+def prune_digest_bullets(text: str, max_bullets: int = 3) -> str:
+    """Нормализует текст дайджеста: если буллетов больше max_bullets (например, 4),
+    оставляет первые max_bullets буллетов и сохраняет завершающий аналитический вывод."""
+    if not text:
+        return text
+
+    pattern = re.compile(r"(?:^|\n)\s*(?:•|\-|\*|\d+[.)])\s+")
+    matches = list(pattern.finditer(text))
+    if len(matches) <= max_bullets:
+        return text
+
+    cutoff_match = matches[max_bullets]
+    kept_text = text[:cutoff_match.start()].rstrip()
+
+    rest = text[cutoff_match.start():]
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", rest) if p.strip()]
+    terminal_paras = [p for p in paragraphs if not re.match(r"^(?:•|\-|\*|\d+[.)])\s+", p)]
+
+    if terminal_paras:
+        return kept_text + "\n\n" + "\n\n".join(terminal_paras)
+
+    all_rest_matches = list(pattern.finditer(rest))
+    if all_rest_matches:
+        last_bullet_match = all_rest_matches[-1]
+        last_bullet_text = rest[last_bullet_match.start():]
+        lines = last_bullet_text.splitlines()
+        terminal_lines = []
+        for line in lines[1:]:
+            s = line.strip()
+            if s and not re.match(r"^(?:•|\-|\*|\d+[.)])\s+", s):
+                terminal_lines.append(s)
+        if terminal_lines:
+            return kept_text + "\n\n" + "\n".join(terminal_lines)
+
+    return kept_text
+
+
 def edit_and_humanize_draft(raw_draft: str, draft_type: str = "single", context_summary: str = "") -> str:
     clean_draft = (raw_draft or "").strip()
     if not clean_draft:
         return ""
+
+    from . import score_draft
+    is_digest = draft_type == "digest" or score_draft.detect_shape(clean_draft) == "digest"
+    if is_digest:
+        clean_draft = prune_digest_bullets(clean_draft, max_bullets=3)
 
     golden_examples = load_golden_rewrites()
     
@@ -822,7 +865,6 @@ Strictly obey word limits ({ '105-115 words' if draft_type == 'single' else '115
         edited_text = response.strip()
         edited_text = re.sub(r"^```(?:markdown|text)?\s*|\s*```$", "", edited_text, flags=re.MULTILINE).strip()
         if edited_text:
-            from . import score_draft
             ok_trunc, trunc_msg = score_draft.check_truncation(edited_text, edited_text.lower())
             if len(edited_text.split()) >= 50 or len(clean_draft.split()) >= 50:
                 ok_len, len_msg = score_draft.check_length(edited_text, edited_text.lower(), shape=draft_type)
@@ -837,7 +879,7 @@ Strictly obey word limits ({ '105-115 words' if draft_type == 'single' else '115
     except Exception as e:
         logger.warning(f"Editor pass failed, falling back to raw draft: {e}")
     
-    return f"{FALLBACK_BADGE}\n\n{raw_draft}" 
+    return f"{FALLBACK_BADGE}\n\n{clean_draft}" 
 
 
 # ------------------------------------------------------------------

@@ -75,7 +75,7 @@ Below are raw posts from the Telegram channel HugsFund from the last 24-30 hours
 
 TASK:
 1. Filter out retail noise, daily price fluctuations, and generic corporate PR.
-2. Select the top 3-4 institutional-grade developments highlighting structural capital flows, balance-sheet reallocations, liquidity dynamics, or regulatory friction.
+2. Select the top 2-3 (strictly maximum 3, never 4) institutional-grade developments highlighting structural capital flows, balance-sheet reallocations, liquidity dynamics, or regulatory friction.
 3. Produce a structured briefing in clean Telegram HTML format.
 
 === 1. HOOK RULES (LINE 1) ===
@@ -113,12 +113,12 @@ Keep the financial concept exact, but the phrasing natural, simple, and conversa
 === 4. DRAFT STRUCTURE & CONCLUSIONS ===
 - STRICT WORD COUNT LIMITS:
   * SINGLE TOPIC POST: Strictly 100–120 words.
-  * MULTI-TOPIC DIGEST: Strictly 110–130 words. Must contain strictly 2 to 3 bullets (4 or more bullets are strictly forbidden).
+  * MULTI-TOPIC DIGEST: Strictly 110–130 words. Must contain strictly 2 to 3 bullets (hard limit: strictly maximum 3, never 4; 4 or more bullets are strictly forbidden).
 - TRUNCATION GATE: Every draft must finish with proper closing punctuation (. or !). Never leave a sentence or thought cut off.
 - Format in tight paragraphs (2–3 sentences max). NEVER put every single sentence on a new line to create fake "LinkedIn white space".
 - CRITICAL FORMATTING RULE: Write clean, continuous plain text. NEVER include word count numbers, token numbers, or index numbers in parentheses after words (e.g. NEVER output 'market (12) rally (13)'). Calculate and verify word counts purely internally. Do not pollute the draft body with counters.
 - SENTENCE RULE: one sentence = one fact + one implication. No sentence over ~20 words. Include at least one short sentence (under 8 words) per post.
-- DRAFT 1 (DIGEST): Line 1 frames the single core conflict immediately. Give every item a bold 2–4 word header stating the exact action or mechanism (e.g. `• <b>1. Off-budget defense spending:</b>`). NEVER use lazy transitions ("Meanwhile...", "At the same time...", "Finally...").
+- DRAFT 1 (DIGEST): Line 1 frames the single core conflict immediately. Must contain strictly 2 to 3 bullets (hard limit: strictly 2 or 3 items, maximum 3, never 4). Give every item a bold 2–4 word header stating the exact action or mechanism (e.g. `• <b>1. Off-budget defense spending:</b>`). NEVER use lazy transitions ("Meanwhile...", "At the same time...", "Finally...").
 - DRAFT 2 (SINGLE TOPIC): Deep dive into the strongest balance-sheet or structural market mechanism.
 - NEVER end with open questions ("What do you think?"), moral lessons, or empty advice ("Watch this space").
 - Natural analytical conclusion grounded in facts: End the post with a natural analytical conclusion based on the facts, without forcing artificial drama or repetitive tropes (no forced "forcing multiple compression").
@@ -131,6 +131,7 @@ Keep the financial concept exact, but the phrasing natural, simple, and conversa
 === 5. UNIFIED NARRATIVE & NO TOPIC STITCHING ===
 - One Single Topic post = one single through-line logical chain. Catastrophically forbidden to stitch together unrelated themes (e.g. macro diesel/refining margins with chip supply bottlenecks, or cybersecurity with insurance).
 - In a Digest, line 1 MUST state a single overarching unifying thesis that governs all 2–3 bullets. Forbidden to use an opening hook about interest rates or inflation if the bullets discuss industrial contracts or defense procurement.
+- THEMATIC INTEGRITY IN DIGEST: The 2-3 items in DRAFT 1 must share an underlying macro mechanism (e.g., all items relate to sovereign debt/liquidity, or energy/supply chains, or corporate capex). DO NOT stitch completely unrelated niches together (e.g., do not combine sovereign bond yields with altcoin trading cycles in the same post unless linked by systemic dollar liquidity).
 
 === 6. 3-IN-1 REPETITION BAN ===
 - State the cause exactly ONCE per post. Forbidden to repeat the same core thought in different phrases (e.g., repeating "cuts bank profits", "slashes the value of loans", "massive write-downs" within the same post).
@@ -174,6 +175,7 @@ OUTPUT STRUCTURE:
 
 • <b>[Mechanism Header]:</b> [Plain explanation with exact numbers].
 • <b>[Mechanism Header]:</b> [Plain explanation with exact numbers].
+• <b>[Mechanism Header]:</b> [Plain explanation with exact numbers (optional 3rd bullet; NEVER 4th)].
 
 [Terminal sentence: natural analytical conclusion on balance sheet, regulation, costs, or margins].
 
@@ -239,6 +241,7 @@ def humanize_hugs_briefing(analysis_text: str) -> str:
     if m1:
         raw_d1 = m1.group(2).strip()
         if raw_d1:
+            raw_d1 = brain.prune_digest_bullets(raw_d1, max_bullets=3)
             edited_d1 = brain.edit_and_humanize_draft(raw_d1, draft_type="digest")
             if brain.FALLBACK_BADGE in edited_d1:
                 clean_body = edited_d1.replace(brain.FALLBACK_BADGE, "").strip()

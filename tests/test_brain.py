@@ -428,6 +428,42 @@ def test_edit_and_humanize_draft_empty_input():
     assert brain.edit_and_humanize_draft("   ") == ""
 
 
+def test_edit_and_humanize_draft_prunes_four_bullets_preventing_number_mismatch(monkeypatch):
+    """Проверяет, что 4-й буллет отсекается до вызова модели и валидации,
+    благодаря чему check_number_preservation не падает из-за отсутствия чисел 4-го буллета."""
+    four_bullet_raw = (
+        "Persistent energy inflation is breaking rate-cut bets:\n\n"
+        "• <b>1. Fuel reserve drain:</b> SPR fell to historic lows under 350M barrels, removing Washington's primary tool to cap crude oil price spikes.\n\n"
+        "• <b>2. Sovereign debt surge:</b> Deficit widened to $1.8T while yields hit 4.8%, driving interest servicing obligations past sustainable levels across global balance sheets.\n\n"
+        "• <b>3. Corporate margin squeeze:</b> Refinancing costs rose by 150 bps as local banks passed wholesale funding pressure directly to private corporate borrowers.\n\n"
+        "• <b>4. AI hardware commitments:</b> Cloud capex jumped to $52B annually, forcing permanent dependence on external funding.\n\n"
+        "Higher baseline risk-free discount rates will force valuation multiple compression across tech and consumer equities."
+    )
+
+    def fake_editor_call(prompt, system_instruction=None, temperature=0.7, max_tokens=4096):
+        # Редактор получает текст только с первыми тремя буллетами и сохраняет числа из них:
+        assert "350M" in prompt
+        assert "$1.8T" in prompt
+        assert "4.8%" in prompt
+        assert "150 bps" in prompt
+        assert "$52B" not in prompt  # Число из 4-го пункта не должно передаваться редактору
+        return (
+            "Persistent energy inflation and unrelenting fiscal expansion are breaking the market's rate-cut bets across sovereign debt markets:\n\n"
+            "1. Fuel reserve drain: SPR inventories fell to historic lows under 350M barrels, eliminating Washington's primary supply buffer to cap crude oil price spikes.\n\n"
+            "2. Sovereign debt surge: The federal budget deficit widened to $1.8T while 10-year Treasury yields held near 4.8%, driving debt servicing obligations past sustainable operating levels.\n\n"
+            "3. Corporate margin squeeze: Average corporate refinancing costs rose by 150 bps as commercial banks passed wholesale funding friction directly to corporate balance sheets.\n\n"
+            "Higher baseline risk-free discount rates will keep debt servicing costs elevated, forcing prolonged valuation multiple compression across capital-intensive equities."
+        )
+
+    monkeypatch.setattr(brain, "call_gemini_api", fake_editor_call)
+    res = brain.edit_and_humanize_draft(four_bullet_raw, draft_type="digest")
+
+    # Валидация успешна, бейджа ошибки нет
+    assert brain.FALLBACK_BADGE not in res
+    assert "350M" in res
+    assert "$52B" not in res
+
+
 # ---------------------------------------------------------------- Weekly Phrase Ledger & Persona tests
 
 import json
