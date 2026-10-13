@@ -357,19 +357,20 @@ def test_load_golden_rewrites_success():
     assert "EXAMPLE 1: SINGLE TOPIC" in content
     assert "EXAMPLE 2: SINGLE TOPIC" in content
     assert "EXAMPLE 3: MULTI-TOPIC DIGEST" in content
+    assert "EXAMPLE 4: SINGLE TOPIC" in content
 
 
 def test_golden_rewrites_paragraph_structure_and_limits():
     import re
     content = brain.load_golden_rewrites()
     target_posts = re.findall(r"\[TARGET EDITED POST\]:\s*\n(.*?)(?=\n---\n|\Z)", content, re.DOTALL)
-    assert len(target_posts) == 3, f"Expected 3 target edited posts, found {len(target_posts)}"
+    assert len(target_posts) == 4, f"Expected 4 target edited posts, found {len(target_posts)}"
     for i, post in enumerate(target_posts, 1):
         clean_post = post.strip()
         paragraphs = [p.strip() for p in clean_post.split("\n\n") if p.strip()]
         assert 2 <= len(paragraphs) <= 4, f"Example {i} should be split into 2-4 visual paragraphs"
         word_count = len(clean_post.split())
-        if i in (1, 2):
+        if i in (1, 2, 4):
             assert 80 <= word_count <= 135, f"Example {i} single topic word count {word_count} not in 80-135"
         else:
             assert 105 <= word_count <= 140, f"Example {i} digest word count {word_count} not in 105-140"

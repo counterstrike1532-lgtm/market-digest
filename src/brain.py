@@ -466,6 +466,9 @@ Closing rules:
   List every figure you used in the FIGURES field, with where it came from (always specify "Story [N]").
 - Format numbers the English way: "." for decimals, "," for thousands. Write 2.6%, not 2,6%. Write 58,600 not 58.600.
 - MISMATCHED BASES: When you put two numbers side by side, name what each one actually is: period (annual vs. cumulative vs. quarterly), unit, and scope. If the bases don't match, do not compute or name a ratio ("Nx", "up 12x") - describe the two numbers in words instead, stating each one's base.
+- NUMERICAL DENSITY DISCIPLINE:
+  * Single Topic Post: Strictly 3 to 5 core quantitative figures. NEVER overload a 100-word draft with 7+ data points. Prioritize the central economic mechanism over listing every secondary contract number.
+  * Digest: Strictly 1-2 numbers per bullet (maximum 5 numbers across the entire digest).
 
 === 7. UNIFIED NARRATIVE & NO TOPIC STITCHING ===
 - One Single Topic post = one single through-line logical chain. Catastrophically forbidden to stitch together unrelated themes (e.g. macro diesel/refining margins with chip supply bottlenecks, or cybersecurity with insurance).

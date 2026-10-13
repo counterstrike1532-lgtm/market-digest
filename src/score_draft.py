@@ -397,5 +397,26 @@ def check_number_preservation(stage1_text: str, stage2_text: str) -> tuple[bool,
 
     if missing:
         unique_missing = list(dict.fromkeys(missing))
+        unique_s1 = list(dict.fromkeys(s1_nums))
+        preserved_count = len(unique_s1) - len(unique_missing)
+        preserved_ratio = (preserved_count / len(unique_s1)) if unique_s1 else 1.0
+
+        if preserved_ratio >= 0.8:
+            return True, "ок"
+
+        # ЛИБО если все основные порядки величин (billion/million) сохранены,
+        # чтобы единичные вспомогательные цифры (вроде "five-year" или второстепенных долей)
+        # не приводили к ложному сбою редактора.
+        major_s1_nums = {
+            m.group(1).replace(',', '.')
+            for m in re.finditer(
+                r'(?:\$|€|£|PLN\s*)?\b(\d+(?:[.,]\d+)?)\s*(?:billion|million|mld|mln|bln|trillion|[BM]\b)',
+                stage1_text,
+                re.IGNORECASE,
+            )
+        }
+        if major_s1_nums and all(m not in unique_missing for m in major_s1_nums):
+            return True, "ок"
+
         return False, f"числа из Stage 1 отсутствуют в Stage 2: {', '.join(unique_missing)}"
     return True, "ок"

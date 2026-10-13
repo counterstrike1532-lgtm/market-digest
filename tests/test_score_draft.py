@@ -376,3 +376,21 @@ def test_check_number_preservation_comma_decimal():
     ok, msg = score_draft.check_number_preservation(s1, s2)
     assert ok
 
+
+def test_check_number_preservation_eighty_percent_threshold():
+    # 8 уникальных чисел, опущено 1 (7/8 = 87.5% >= 80%) -> PASS
+    s1 = "Data points: 10%, 20%, 30%, 40%, 50%, 60%, 70%, 80%."
+    s2 = "Data points: 10%, 20%, 30%, 40%, 50%, 60%, 70%."
+    ok, msg = score_draft.check_number_preservation(s1, s2)
+    assert ok
+    assert msg == "ок"
+
+
+def test_check_number_preservation_preserves_major_magnitudes_auxiliary_dropped():
+    # Сохранены основные порядки величин ($50 billion), опущена вспомогательная цифра (5 из 5-year)
+    s1 = "Campus capex is $50 billion across 3 sites under 5-year loan."
+    s2 = "Campus capex is $50 billion across 3 sites under long-term debt."
+    ok, msg = score_draft.check_number_preservation(s1, s2)
+    assert ok
+    assert msg == "ок"
+

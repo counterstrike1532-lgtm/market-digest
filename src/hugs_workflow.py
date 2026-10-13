@@ -118,6 +118,9 @@ Keep the financial concept exact, but the phrasing natural, simple, and conversa
 - Format in tight paragraphs (2–3 sentences max). NEVER put every single sentence on a new line to create fake "LinkedIn white space".
 - CRITICAL FORMATTING RULE: Write clean, continuous plain text. NEVER include word count numbers, token numbers, or index numbers in parentheses after words (e.g. NEVER output 'market (12) rally (13)'). Calculate and verify word counts purely internally. Do not pollute the draft body with counters.
 - SENTENCE RULE: one sentence = one fact + one implication. No sentence over ~20 words. Include at least one short sentence (under 8 words) per post.
+- NUMERICAL DENSITY DISCIPLINE:
+  * Single Topic Post: Strictly 3 to 5 core quantitative figures. NEVER overload a 100-word draft with 7+ data points. Prioritize the central economic mechanism over listing every secondary contract number.
+  * Digest: Strictly 1-2 numbers per bullet (maximum 5 numbers across the entire digest).
 - DRAFT 1 (DIGEST): Line 1 frames the single core conflict immediately. Must contain strictly 2 to 3 bullets (hard limit: strictly 2 or 3 items, maximum 3, never 4). Give every item a bold 2–4 word header stating the exact action or mechanism (e.g. `• <b>1. Off-budget defense spending:</b>`). NEVER use lazy transitions ("Meanwhile...", "At the same time...", "Finally...").
 - DRAFT 2 (SINGLE TOPIC): Deep dive into the strongest balance-sheet or structural market mechanism.
 - NEVER end with open questions ("What do you think?"), moral lessons, or empty advice ("Watch this space").

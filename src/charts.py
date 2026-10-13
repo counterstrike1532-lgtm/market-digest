@@ -193,40 +193,10 @@ def market_overview(numbers: dict, market_source: dict | None = None,
 
 
 def parse_figures(text: str) -> list[tuple[str, str]] | None:
-    """Парсит FIGURES-поле черновика в пары (значение, источник).
-
-    Модель в реальности пишет и "значение -> источник" по одной паре на строку,
-    и "значение (источник); значение (источник)" все пары в одну строку через
-    точку с запятой - оба формата поддержаны. Разделитель между парами строго
-    ";" или перевод строки, никогда "," - у чисел запятая бывает разделителем
-    тысяч ("6,872").
-
-    Возвращает None ТОЛЬКО если поле пустое или буквально "none used" - это
-    единственный случай, когда "цифр нет" законно. Если текст непустой, но
-    ни одна пара не распозналась, возвращает [] (пусто, но не None) - вызывающий
-    код обязан отличать "нечего рисовать/проверять" от "не смогли разобрать".
-
-    T15: эта None-ветка - canon для условия "цифры не заявлены". main.py
-    (render_draft_message) и verify.py (verify_drafts) обе намеренно
-    повторяют то же условие строкой отдельно, а не зовут parse_figures и не
-    сверяются с её результатом - ради независимости мест (решение 05.08,
-    см. докстринги обеих копий). Это не недосмотр, третий utils.py не нужен.
-    """
-    text = (text or "").strip()
-    if not text or text.lower().startswith("none used"):
-        return None
-    pairs = []
-    for entry in re.split(r"[;\n]", text):
-        entry = entry.strip().lstrip("-*").strip()
-        if not entry:
-            continue
-        m = _FIGURE_PAREN.match(entry) or _FIGURE_ARROW.match(entry)
-        if not m:
-            continue
-        value, source = m.group("value").strip(), m.group("source").strip()
-        if value and source:
-            pairs.append((value, source))
-    return pairs
+    """Парсит FIGURES-поле черновика в пары (значение, источник). Делегирует
+    робастному парсеру verify.parse_figures."""
+    from . import verify
+    return verify.parse_figures(text)
 
 
 def _to_float(value: str) -> float | None:

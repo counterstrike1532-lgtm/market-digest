@@ -25,10 +25,10 @@ from . import brain, charts
 log = logging.getLogger(__name__)
 
 _DRAFT_RE = re.compile(
-    r"SHAPE:\s*(?P<shape>.*?)\n"
+    r"(?i)SHAPE:\s*(?P<shape>.*?)\n"
     r"BODY:\s*(?P<body>.*?)\n"
-    r"FIGURES:\s*(?P<figures>.*?)\n"
-    r"SOURCE:\s*(?P<source>.*?)\n"
+    r"(?:FIGURES|FIGURES\s+USED|DIGITS|NUMBERS)[ \t]*:?[ \t]*(?P<figures>.*?)\n"
+    r"(?:SOURCE|SOURCES|ИСТОЧНИК|ИСТОЧНИКИ)[ \t]*:?[ \t]*(?P<source>.*?)\n"
     r"WHY_THIS_ONE:\s*(?P<why_this_one>.*?)\n"
     r"VERDICT:\s*(?P<verdict>.*?)\n"
     r"WHY:\s*(?P<why>.*?)\n"
@@ -59,10 +59,10 @@ def parse_drafts(raw: str) -> list[dict]:
 # число само по себе распознаётся как число, а искать в тексте источника
 # будем словесной формой ("45 billion"), как источник и пишет.
 _MAGNITUDE = {
-    "thousand": 1e3, "tys": 1e3,
-    "million": 1e6, "mln": 1e6,
-    "billion": 1e9, "mld": 1e9, "miliard": 1e9, "miliardy": 1e9, "miliardów": 1e9, "miliardow": 1e9,
-    "trillion": 1e12, "bln": 1e12, "bilion": 1e12, "biliony": 1e12, "bilionów": 1e12, "bilionow": 1e12,
+    "thousand": 1e3, "tys": 1e3, "k": 1e3,
+    "million": 1e6, "mln": 1e6, "m": 1e6,
+    "billion": 1e9, "mld": 1e9, "miliard": 1e9, "miliardy": 1e9, "miliardów": 1e9, "miliardow": 1e9, "b": 1e9,
+    "trillion": 1e12, "bln": 1e12, "bilion": 1e12, "biliony": 1e12, "bilionów": 1e12, "bilionow": 1e12, "t": 1e12,
 }
 
 _NUM_AND_SUFFIX = re.compile(r"^(\$?\d[\d,.%$]*)\s*(.*)$")
@@ -222,7 +222,9 @@ _UNIT_SYNONYMS: dict[str, list[str]] = {
     "euro": ["euro", "EUR"],
     "euros": ["euro", "EUR"],
     "million": ["mln"],
+    "m": ["mln", "million", "m"],
     "billion": ["mld", "miliard", "miliardy", "miliardów", "miliardow"],
+    "b": ["mld", "billion", "b"],
     "trillion": ["bln", "bilion", "biliony", "bilionów", "bilionow"],
     "thousand": ["tys."],
     "percent": ["proc.", "%"],
@@ -318,44 +320,161 @@ def _closest_in_text(target: float, text: str) -> str | None:
 # слово ловим в любом варианте, скобки опциональны. Перенесено из main.py в
 # T11f (verify.py его тоже использует теперь, main → verify - существующее
 # направление импорта, обратное дало бы цикл).
-_STORY_NUM_RE = re.compile(r"(?:Story|Source|Study|Article|Item)\s*#?\s*\[?(\d+)\]?", re.IGNORECASE)
+_FIGURES_HEADER_RE = re.compile(
+    r"^\s*(?:FIGURES(?:\s+USED)?|DIGITS|NUMBERS)[ \t]*:?[ \t]*",
+    re.IGNORECASE,
+)
+_SOURCE_HEADER_RE = re.compile(
+    r"^\s*(?:SOURCE|SOURCES|ИСТОЧНИК|ИСТОЧНИКИ)[ \t]*:?[ \t]*",
+    re.IGNORECASE,
+)
+_STORY_REF_RE = re.compile(
+    r"(?i)(?:Story|Source|Study|Article|Item|сюжет[а-я]*|источник[а-я]*|в\s+сюжет[а-я]*)"
+    r"(?:\s*#?\s*\[?\d+\]?(?:\s*(?:,|and|&|и|\+)\s*#?\s*\[?\d+\]?)*)"
+)
+_STORY_NUM_RE = _STORY_REF_RE
+
+_QUALIFIERS = (
+    "over", "about", "roughly", "nearly", "around", "almost",
+    "under", "approximately",
+)
+_QUALIFIER = rf"(?:(?:{'|'.join(_QUALIFIERS)})\s+)?"
+_NUM_WORD = "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve"
+_NUM_CORE = (
+    rf"(?:{_QUALIFIER}[\$€£]?\d[\d,.%$]*(?:[A-Za-z]+)?(?:-\d[\d,.%$]*(?:[A-Za-z]+)?)?"
+    rf"|(?:{_NUM_WORD}))"
+)
+_NUM_VALUE = rf"{_NUM_CORE}(?:\s+[A-Za-z][\w.]*){{0,3}}"
+_MONTH = (
+    r"(?:January|February|March|April|May|June|July|August|"
+    r"September|October|November|December)"
+)
+_DATE_VALUE = rf"{_MONTH}\s+\d{{1,2}},?\s+\d{{4}}"
+_VALUE = rf"(?:{_DATE_VALUE}|{_NUM_VALUE}(?:\s+(?:to|and)\s+{_NUM_VALUE})?)"
+
+_FIGURE_PAREN = re.compile(rf"^(?P<value>{_VALUE})\s*\(\s*(?P<source>[^()]+?)\s*\)$", re.IGNORECASE)
+_FIGURE_SEP = re.compile(
+    rf"^(?P<value>{_VALUE})\s*(?:->|—|–|\s+-\s+|:\s*|\s*:\s+|\s+в\s+сюжет[а-я]*\s+)(?P<source>\S.*)$",
+    re.IGNORECASE,
+)
+
+
+def parse_figures(text: str) -> list[tuple[str, str]] | None:
+    """Парсит блок/поле FIGURES в пары (значение, источник).
+
+    Поддерживает:
+      - Регистронезависимый поиск заголовков: FIGURES, FIGURES USED, DIGITS, NUMBERS (с/без двоеточия)
+      - Разделители: ->, —, –, -, :, в сюжете
+      - Запись величин с буквенными множителями: 24M, $50B
+      - Форматы ссылок: Story 1, Story [1], сюжет [1], источник 1, Story [1] and [2], сюжеты 1, 2
+      - Возвращает None, если блок отсутствует/пуст или начинается с 'none used'
+      - Возвращает [], если текст непустой, но ни одна пара не распарсилась
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    m_hdr = _FIGURES_HEADER_RE.match(text)
+    content = text[m_hdr.end():].strip() if m_hdr else text
+
+    if not content or content.lower().startswith("none used"):
+        return None
+
+    pairs = []
+    for entry in re.split(r"[;\n]", content):
+        entry = entry.strip().lstrip("-*•").strip()
+        if not entry:
+            continue
+
+        m = _FIGURE_PAREN.match(entry) or _FIGURE_SEP.match(entry)
+        if m:
+            val, src = m.group("value").strip(), m.group("source").strip()
+            if "в сюжет" in entry.lower() and not re.search(r"сюжет|story", src, re.IGNORECASE):
+                src = f"сюжет {src}"
+            if val and src:
+                pairs.append((val, src))
+            continue
+
+        # Фолбэк для нестандартных числовых записей с явным разделителем
+        matched_fallback = False
+        for sep_pat in (r"\s*(?:->|—|–)\s*", r"\s+-\s+", r"\s*:\s+", r"\s+в\s+сюжет[а-я]*\s+"):
+            parts = re.split(sep_pat, entry, maxsplit=1, flags=re.IGNORECASE)
+            if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                v_cand, s_cand = parts[0].strip(), parts[1].strip()
+                if re.search(r"\d", v_cand) or any(w in v_cand.lower().split() for w in _NUM_WORD.split("|")):
+                    if "в сюжет" in sep_pat and not re.search(r"сюжет|story", s_cand, re.IGNORECASE):
+                        s_cand = f"сюжет {s_cand}"
+                    pairs.append((v_cand, s_cand))
+                    matched_fallback = True
+                    break
+        if matched_fallback:
+            continue
+
+    return pairs
+
+
+def parse_sources(text: str) -> list[int]:
+    """Извлекает все номера сюжетов из строки или блока SOURCE / SOURCES / ИСТОЧНИК."""
+    text = (text or "").strip()
+    if not text:
+        return []
+
+    header_m = _SOURCE_HEADER_RE.search(text)
+    content = text[header_m.end():] if header_m else text
+    content = re.split(r"\n[A-Z_]+:\s*", content)[0]
+
+    no_urls = re.sub(r"https?://\S+", "", content)
+
+    numbers: list[int] = []
+
+    # 1. Поиск по фразам: "Story 1", "сюжет [1]", "Story [1] and [2]", "сюжеты 1, 2", "источник 1", "в сюжете 1"
+    for m in _STORY_REF_RE.finditer(no_urls):
+        span = m.group(0)
+        for num_str in re.findall(r"\d+", span):
+            n = int(num_str)
+            if n not in numbers:
+                numbers.append(n)
+
+    # 2. Поиск номеров в квадратных скобках: [1], [2]
+    for num_str in re.findall(r"\[(\d+)\]", no_urls):
+        n = int(num_str)
+        if n not in numbers:
+            numbers.append(n)
+
+    # 3. Если был явный заголовок SOURCE:, а ключевых слов "Story/сюжет" внутри не было (например "Source: 1, 2")
+    if header_m and not numbers:
+        for num_str in re.findall(r"\b(\d{1,2})\b", no_urls):
+            n = int(num_str)
+            if n not in numbers:
+                numbers.append(n)
+
+    return numbers
 
 
 def _referenced_story_numbers(figures_raw: str) -> list[int]:
-    """Номера сюжетов ("Story [2] source text" / "Story 3 source text"), на
-    которые в FIGURES реально ссылается черновик - по одному разу, в порядке
-    появления. FIGURES видит ту же нумерацию [i], что brain.draft() подставила
-    в блоки историй. Общий якорь для номеров источника под черновиком
-    (main.resolve_draft_source_numbers, T11c/T14a) и для выбора тела статьи на
-    верификацию (bodies_for_source ниже, T11f)."""
-    pairs = charts.parse_figures(figures_raw) or []
+    """Номера сюжетов, на которые в FIGURES реально ссылается черновик."""
+    pairs = parse_figures(figures_raw) or []
     numbers = []
     for _, source in pairs:
-        for m in _STORY_NUM_RE.finditer(source):
-            n = int(m.group(1))
+        for n in parse_sources(source):
             if n not in numbers:
                 numbers.append(n)
+    if not numbers and figures_raw:
+        numbers = parse_sources(figures_raw)
     return numbers
 
 
 def bodies_for_source(source_field: str, selected: list[dict],
                       figures_raw: str = "") -> list[str]:
     """Тексты сюжетов для верификации (T11f). Сначала - по номеру сюжета из
-    FIGURES, тем же якорем, что уже держит ссылку под черновиком (T11c).
-    Строковое сопоставление SOURCE-поля с URL - только фолбэк, когда номер не
-    разрешился: SOURCE пишет модель САМА, отдельно от FIGURES, и опечатка в
-    одну букву URL (боевой прогон 02.08: "na-ryku" вместо "na-rynku") даёт
-    False в обе стороны у подстрочного сравнения - тело статьи не находится,
-    хотя оно было загружено, и черновик получает "source text not fetched"
-    незаслуженно, при этом верификатор существует именно для того, чтобы
-    ловить ошибки модели, а не доверять ей выбор текста для проверки.
-
-    Номера НЕ объединяются со строковым совпадением: если хотя бы один номер
-    разрешился, тела берутся строго по ним. Иначе в проверку заедет текст
-    соседнего сюжета, и число из статьи A "найдётся" в статье B - тот же
-    класс ложного FOUND, которого избегали в T11b."""
+    FIGURES, затем по номеру из SOURCE. Строковое сопоставление SOURCE-поля
+    с URL - только фолбэк, когда номер не разрешился: SOURCE пишет модель
+    САМА, отдельно от FIGURES, и опечатка в одну букву URL даёт False в обе
+    стороны у подстрочного сравнения."""
     if selected:
         numbers = [n for n in _referenced_story_numbers(figures_raw) if 1 <= n <= len(selected)]
+        if not numbers:
+            numbers = [n for n in parse_sources(source_field) if 1 <= n <= len(selected)]
         if numbers:
             return [selected[n - 1].get("body") or "" for n in numbers]
 
@@ -811,7 +930,7 @@ def verify_drafts(drafts_text: str, selected: list[dict],
 
     for b in blocks:
         raw_figures = b["figures"].strip()
-        figures = charts.parse_figures(raw_figures)
+        figures = parse_figures(raw_figures)
         # T15: это же выражение продублировано побайтово в main.py
         # (render_draft_message, переменная no_figures_declared перед сборкой
         # футера) - решение от 05.08, дубль вместо общего модуля, чтобы места

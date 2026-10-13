@@ -973,3 +973,66 @@ def test_verify_figures_local_detects_polish_mld_bln_mismatch():
     assert "mld" in res[0]["reason"]
     assert res[1]["status"] == "FOUND"
 
+
+# ---------------------------------------------------------------- Робастный парсинг FIGURES и SOURCE
+
+def test_parse_figures_robust_headers_and_separators():
+    # 1. Заголовок "Figures:", стрелка "->", "Story 1"
+    res1 = verify.parse_figures("Figures: 4.00 PLN -> Story 1")
+    assert res1 == [("4.00 PLN", "Story 1")]
+
+    # 2. Заголовок "FIGURES USED:", маркер "-", значение "24M", "сюжет [1]"
+    res2 = verify.parse_figures("FIGURES USED: - 24M -> сюжет [1]")
+    assert res2 == [("24M", "сюжет [1]")]
+
+    # 3. Разделитель двоеточие
+    res3 = verify.parse_figures("Figures: 4.00 PLN: Story 1")
+    assert res3 == [("4.00 PLN", "Story 1")]
+
+    # 4. Разделитель "в сюжете"
+    res4 = verify.parse_figures("4.00 PLN в сюжете 1")
+    assert res4 == [("4.00 PLN", "сюжет 1")]
+
+    # 5. Разделитель тире "—" и список источников
+    res5 = verify.parse_figures("DIGITS: 15.8 mld PLN — сюжеты 1, 2")
+    assert res5 == [("15.8 mld PLN", "сюжеты 1, 2")]
+
+    # 6. Список источников через and
+    res6 = verify.parse_figures("NUMBERS: 100M -> Story [1] and [2]")
+    assert res6 == [("100M", "Story [1] and [2]")]
+
+    # 7. Отсутствие цифр
+    assert verify.parse_figures("Figures: none used") is None
+    assert verify.parse_figures("") is None
+    assert verify.parse_figures("just garbage text") == []
+
+
+def test_parse_sources_robust():
+    # 1. "Source: сюжет 1, 2"
+    assert verify.parse_sources("Source: сюжет 1, 2") == [1, 2]
+
+    # 2. "SOURCES: Story 1 and [2]"
+    assert verify.parse_sources("SOURCES: Story 1 and [2]") == [1, 2]
+
+    # 3. Кириллица "ИСТОЧНИК: сюжет [1]"
+    assert verify.parse_sources("ИСТОЧНИК: сюжет [1]") == [1]
+
+    # 4. "ИСТОЧНИКИ: сюжеты 1, 2"
+    assert verify.parse_sources("ИСТОЧНИКИ: сюжеты 1, 2") == [1, 2]
+
+    # 5. Без заголовка
+    assert verify.parse_sources("Story 1") == [1]
+    assert verify.parse_sources("сюжет [2]") == [2]
+    assert verify.parse_sources("источник 3") == [3]
+
+    # 6. URL без номеров сюжетов
+    assert verify.parse_sources("Source: https://example.com/story-12345") == []
+    assert verify.parse_sources("") == []
+
+
+def test_referenced_story_numbers_robust():
+    assert verify._referenced_story_numbers("Figures: 4.00 PLN -> Story 1") == [1]
+    assert verify._referenced_story_numbers("FIGURES USED: - 24M -> сюжет [1]") == [1]
+    assert verify._referenced_story_numbers("15.8 mld PLN -> сюжеты 1, 2") == [1, 2]
+    assert verify._referenced_story_numbers("100M -> Story [1] and [2]") == [1, 2]
+

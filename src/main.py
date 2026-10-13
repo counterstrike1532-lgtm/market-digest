@@ -322,6 +322,8 @@ def resolve_draft_source_numbers(block: dict,
     исход, которого сейчас нет и тест на который сейчас не заводим."""
     sel_len = len(selected) if selected else 0
     raw = verify._referenced_story_numbers(block.get("figures", ""))
+    if not raw:
+        raw = verify.parse_sources(block.get("source", ""))
     valid = sorted({n for n in raw if 1 <= n <= sel_len})
     invalid = sorted({n for n in raw if not (1 <= n <= sel_len)})
     return valid, invalid

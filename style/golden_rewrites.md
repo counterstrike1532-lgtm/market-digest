@@ -42,3 +42,18 @@ A $365 trillion global debt load is absorbing liquidity needed for productive en
 2. Contagion across sovereign curves: A soft $70 billion US Treasury auction lifted 5-year yields past 5%, pulling Japan’s 10-year yield to a thirty-year high of 3.055% as policymakers raise yields to protect the yen.
 
 Heavy sovereign issuance keeps risk-free discount rates high, putting persistent downward pressure on equity valuation multiples.
+
+---
+## EXAMPLE 4: SINGLE TOPIC (Structured Private Credit & Unit Economics)
+
+[RAW INPUT DRAFT]:
+Data center infrastructure expansion is shifting rapidly away from corporate cash reserves into leveraged private credit markets. Hyperscalers and independent developers increasingly rely on structured credit facilities to finance hardware procurement, server arrays, and utility power hookups. These multi-year loans are underwritten against projected cash flows from foundational AI developers. However, enterprise clients are aggressively routing workloads toward cheaper open-source models. Accelerating declines in API token pricing directly compress operating cash flows well before project debt can be fully amortized. When compute unit economics decay faster than loan amortization schedules, private credit lenders absorb severe refinancing and default risks on debt underwritten during peak pricing cycles.
+
+[TARGET EDITED POST]:
+Data center expansion has outgrown Big Tech cash reserves, shifting capital structures directly into leveraged private credit.
+
+Hyperscalers and independent operators increasingly rely on structured credit facilities to fund server racks and power hookups. These multi-year loans are underwritten against projected cash flows from frontier software labs. But enterprise buyers are actively routing workloads toward cheaper open-source models. 
+
+Collapsing API token pricing erodes operational cash flows long before project debt is fully amortized.
+
+When compute unit economics decay faster than loan schedules, private credit funds end up warehousing severe default risk on infrastructure underwritten at peak hardware multiples.
