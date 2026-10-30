@@ -1,63 +1,5 @@
 [
 {
-"date": "2026-07-31T22:16:07.614623+00:00",
-"collected": 206,
-"after_dedup": 196,
-"after_freshness": 196,
-"prefiltered": 100,
-"ranked": 4,
-"drafted": 3,
-"verdicts": {
-"POST": 3,
-"MAYBE": 0,
-"SKIP": 0
-},
-"figures": {
-"found": 3,
-"not_found": 0,
-"mismatch": 0,
-"unparsed": 10,
-"no_source": 0
-},
-"gemini_successful": 3,
-"gemini_quota_refused": 1,
-"draft_model": "gemini-3.6-flash",
-"market_source": {
-"wig20": "yfinance",
-"sp500": "yfinance",
-"nasdaq": "yfinance"
-}
-},
-{
-"date": "2026-08-01T10:44:20.422353+00:00",
-"collected": 147,
-"after_dedup": 138,
-"after_freshness": 138,
-"prefiltered": 100,
-"ranked": 6,
-"drafted": 3,
-"verdicts": {
-"POST": 0,
-"MAYBE": 3,
-"SKIP": 0
-},
-"figures": {
-"found": 3,
-"not_found": 6,
-"mismatch": 5,
-"unparsed": 0,
-"no_source": 0
-},
-"gemini_successful": 3,
-"gemini_quota_refused": 0,
-"draft_model": "gemini-3.5-flash",
-"market_source": {
-"WIG20 TR (ETF)": "yfinance",
-"sp500": "yfinance",
-"nasdaq": "yfinance"
-}
-},
-{
 "date": "2026-08-02T15:05:24.190781+00:00",
 "collected": 95,
 "after_dedup": 95,
@@ -1872,6 +1814,35 @@
 "found": 0,
 "not_found": 0,
 "mismatch": 2,
+"unparsed": 0,
+"no_source": 0
+},
+"gemini_successful": 5,
+"gemini_quota_refused": 0,
+"draft_model": "gemini-3.5-flash",
+"market_source": {
+"WIG20 TR (ETF)": "yfinance",
+"sp500": "yfinance",
+"nasdaq": "yfinance"
+}
+},
+{
+"date": "2026-10-30T11:29:30.382234+00:00",
+"collected": 176,
+"after_dedup": 176,
+"after_freshness": 176,
+"prefiltered": 100,
+"ranked": 7,
+"drafted": 2,
+"verdicts": {
+"POST": 0,
+"MAYBE": 2,
+"SKIP": 0
+},
+"figures": {
+"found": 5,
+"not_found": 0,
+"mismatch": 4,
 "unparsed": 0,
 "no_source": 0
 },
