@@ -288,7 +288,112 @@ def _to_float(value: str) -> float | None:
     return base * _MAGNITUDE.get(first_word, 1.0)
 
 
-_TEXT_NUM = re.compile(r"\d+(?:[.,]\d+)?")
+# Единый токенизатор чисел. Десятичная дробь (точка ИЛИ польская запятая) -
+# ОДИН токен: "59.6%", "7,2%", "36.58 TWh", "283.6 billion". Раньше номера
+# сюжетов и числа вытаскивались через \d+ / \b\d{1,2}\b, и "59.6%" давало два
+# целых - 59 и 6, "7.2%" - 7 и 2, отсюда ложные "несуществующие 0, 6, 59" в
+# футере Telegram. Разряды тысяч (пробел/запятая + ровно 3 цифры) - тоже
+# часть одного токена. Хвост-единица приклеивается, только если идёт вплотную.
+_NUMBER_RE = re.compile(
+    r"(?<!\w)(?P<num>(?:\d{1,3}(?:[ ,]\d{3})+|\d+)(?:[.,]\d+)?)"
+    r"(?P<unit>%|млрд|млн|mld|bln|trillion|billion|million|k|TWh|EUR|PLN|USD|\$|€)?(?!\w)"
+)
+_TEXT_NUM = _NUMBER_RE
+
+
+def _normalize_number(num: str) -> str:
+    """Каноническая запись числового ядра токена _NUMBER_RE: разряды тысяч
+    убираются, десятичная запятая (польский формат) -> точка.
+    "7,2" -> "7.2", "1 234,5" -> "1234.5", "15,019.5" -> "15019.5",
+    "6,872" -> "6872" (запятая + ровно 3 цифры - разделитель тысяч)."""
+    s = num.replace(" ", "").replace("\u00a0", "").replace("\u202f", "")
+    if "." in s:
+        return s.replace(",", "")
+    if re.fullmatch(r"\d{1,3}(?:,\d{3})+", s):
+        return s.replace(",", "")
+    return s.replace(",", ".")
+
+
+def extract_numbers(text: str) -> list[str]:
+    """Все числа текста как неделимые нормализованные токены (с единицей,
+    если она приклеена): "59.6%, 7,2% i 36.58 TWh" -> ["59.6%", "7.2%", "36.58"].
+    Дробная часть никогда не становится отдельным числом."""
+    return [_normalize_number(m.group("num")) + (m.group("unit") or "")
+            for m in _NUMBER_RE.finditer(text or "")]
+
+
+_SCALE_AFTER_RE = re.compile(
+    r"\s*(tys\.?|thousand|mln|million|m|mld|miliard\w*|billion|bn|b|bln|bilion\w*|"
+    r"trillion|t|млн|млрд)(?!\w)", re.IGNORECASE)
+_SCALE_WORDS = {
+    "tys": 1e3, "thousand": 1e3, "k": 1e3,
+    "mln": 1e6, "million": 1e6, "m": 1e6, "млн": 1e6,
+    "mld": 1e9, "billion": 1e9, "bn": 1e9, "b": 1e9, "млрд": 1e9,
+    "bln": 1e12, "trillion": 1e12, "t": 1e12,
+}
+
+
+def _scale_of(word: str) -> float:
+    w = word.lower().rstrip(".")
+    if w.startswith("miliard"):
+        return 1e9
+    if w.startswith("bilion"):
+        return 1e12
+    return _SCALE_WORDS.get(w, 1.0)
+
+
+def extract_figures(text: str) -> list[dict]:
+    """Числа текста со значением: [{raw, base, value, percent}]. base - само
+    число ("20" из "20 mld"), value - с учётом порядка величины (2e10), если
+    сразу за числом стоит слово-множитель (mld/mln/billion/...). Голые годы
+    (1900-2099 без единицы) пропускаются - это не слагаемые."""
+    out = []
+    text = text or ""
+    for m in _NUMBER_RE.finditer(text):
+        norm = _normalize_number(m.group("num"))
+        unit = m.group("unit") or ""
+        try:
+            base = float(norm)
+        except ValueError:
+            continue
+        scale = _scale_of(unit) if unit and unit not in ("%", "$", "€") else 1.0
+        if scale == 1.0:
+            sm = _SCALE_AFTER_RE.match(text, m.end())
+            if sm:
+                scale = _scale_of(sm.group(1))
+        percent = unit == "%" or bool(re.match(r"\s*(?:proc\.|percent)", text[m.end():],
+                                               re.IGNORECASE))
+        if not unit and scale == 1.0 and _BARE_YEAR.fullmatch(norm):
+            continue
+        out.append({"raw": m.group(0), "base": base, "value": base * scale,
+                    "percent": percent})
+    return out
+
+
+def _sum_of_two_in_text(value: str, text: str, max_terms: int = 400) -> tuple[str, str] | None:
+    """Число черновика - явная сумма двух чисел источника (20 mld + 10 mld =
+    30 billion)? Возвращает пару слагаемых (как они записаны в тексте) или
+    None. Сравнение и по полному значению (с порядком величины), и по голому
+    ядру - источник может написать множитель один раз на оба числа ("20 i 10
+    mld"). Проценты складываются только с процентами."""
+    target = _to_float(value)
+    if not target:
+        return None
+    num_part, suffix = _split_value(value)
+    target_base = _to_float(num_part.replace("%", "")) if suffix else target
+    is_percent = num_part.endswith("%") or "percent" in suffix.lower()
+    terms = [f for f in extract_figures(text) if f["percent"] == is_percent][:max_terms]
+
+    def close(a: float, b: float) -> bool:
+        return abs(a - b) <= max(abs(b) * 0.005, 1e-9)
+
+    for i, a in enumerate(terms):
+        for b in terms[i + 1:]:
+            if close(a["value"] + b["value"], target):
+                return a["raw"], b["raw"]
+            if target_base and close(a["base"] + b["base"], target_base):
+                return a["raw"], b["raw"]
+    return None
 
 
 def _closest_in_text(target: float, text: str) -> str | None:
@@ -301,7 +406,10 @@ def _closest_in_text(target: float, text: str) -> str | None:
         return None
     best, best_diff = None, None
     for m in _TEXT_NUM.finditer(text):
-        f = _to_float(m.group())
+        try:
+            f = float(_normalize_number(m.group("num")))
+        except ValueError:
+            continue
         if not f:
             continue
         ratio = f / target
@@ -309,7 +417,7 @@ def _closest_in_text(target: float, text: str) -> str | None:
             continue
         diff = abs(f - target)
         if best_diff is None or diff < best_diff:
-            best, best_diff = m.group(), diff
+            best, best_diff = m.group("num"), diff
     return best
 
 
@@ -330,7 +438,10 @@ _SOURCE_HEADER_RE = re.compile(
 )
 _STORY_REF_RE = re.compile(
     r"(?i)(?:Story|Source|Study|Article|Item|сюжет[а-я]*|источник[а-я]*|в\s+сюжет[а-я]*)"
-    r"(?:\s*#?\s*\[?\d+\]?(?:\s*(?:,|and|&|и|\+)\s*#?\s*\[?\d+\]?)*)"
+    # (?!...) после номера: \d+ не откусывает целую часть дроби/процента -
+    # "Source 59.6%" не номер сюжета 59 (и не 5 после бэктрекинга).
+    r"(?:\s*#?\s*\[?\d+(?![\d%]|[.,]\d)\]?"
+    r"(?:\s*(?:,|and|&|и|\+)\s*#?\s*\[?\d+(?![\d%]|[.,]\d)\]?)*)"
 )
 _STORY_NUM_RE = _STORY_REF_RE
 
@@ -413,6 +524,13 @@ def parse_figures(text: str) -> list[tuple[str, str]] | None:
     return pairs
 
 
+_UNIT_AFTER_RE = re.compile(
+    r"\s*(?:%|proc\b|percent\b|pp\b|bps\b|TWh\b|GWh\b|mld\b|mln\b|bln\b|tys\b|"
+    r"billion\b|million\b|trillion\b|PLN\b|EUR\b|USD\b|zł)",
+    re.IGNORECASE,
+)
+
+
 def parse_sources(text: str) -> list[int]:
     """Извлекает все номера сюжетов из строки или блока SOURCE / SOURCES / ИСТОЧНИК."""
     text = (text or "").strip()
@@ -442,11 +560,24 @@ def parse_sources(text: str) -> list[int]:
             numbers.append(n)
 
     # 3. Если был явный заголовок SOURCE:, а ключевых слов "Story/сюжет" внутри не было (например "Source: 1, 2")
+    # Токены берём через _NUMBER_RE: дробь/процент/число с единицей - не номер
+    # сюжета ("59.6%" раньше давало 59 и 6, "36.58 TWh" - 36 и 58).
     if header_m and not numbers:
-        for num_str in re.findall(r"\b(\d{1,2})\b", no_urls):
-            n = int(num_str)
-            if n not in numbers:
-                numbers.append(n)
+        for m in _NUMBER_RE.finditer(no_urls):
+            num_str = m.group("num")
+            if m.group("unit") or _UNIT_AFTER_RE.match(no_urls, m.end()):
+                continue
+            # "Source: 1,2" без единицы - список сюжетов, не польская дробь
+            if re.fullmatch(r"\d{1,2},\d{1,2}", num_str):
+                parts = num_str.split(",")
+            elif re.fullmatch(r"\d{1,2}", num_str):
+                parts = [num_str]
+            else:
+                continue
+            for p in parts:
+                n = int(p)
+                if n not in numbers:
+                    numbers.append(n)
 
     return numbers
 
@@ -628,6 +759,13 @@ def verify_figures_local(pairs: list[tuple[str, str]] | None, bodies: list[str],
             continue
         if not combined_body:
             out.append({"value": value, "source": source, "status": "NO_SOURCE_TEXT"})
+            continue
+        # Явная сумма двух чисел источника (20 mld + 10 mld = 30 billion) - не
+        # галлюцинация: оба слагаемых в тексте есть, модель только сложила.
+        addends = _sum_of_two_in_text(value, combined_body)
+        if addends:
+            out.append({"value": value, "source": source, "status": "FOUND",
+                       "matched_in": "sum", "addends": list(addends)})
             continue
         target = _to_float(value)
         closest = _closest_in_text(target, combined_body)

@@ -600,3 +600,53 @@ def test_hugs_workflow_prompts_persona_and_no_vocabulary_guide():
 
 
 
+
+
+# ---------------------------------------------------------------- CEE-буст в rank_stories
+
+def _story_row(title, score, url="https://example.com/x", source="example.com", weight=1.0):
+    item = SimpleNamespace(source=source, tag="misc", social=0, title=title,
+                           summary="", url=url, weight=weight)
+    return {"item": item, "score": score}
+
+
+def test_is_cee_story_markers():
+    assert brain.is_cee_story(_story_row("x", 5, url="https://www.bankier.pl/a"))
+    assert brain.is_cee_story(_story_row("GPW: WIG20 spada", 5))
+    assert brain.is_cee_story(_story_row("NBP holds rates in Warsaw", 5))
+    assert not brain.is_cee_story(_story_row("Barclays cuts jobs", 5))
+    assert not brain.is_cee_story(_story_row("bigwig bankers in Seoul", 5))
+
+
+def test_rank_stories_adds_cee_boost():
+    rows = [_story_row("South Korea chips", 8), _story_row("KNF fines bank", 7)]
+    out = brain.rank_stories(rows)
+    assert out[0]["item"].title == "KNF fines bank"
+    assert out[0]["final"] == 7 + brain.CEE_BOOST
+
+
+def test_rank_stories_guarantees_cee_in_top2():
+    rows = [_story_row("South Korea chips", 10), _story_row("Barclays cuts", 9),
+            _story_row("Nvidia capex", 9), _story_row("GPW IPO pipeline", 6.5)]
+    out = brain.rank_stories(rows)
+    titles = [r["item"].title for r in out]
+    assert titles[0] == "South Korea chips"
+    assert titles[1] == "GPW IPO pipeline"
+
+
+def test_rank_stories_no_guarantee_for_weak_cee():
+    rows = [_story_row("South Korea chips", 10), _story_row("Barclays cuts", 9),
+            _story_row("NBP note", 3)]
+    out = brain.rank_stories(rows)
+    assert [r["item"].title for r in out][:2] == ["South Korea chips", "Barclays cuts"]
+
+
+def test_rank_applies_cee_ranking(monkeypatch):
+    items = [SimpleNamespace(source="reuters.com", tag="misc", social=0, title="Seoul banks",
+                             summary="body", url="https://reuters.com/a", weight=1.0),
+             SimpleNamespace(source="money.pl", tag="misc", social=0, title="Ceny pradu",
+                             summary="body", url="https://money.pl/b", weight=1.0)]
+    monkeypatch.setattr(brain, "_call", lambda *a, **kw:
+                        '[{"id": 0, "score": 8}, {"id": 1, "score": 7}]')
+    result = brain.rank(items, top_n=5)
+    assert result[0]["item"] is items[1]

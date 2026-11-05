@@ -1101,3 +1101,40 @@ def test_main_critique_pass_failure_falls_back_to_original_drafts(monkeypatch, t
     assert len(verified_payloads) == 1
     assert "Original body that must survive failure." in verified_payloads[0]
 
+
+
+# ---------------------------------------------------------------- нормализация заголовков черновиков
+
+import pytest
+
+
+@pytest.mark.parametrize("shape", ["B. TWO NUMBERS", "A. MECHANISM", "C. COMMON BELIEF",
+                                   "B", "single", "", None, "digest"])
+def test_draft2_title_always_single_topic(shape):
+    title = main.normalize_draft_title(shape, 2, 112)
+    assert title == "💡 ЧЕРНОВИК 2 — SINGLE TOPIC (112 слов)"
+
+
+@pytest.mark.parametrize("shape", ["digest", "DIGEST", "", None])
+def test_draft1_digest_title(shape):
+    assert main.normalize_draft_title(shape, 1, 120) == "📝 ЧЕРНОВИК 1 — DIGEST (120 слов)"
+
+
+def test_render_draft_message_strips_archetype_tags():
+    body = "one two three four five"
+    out = render_draft_message(_draft_block_dict(shape="B. TWO NUMBERS", body=body,
+                                                 verdict="SKIP"), 2)
+    first = out.splitlines()[0]
+    assert first == "💡 ЧЕРНОВИК 2 — SINGLE TOPIC (5 слов)"
+    for tag in ("TWO NUMBERS", "MECHANISM", "COMMON BELIEF", "B."):
+        assert tag not in out
+    out1 = render_draft_message(_draft_block_dict(shape="digest", body=body, verdict="SKIP"), 1)
+    assert out1.splitlines()[0] == "📝 ЧЕРНОВИК 1 — DIGEST (5 слов)"
+
+
+def test_render_draft_message_keeps_editor_failed_badge():
+    block = _draft_block_dict(shape="A. MECHANISM", body="a b c", verdict="SKIP")
+    block["_editor_failed"] = True
+    first = render_draft_message(block, 2).splitlines()[0]
+    assert first.startswith("💡 ЧЕРНОВИК 2 — SINGLE TOPIC (3 слов)")
+    assert "EDITOR FAILED" in first

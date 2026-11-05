@@ -1036,3 +1036,69 @@ def test_referenced_story_numbers_robust():
     assert verify._referenced_story_numbers("15.8 mld PLN -> сюжеты 1, 2") == [1, 2]
     assert verify._referenced_story_numbers("100M -> Story [1] and [2]") == [1, 2]
 
+
+
+# ---------------------------------------------------------------- неделимость десятичных дробей
+
+import pytest
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("59.6%", ["59.6%"]),
+    ("7.2%", ["7.2%"]),
+    ("7,2%", ["7.2%"]),
+    ("36.58 TWh", ["36.58"]),
+    ("36.58TWh", ["36.58TWh"]),
+    ("283.6 billion", ["283.6"]),
+    ("15 019,5 zl", ["15019.5"]),
+    ("6,872 firms", ["6872"]),
+])
+def test_extract_numbers_keeps_decimals_as_single_token(text, expected):
+    assert verify.extract_numbers(text) == expected
+
+
+@pytest.mark.parametrize("source", [
+    "Source text: 59.6% of exports, 7.2% y/y",
+    "SOURCE: stat.gov.pl 36.58 TWh",
+    "Source: GUS 283.6 billion zl, 7,2%",
+    "Source 59.6% GUS",
+])
+def test_parse_sources_no_phantom_numbers_from_decimals(source):
+    """Живые прогоны: "несуществующие 0, 6, 59" для 59.6% / 7.2% и
+    "несуществующие 36, 61, 75" для 36.58 TWh - дробная часть шла как
+    отдельный номер сюжета."""
+    assert verify.parse_sources(source) == []
+
+
+def test_parse_sources_plain_story_lists_still_work():
+    assert verify.parse_sources("Source: 1, 2") == [1, 2]
+    assert verify.parse_sources("Source: 1,2") == [1, 2]
+    assert verify.parse_sources("Story [3] and [4]") == [3, 4]
+
+
+def test_referenced_story_numbers_ignores_decimal_values():
+    figures = "59.6% -> Story 2; 7.2% -> Story 2; 36.58 TWh -> Story 1; 283.6 billion -> Story 1"
+    assert sorted(verify._referenced_story_numbers(figures)) == [1, 2]
+
+
+def test_decimal_figures_found_in_source_without_phantoms():
+    body = ("Udzial wyniosl 59.6%, a inflacja 7,2%. Produkcja energii: 36.58 TWh. "
+            "Eksport siegnal 283.6 billion.")
+    pairs = [("59.6%", "Story 1"), ("7.2%", "Story 1"),
+             ("36.58 TWh", "Story 1"), ("283.6 billion", "Story 1")]
+    res = verify.verify_figures_local(pairs, [body], "")
+    assert [r["status"] for r in res] == ["FOUND"] * 4
+
+
+def test_sum_of_two_source_numbers_is_not_hallucination():
+    body = "Rzad wyda 20 mld zl na drogi i 10 mld zl na kolej."
+    res = verify.verify_figures_local([("30 billion", "Story 1")], [body], "")
+    assert res[0]["status"] == "FOUND"
+    assert res[0]["matched_in"] == "sum"
+    assert res[0]["addends"] == ["20", "10"]
+
+
+def test_non_sum_still_not_found():
+    body = "Rzad wyda 20 mld zl na drogi i 10 mld zl na kolej."
+    res = verify.verify_figures_local([("31 billion", "Story 1")], [body], "")
+    assert res[0]["status"] == "NOT_FOUND"

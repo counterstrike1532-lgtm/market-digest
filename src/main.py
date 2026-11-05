@@ -329,6 +329,34 @@ def resolve_draft_source_numbers(block: dict,
     return valid, invalid
 
 
+# Служебные архетипы DRAFT_PROMPT ("A. MECHANISM", "B. TWO NUMBERS",
+# "C. COMMON BELIEF", голые "A"/"B"/"C") - внутренняя классификация промпта,
+# в Telegram её не пускаем: заголовок сводится к двум видам, DIGEST / SINGLE TOPIC.
+_ARCHETYPE_RE = re.compile(
+    r"(?i)(?:\b[ABC]\s*[.)]|\bmechanism\b|\btwo\s+numbers\b|\bcommon\s+belief\b"
+    r"|^\s*[ABC]\s*$|\bsingle\b)"
+)
+
+
+def normalize_draft_title(shape: str | None, num: int, word_count: int) -> str:
+    """Заголовок черновика для Telegram без технических суффиксов архетипов:
+    "📝 ЧЕРНОВИК 1 — DIGEST (N слов)" / "💡 ЧЕРНОВИК 2 — SINGLE TOPIC (N слов)".
+    Черновик 2 по контракту DRAFT_PROMPT всегда single - всегда SINGLE TOPIC.
+    Для остальных: "digest" в SHAPE -> DIGEST, архетип/single -> SINGLE TOPIC,
+    SHAPE пуст/непонятен - по позиции (1 - digest)."""
+    s = (shape or "").strip()
+    if num == 2:
+        kind = "SINGLE TOPIC"
+    elif "digest" in s.lower():
+        kind = "DIGEST"
+    elif _ARCHETYPE_RE.search(s):
+        kind = "SINGLE TOPIC"
+    else:
+        kind = "DIGEST" if num == 1 else "SINGLE TOPIC"
+    icon = "📝" if kind == "DIGEST" else "💡"
+    return f"{icon} ЧЕРНОВИК {num} — {kind} ({word_count} слов)"
+
+
 def render_draft_message(block: dict, num: int, selected: list[dict] | None = None) -> str:
     """Сообщение 3+ (T10d): один черновик на сообщение. SHAPE/FIGURES/
     WHY_THIS_ONE в Telegram не идут никогда - полный отчёт верификатора уже
@@ -337,7 +365,7 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
     её и не было в распарсенных полях block."""
     body = block.get("body", "").strip()
     badge = " ⚠️ [RAW DRAFT: EDITOR FAILED]" if block.get("_editor_failed") else ""
-    header = f"ЧЕРНОВИК {num} — {block.get('shape') or '?'}, {_word_count(body)} слов{badge}"
+    header = normalize_draft_title(block.get("shape"), num, _word_count(body)) + badge
     lines = [header, "", body]
 
     if block.get("_parse_failed"):

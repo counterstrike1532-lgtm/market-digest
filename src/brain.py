@@ -308,6 +308,51 @@ ITEMS:
 """
 
 
+# CEE-буст (польский поток): модель периодически отдаёт оба черновика под
+# глобальный IT/банки (Южная Корея, Barclays), игнорируя GPW/Польшу. Домены и
+# имена - без учёта регистра, аббревиатуры (PLN/WIG/GPW/KNF/NBP) - строго
+# заглавными и целым словом, чтобы "wig" внутри слова не давал ложный буст.
+CEE_BOOST = 1.5
+CEE_MIN_SCORE = 6.0          # "качественный" польский сюжет для гарантии в топ-2
+_CEE_DOMAINS = ("stat.gov.pl", "bankier.pl", "money.pl")
+_CEE_ACRONYMS_RE = re.compile(r"(?<![A-Za-z])(?:PLN|WIG\d*|GPW|KNF|NBP)(?![A-Za-z])")
+_CEE_NAMES_RE = re.compile(r"\b(?:Poland|Warsaw)\b", re.IGNORECASE)
+
+
+def is_cee_story(story: dict) -> bool:
+    """Сюжет с прямой привязкой к польскому/CEE рынку: домен источника/URL
+    (stat.gov.pl, bankier.pl, money.pl) или маркер в заголовке/саммари/угле
+    (PLN, WIG, GPW, KNF, NBP, Poland, Warsaw)."""
+    it = story.get("item")
+    where = " ".join(str(getattr(it, f, "") or "") for f in ("url", "source")).lower()
+    if any(d in where for d in _CEE_DOMAINS):
+        return True
+    text = " ".join(str(x or "") for x in (
+        getattr(it, "title", ""), getattr(it, "summary", ""),
+        story.get("title_en"), story.get("angle")))
+    return bool(_CEE_ACRONYMS_RE.search(text) or _CEE_NAMES_RE.search(text))
+
+
+def rank_stories(scored: list[dict]) -> list[dict]:
+    """Финальное ранжирование: final = score * weight (+CEE_BOOST для
+    польских/CEE сюжетов), сортировка по убыванию. Гарантия: если в топ-2 нет
+    ни одного CEE-сюжета, а качественный (score >= CEE_MIN_SCORE) есть -
+    лучший из них встаёт на 2-е место, первое место не трогаем."""
+    for s in scored:
+        s["cee"] = is_cee_story(s)
+        s["final"] = float(s.get("score", 0)) * s["item"].weight + (CEE_BOOST if s["cee"] else 0.0)
+    scored.sort(key=lambda x: x["final"], reverse=True)
+    if len(scored) >= 2 and not any(s["cee"] for s in scored[:2]):
+        best = next((s for s in scored[2:]
+                     if s["cee"] and float(s.get("score", 0)) >= CEE_MIN_SCORE), None)
+        if best is not None:
+            scored.remove(best)
+            scored.insert(1, best)
+            log.info("CEE-гарантия: в топ-2 поднят польский сюжет %r",
+                     getattr(best["item"], "title", "")[:80])
+    return scored
+
+
 def rank(items, top_n: int = 12) -> list[dict]:
     """Один вызов на весь список. Дефицит free tier - число запросов в день (20/модель),
     не токены, а вход в 1M токенов легко тянет сотню заголовков разом.
@@ -342,9 +387,7 @@ def rank(items, top_n: int = 12) -> list[dict]:
         log.info("эвристический top-N: берём %d из %d", len(fallback), len(by_id))
         return fallback
 
-    for s in scored:
-        s["final"] = float(s.get("score", 0)) * s["item"].weight
-    scored.sort(key=lambda x: x["final"], reverse=True)
+    scored = rank_stories(scored)
     log.info("прошли отбор: %d, берём %d", len(scored), min(top_n, len(scored)))
     return scored[:top_n]
 
