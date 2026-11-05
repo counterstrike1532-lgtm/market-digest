@@ -12,7 +12,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Optional
 
-from . import brain, deliver
+from . import brain, deliver, verify
 from .hugs_parser import HugsPost, fetch_channel_posts, filter_posts
 
 log = logging.getLogger("hugs_workflow")
@@ -43,7 +43,10 @@ CRITICAL FORMATTING & READABILITY RULES:
    - Explain advanced mechanics in plain English.
    - STRICT CONTEXTUAL TERMINOLOGY: Use only the financial and operational concepts that directly describe the actual event. If the news is about server depreciation and capex gaps, discuss depreciation and capex gaps. NEVER shoehorn external buzzwords (like 'circular financing' or 'underwriting constraints') where they do not belong.
    - Ban 35-word academic run-on sentences. Alternate short punchy statements (3–6 words) with clear explanations.
-   - NO scaffolding/announcements: ban "The logic is simple:", "The strategic play is clear:", "The mechanics are obvious:". Jump straight into the fact.
+   - NO scaffolding/announcements: ban "The logic is simple:", "The strategic play is clear:", "The mechanics are obvious:", "The mechanism is clear:", "introduces two critical...", "The takeaway is simple:". Jump straight into the fact.
+   - FIRST-PERSON ALLOWANCE: Natural student researcher perspective ("I", "my") is permitted ("Looking at the filings, what stands out is..."). Strictly no fake trading desk claims.
+   - STRICT TONE CEILING: Strip out directive preaching ("must now", "executive teams must", "will ultimately force", "pivoting permanently"). Frame as analytical reality ("This leaves CFOs with...", "It raises the hurdle rate for...").
+   - LEXICAL HYGIENE: "balance sheet" strictly at most once per post. Avoid antitheses ("isn't just", "is not just... it is").
    - NO telegraphic fragments ("Fuel security is tight.", "Liquidity is drying up.", "The price: WIBOR...").
 
 3. NATURAL FACT-BASED CLOSINGS (BAN ARTIFICIAL DRAMA):
@@ -102,9 +105,12 @@ Never output any of the following expressions:
 - BANNED CONVERSATIONAL SLOPPINESS: "snapped up the debt", "pay the bill", "piggy banks".
 - BANNED CHILDISH BULLET HEADERS: "Expensive imports", "The fuel tax", "The bank squeeze".
 - BANNED EMPTY DRAMATIC ONE-LINERS: "earnings get crushed", "Expect de-rating if growth slows", "corporate margins shrink".
-- BANNED ACADEMIC/SELL-SIDE FILLER: "characterized by a shift toward...", "consequently, the persistence of...", "serves as a testament to...", "are emerging as the primary...", "structural shift", "is emerging as", "consequently", "far exceeding", "crowding out net expansion", "this mechanism shows", "two numbers stand out", "the common view is that", "primary bottleneck", "underlying economic reality", "synergy", "landscape", "paradigm", "unprecedented", "delve", "underscore", "pivotal", "robust", "it's not just X, it's Y", "here's the thing".
+- BANNED ACADEMIC/SELL-SIDE FILLER: "characterized by a shift toward...", "consequently, the persistence of...", "serves as a testament to...", "are emerging as the primary...", "structural shift", "is emerging as", "consequently", "far exceeding", "crowding out net expansion", "this mechanism shows", "two numbers stand out", "the common view is that", "primary bottleneck", "underlying economic reality", "synergy", "landscape", "paradigm", "unprecedented", "delve", "underscore", "pivotal", "robust", "it's not just X, it's Y", "here's the thing", "The mechanism is clear", "The mechanism is clear:", "introduces two critical...", "presents the illusion of", "AI integration isn't just about speed. It is...".
 - False instant causation: Do not claim that one event caused another instantly unless the material establishes how fast the reaction actually was.
   BAD: "Yet this surge immediately reignited political debates."
+- FIRST-PERSON ALLOWANCE & RESEARCH OPTIC: First-person pronouns ("I", "my") ARE ALLOWED when framing a natural student-researcher inquiry (e.g. "I used to assume leasing was the safest corner of credit, but the VB Leasing filing shows...", "Looking at the statutory filings, what stands out is..."). NEVER invent fake trading desk experience ("On my trading desk", "Traders told me"). Only an authentic student researcher unpacking figures.
+- STRICT TONE CEILING (NO DIRECTIVE PREACHING): Never issue directives to market participants, investors, or executives. Strictly forbidden: "Institutional investors must now adjust...", "Executive teams must reallocate...", "Firms will be forced to...", "pivoting permanently". Replace with objective analytical exposure: "This leaves lenders with...", "The trade-off for CFOs is...", "It raises the hurdle rate for...".
+- LEXICAL HYGIENE (BALANCE SHEET): Mention "balance sheet" or "balance-sheet" strictly AT MOST ONCE per post. Never repeat it.
 
 === 3. STRICT CONTEXTUAL TERMINOLOGY (NO BINGO BUZZWORDS) ===
 Use only the financial and operational concepts that directly describe the actual event. If the news is about server depreciation and capex gaps, discuss depreciation and capex gaps. NEVER shoehorn external buzzwords (like 'circular financing' or 'underwriting constraints') where they do not belong.
@@ -121,7 +127,7 @@ Keep the financial concept exact, but the phrasing natural, simple, and conversa
 - NUMERICAL DENSITY DISCIPLINE:
   * Single Topic Post: Strictly 3 to 5 core quantitative figures. NEVER overload a 100-word draft with 7+ data points. Prioritize the central economic mechanism over listing every secondary contract number.
   * Digest: Strictly 1-2 numbers per bullet (maximum 5 numbers across the entire digest).
-- DRAFT 1 (DIGEST): Line 1 frames the single core conflict immediately. Must contain strictly 2 to 3 bullets (hard limit: strictly 2 or 3 items, maximum 3, never 4). Give every item a bold 2–4 word header stating the exact action or mechanism (e.g. `• <b>1. Off-budget defense spending:</b>`). NEVER use lazy transitions ("Meanwhile...", "At the same time...", "Finally...").
+- DRAFT 1 (DIGEST): Line 1 frames the single core conflict immediately. Keep it short, dense, and name the sectors or core conflict right away. Never open with a long, empty abstract setup ending in a colon (e.g. NEVER "Divergent operational input costs are fundamentally reshaping the long-term baseline margin profile:"). Must contain strictly 2 to 3 bullets (hard limit: strictly 2 or 3 items, maximum 3, never 4). Give every item a bold 2–4 word header stating the exact action or mechanism (e.g. `• <b>1. Off-budget defense spending:</b>`). NEVER use lazy transitions ("Meanwhile...", "At the same time...", "Finally...").
 - DRAFT 2 (SINGLE TOPIC): Deep dive into the strongest balance-sheet or structural market mechanism.
 - NEVER end with open questions ("What do you think?"), moral lessons, or empty advice ("Watch this space").
 - Natural analytical conclusion grounded in facts: End the post with a natural analytical conclusion based on the facts, without forcing artificial drama or repetitive tropes (no forced "forcing multiple compression").
@@ -226,7 +232,55 @@ def run_llm_analysis(posts: list[HugsPost]) -> str:
     return response.strip()
 
 
-def humanize_hugs_briefing(analysis_text: str) -> str:
+def verify_hugs_draft_section(draft_text: str, posts: list[HugsPost] | None = None) -> str:
+    """Верифицирует цифры в тексте черновика HugsFund с помощью verify.verify_drafts.
+    Возвращает строку футера (например, 'POST · цифры 2/2 ✅')."""
+    if not draft_text or not draft_text.strip():
+        return ""
+    # Формируем виртуальный selected для verify.bodies_for_source
+    selected = []
+    if posts:
+        for p in posts:
+            selected.append({"item": type("ItemDummy", (), {"url": p.url})(), "body": p.clean_text})
+
+    draft_block_format = (
+        "SHAPE: single\n"
+        f"BODY: {draft_text.strip()}\n"
+        "FIGURES: none used\n"
+        "SOURCE: Story 1\n"
+        "WHY_THIS_ONE: hugs briefing\n"
+        "VERDICT: POST\n"
+        "WHY: hugs briefing\n"
+        "CHECK_FIRST: -\n"
+    )
+    try:
+        _, _, blocks = verify.verify_drafts(draft_block_format, selected=selected, data_text="")
+        if not blocks:
+            return ""
+        b = blocks[0]
+        countable = [r for r in b.get("_level_a", []) if r["status"] != "YEAR"]
+        denom = len(countable)
+        found = sum(1 for r in countable if r["status"] == "FOUND") if denom else 0
+        verdict = (b.get("verdict") or "").strip().upper()
+        if b.get("_downgrade") and verdict == "POST":
+            verdict = "MAYBE"
+
+        offending = b.get("_offending") or []
+        if not denom:
+            return f"{verdict} · цифры не заявлены"
+        elif found == denom:
+            return f"{verdict} · цифры {found}/{denom} ✅"
+        elif offending:
+            shown = offending[:3]
+            return f"{verdict} · цифры {found}/{denom} — сверь {', '.join(shown)}"
+        else:
+            return f"{verdict} · цифры {found}/{denom}"
+    except Exception as exc:
+        log.warning("Верификация Hugs черновика упала: %s", exc)
+        return "POST — числа не верифицированы"
+
+
+def humanize_hugs_briefing(analysis_text: str, posts: list[HugsPost] | None = None) -> str:
     """Применяет edit_and_humanize_draft к секциям DRAFT 1 (digest) и DRAFT 2 (single)
     внутри сгенерированного брифинга HugsFund."""
     if not analysis_text:
@@ -252,7 +306,9 @@ def humanize_hugs_briefing(analysis_text: str) -> str:
                 text = text[:m1.start(1)] + header + clean_body + "\n\n" + text[m1.end(2):]
                 brain.inspect_and_collect_flagged_phrases(clean_body, "DRAFT 1 — DIGEST")
             elif edited_d1:
-                text = text[:m1.start(2)] + edited_d1 + "\n\n" + text[m1.end(2):]
+                d1_footer = verify_hugs_draft_section(edited_d1, posts=posts)
+                d1_with_footer = f"{edited_d1}\n\n{d1_footer}" if d1_footer else edited_d1
+                text = text[:m1.start(2)] + d1_with_footer + "\n\n" + text[m1.end(2):]
                 brain.inspect_and_collect_flagged_phrases(edited_d1, "DRAFT 1 — DIGEST")
 
     # 2. Секция DRAFT 2 (Single Topic)
@@ -271,7 +327,9 @@ def humanize_hugs_briefing(analysis_text: str) -> str:
                 text = text[:m2.start(1)] + header + clean_body + ("\n" if not clean_body.endswith("\n") else "") + text[m2.end(2):]
                 brain.inspect_and_collect_flagged_phrases(clean_body, "DRAFT 2 — SINGLE TOPIC")
             elif edited_d2:
-                text = text[:m2.start(2)] + edited_d2 + ("\n" if not edited_d2.endswith("\n") else "") + text[m2.end(2):]
+                d2_footer = verify_hugs_draft_section(edited_d2, posts=posts)
+                d2_with_footer = f"{edited_d2}\n\n{d2_footer}" if d2_footer else edited_d2
+                text = text[:m2.start(2)] + d2_with_footer + ("\n" if not d2_with_footer.endswith("\n") else "") + text[m2.end(2):]
                 brain.inspect_and_collect_flagged_phrases(edited_d2, "DRAFT 2 — SINGLE TOPIC")
 
     return text
@@ -319,7 +377,7 @@ def run_workflow(
     # 3. LLM-анализ
     try:
         analysis = run_llm_analysis(filtered)
-        analysis = humanize_hugs_briefing(analysis)
+        analysis = humanize_hugs_briefing(analysis, posts=filtered)
     except Exception as exc:
         log.error("Ошибка при обработке LLM: %s", exc)
         # Фолбэк: если LLM недоступен, формируем краткий список заголовков/постов

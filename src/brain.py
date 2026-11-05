@@ -455,9 +455,12 @@ Never output any of the following expressions:
 - BANNED CONVERSATIONAL SLOPPINESS: "snapped up the debt", "pay the bill", "piggy banks".
 - BANNED CHILDISH BULLET HEADERS: "Expensive imports", "The fuel tax", "The bank squeeze".
 - BANNED EMPTY DRAMATIC ONE-LINERS: "earnings get crushed", "Expect de-rating if growth slows", "corporate margins shrink".
-- BANNED ACADEMIC/SELL-SIDE FILLER: "characterized by a shift toward...", "consequently, the persistence of...", "serves as a testament to...", "are emerging as the primary...", "structural shift", "is emerging as", "consequently", "far exceeding", "crowding out net expansion", "this mechanism shows", "two numbers stand out", "the common view is that", "primary bottleneck", "underlying economic reality", "synergy", "landscape", "paradigm", "unprecedented", "delve", "underscore", "pivotal", "robust", "it's not just X, it's Y", "here's the thing".
+- BANNED ACADEMIC/SELL-SIDE FILLER: "characterized by a shift toward...", "consequently, the persistence of...", "serves as a testament to...", "are emerging as the primary...", "structural shift", "is emerging as", "consequently", "far exceeding", "crowding out net expansion", "this mechanism shows", "two numbers stand out", "the common view is that", "primary bottleneck", "underlying economic reality", "synergy", "landscape", "paradigm", "unprecedented", "delve", "underscore", "pivotal", "robust", "it's not just X, it's Y", "here's the thing", "The mechanism is clear", "The mechanism is clear:", "introduces two critical...", "presents the illusion of", "AI integration isn't just about speed. It is...".
 - False instant causation: Do not claim that one event caused another instantly unless the material establishes how fast the reaction actually was.
   BAD: "Yet this surge immediately reignited political debates."
+- FIRST-PERSON ALLOWANCE & RESEARCH OPTIC: First-person pronouns ("I", "my") ARE ALLOWED when framing a natural student-researcher inquiry (e.g. "I used to assume leasing was the safest corner of credit, but the VB Leasing filing shows...", "Looking at the statutory filings, what stands out is..."). NEVER invent fake trading desk experience ("On my trading desk", "Traders told me"). Only an authentic student researcher unpacking figures.
+- STRICT TONE CEILING (NO DIRECTIVE PREACHING): Never issue directives to market participants, investors, or executives. Strictly forbidden: "Institutional investors must now adjust...", "Executive teams must reallocate...", "Firms will be forced to...", "pivoting permanently". Replace with objective analytical exposure: "This leaves lenders with...", "The trade-off for CFOs is...", "It raises the hurdle rate for...".
+- LEXICAL HYGIENE (BALANCE SHEET): Mention "balance sheet" or "balance-sheet" strictly AT MOST ONCE per post. Never repeat it.
 
 === 3. STRICT CONTEXTUAL TERMINOLOGY (NO BINGO BUZZWORDS) ===
 Use only the financial and operational concepts that directly describe the actual event. If the news is about server depreciation and capex gaps, discuss depreciation and capex gaps. NEVER shoehorn external buzzwords (like 'circular financing' or 'underwriting constraints') where they do not belong.
@@ -465,7 +468,7 @@ Keep the financial concept exact, but the phrasing natural, simple, and conversa
 
 === 4. DIGESTS AND CONCLUSIONS ===
 When writing DRAFT 1 (digest):
-1. Line 1 of a Digest frames the single core conflict immediately.
+1. Line 1 of a Digest frames the single core conflict immediately. Keep it short, dense, and name the sectors or core conflict right away. Never open with a long, empty abstract setup ending in a colon (e.g. NEVER "Divergent operational input costs are fundamentally reshaping the long-term baseline margin profile:").
 2. Must contain strictly 2 to 3 bullets (hard limit: strictly maximum 3, never 4; 4 or more bullets are strictly forbidden).
 3. Each bullet has a bold 2–4 word header stating the exact action or mechanism:
    * "1. Off-budget defense spending:"
@@ -823,7 +826,10 @@ CRITICAL FORMATTING & READABILITY RULES:
    - Explain advanced mechanics in plain English.
    - STRICT CONTEXTUAL TERMINOLOGY: Use only the financial and operational concepts that directly describe the actual event. If the news is about server depreciation and capex gaps, discuss depreciation and capex gaps. NEVER shoehorn external buzzwords (like 'circular financing' or 'underwriting constraints') where they do not belong.
    - Ban 35-word academic run-on sentences. Alternate short punchy statements (3–6 words) with clear explanations.
-   - NO scaffolding/announcements: ban "The logic is simple:", "The strategic play is clear:", "The mechanics are obvious:". Jump straight into the fact.
+   - NO scaffolding/announcements: ban "The logic is simple:", "The strategic play is clear:", "The mechanics are obvious:", "The mechanism is clear:", "introduces two critical...", "The takeaway is simple:". Jump straight into the fact.
+   - FIRST-PERSON ALLOWANCE: Natural student researcher perspective ("I", "my") is permitted ("Looking at the filings, what stands out is..."). Strictly no fake trading desk claims.
+   - STRICT TONE CEILING: Strip out directive preaching ("must now", "executive teams must", "will ultimately force", "pivoting permanently"). Frame as analytical reality ("This leaves CFOs with...", "It raises the hurdle rate for...").
+   - LEXICAL HYGIENE: "balance sheet" strictly at most once per post. Avoid antitheses ("isn't just", "is not just... it is").
    - NO telegraphic fragments ("Fuel security is tight.", "Liquidity is drying up.", "The price: WIBOR...").
 
 3. NATURAL FACT-BASED CLOSINGS (BAN ARTIFICIAL DRAMA):

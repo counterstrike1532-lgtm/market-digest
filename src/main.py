@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 
 import yaml
 
-from . import brain, charts, collect, deliver, enrich, metrics, numbers, verify
+from . import brain, charts, collect, deliver, enrich, metrics, numbers, score_draft, verify
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SEEN = ROOT / "state" / "seen.json"
@@ -419,6 +419,12 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
     check_first = (block.get("check_first") or "").strip()
     if check_first and check_first != "-":
         lines.append(f"CHECK_FIRST: {check_first}")
+
+    # Style Linter (информационно, non-blocking)
+    style_flags = score_draft.lint_style_ticks(body)
+    if style_flags:
+        flags_str = ", ".join(f.replace("[STYLE] ", "") for f in style_flags)
+        lines.append(f"⚠️ STYLE FLAGS: {flags_str}")
 
     # T15: строка "источники:" печатается всегда, ни при каком входе не
     # исчезает - пустой результат раньше (T12a/T14a) читался как "печатать

@@ -394,3 +394,50 @@ def test_check_number_preservation_preserves_major_magnitudes_auxiliary_dropped(
     assert ok
     assert msg == "ок"
 
+
+
+# ---------------------------------------------------------------- lint_style_ticks tests
+
+def test_lint_style_ticks_duplicate_balance_sheet():
+    t1 = "The firm strengthened its balance sheet after reviewing the balance-sheet."
+    flags = score_draft.lint_style_ticks(t1)
+    assert "[STYLE] duplicate balance sheet" in flags
+
+    t_single = "The firm strengthened its balance sheet."
+    assert "[STYLE] duplicate balance sheet" not in score_draft.lint_style_ticks(t_single)
+
+
+def test_lint_style_ticks_parasite_words():
+    t = "This structural shift will compress margins and fundamentally reshaping operations with aggressive targets."
+    flags = score_draft.lint_style_ticks(t)
+    assert any("structural" in f for f in flags)
+    assert any("compress" in f for f in flags)
+    assert any("aggressive" in f for f in flags)
+    assert any("fundamentally reshaping" in f for f in flags)
+
+    t_illusion = "It presents the illusion of safety."
+    assert any("presents the illusion" in f for f in score_draft.lint_style_ticks(t_illusion))
+
+
+def test_lint_style_ticks_scaffolding_patterns():
+    t = "The mechanism is clear: capital is leaving. It introduces two critical problems. The takeaway is simple."
+    flags = score_draft.lint_style_ticks(t)
+    assert any("The mechanism is clear" in f for f in flags)
+    assert any("introduces two critical" in f for f in flags)
+    assert any("The takeaway is simple" in f for f in flags)
+
+
+def test_lint_style_ticks_antithesis():
+    t1 = "AI integration isn't just about software."
+    assert any("antithesis" in f for f in score_draft.lint_style_ticks(t1))
+
+    t2 = "This is not just a cost issue. It is a balance sheet crisis."
+    assert any("antithesis" in f for f in score_draft.lint_style_ticks(t2))
+
+
+def test_lint_style_ticks_mentor_tone():
+    t = "Institutional investors must now adjust. Rising capex will ultimately force higher spreads, pivoting permanently."
+    flags = score_draft.lint_style_ticks(t)
+    assert any("must now" in f for f in flags)
+    assert any("will ultimately force" in f for f in flags)
+    assert any("pivoting permanently" in f for f in flags)

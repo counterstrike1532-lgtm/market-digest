@@ -595,6 +595,54 @@ def _referenced_story_numbers(figures_raw: str) -> list[int]:
     return numbers
 
 
+def normalize_polish_source_text(text: str) -> str:
+    """Нормализует польские десятичные запятые в текстах источников:
+    '82,7 proc.' -> '82.7%', '5,0%' -> '5.0%', '4,2 mld' -> '4.2 mld',
+    чтобы исключить ложные расхождения из-за разницы разделителей."""
+    if not text:
+        return ""
+    # '82,7 proc.' / '82,7 percent' -> '82.7%'
+    text = re.sub(r"(\d+),(\d+)\s*(?:proc\.?|percent)", r"\1.\2%", text, flags=re.IGNORECASE)
+    # '5,0%' -> '5.0%'
+    text = re.sub(r"(\d+),(\d+)%", r"\1.\2%", text)
+    # '4,2 mld' / '4,2 mln' / etc.
+    text = re.sub(
+        r"(\d+),(\d+)(\s*(?:mld|mln|bln|tys|trillion|billion|million|k|TWh|GWh|EUR|PLN|USD|\$|€|zł))",
+        r"\1.\2\3",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def extract_body_figures(text: str) -> list[str]:
+    """Извлекает все числовые конструкции из фактического текста черновика
+    с помощью _NUMBER_RE и слов-множителей/единиц. Исключает нумерацию списков
+    в начале строк."""
+    seen: set[str] = set()
+    out: list[str] = []
+    _UNIT_RE = re.compile(
+        r"\s*(tys\.?|thousand|mln|million|m|mld|miliard\w*|billion|bn|b|bln|bilion\w*|"
+        r"trillion|t|млн|млрд|TWh|GWh|PLN|EUR|USD|zł|bps|basis\s+points|p\.p\.|pkt\s*proc\.?)\b",
+        re.IGNORECASE,
+    )
+    for line in (text or "").splitlines():
+        cl = re.sub(r"^\s*(?:[•\-*]\s*)?(?:<\w+>\s*)?(?:\d+[.)]\s*)?", "", line)
+        for m in _NUMBER_RE.finditer(cl):
+            raw_val = m.group(0)
+            unit = m.group("unit")
+            after = cl[m.end():]
+            sm = _UNIT_RE.match(after)
+            if sm and not unit:
+                val = f"{raw_val} {sm.group(1)}"
+            else:
+                val = raw_val
+            if val not in seen:
+                seen.add(val)
+                out.append(val)
+    return out
+
+
 def bodies_for_source(source_field: str, selected: list[dict],
                       figures_raw: str = "") -> list[str]:
     """Тексты сюжетов для верификации (T11f). Сначала - по номеру сюжета из
@@ -602,22 +650,29 @@ def bodies_for_source(source_field: str, selected: list[dict],
     с URL - только фолбэк, когда номер не разрешился: SOURCE пишет модель
     САМА, отдельно от FIGURES, и опечатка в одну букву URL даёт False в обе
     стороны у подстрочного сравнения."""
+    raw_bodies: list[str] = []
     if selected:
         numbers = [n for n in _referenced_story_numbers(figures_raw) if 1 <= n <= len(selected)]
         if not numbers:
             numbers = [n for n in parse_sources(source_field) if 1 <= n <= len(selected)]
         if numbers:
-            return [selected[n - 1].get("body") or "" for n in numbers]
+            raw_bodies = [selected[n - 1].get("body") or "" for n in numbers]
+        else:
+            urls = [u.strip() for u in re.split(r"[,\n]", source_field) if u.strip()]
+            if urls:
+                for s in selected:
+                    item_url = s["item"].url
+                    if item_url and any(item_url in u or u in item_url for u in urls):
+                        raw_bodies.append(s.get("body") or "")
+    else:
+        urls = [u.strip() for u in re.split(r"[,\n]", source_field) if u.strip()]
+        if urls:
+            for s in selected:
+                item_url = s["item"].url
+                if item_url and any(item_url in u or u in item_url for u in urls):
+                    raw_bodies.append(s.get("body") or "")
 
-    urls = [u.strip() for u in re.split(r"[,\n]", source_field) if u.strip()]
-    if not urls:
-        return []
-    out = []
-    for s in selected:
-        item_url = s["item"].url
-        if item_url and any(item_url in u or u in item_url for u in urls):
-            out.append(s.get("body") or "")
-    return out
+    return [normalize_polish_source_text(b) for b in raw_bodies]
 
 
 _BARE_YEAR = re.compile(r"^(19|20)\d{2}$")
@@ -1068,21 +1123,33 @@ def verify_drafts(drafts_text: str, selected: list[dict],
 
     for b in blocks:
         raw_figures = b["figures"].strip()
-        figures = parse_figures(raw_figures)
-        # T15: это же выражение продублировано побайтово в main.py
-        # (render_draft_message, переменная no_figures_declared перед сборкой
-        # футера) - решение от 05.08, дубль вместо общего модуля, чтобы места
-        # оставались независимыми. Менять - менять обе копии. charts.parse_figures
-        # уже вычисляет то же условие внутри себя (canon для её None-ветки),
-        # но обе копии намеренно её не вызывают и не сверяются с ней - см.
-        # докстринг parse_figures.
+        declared_figures = parse_figures(raw_figures) or []
         no_figures_declared = (not raw_figures) or raw_figures.lower().startswith("none used")
-        # текст был, но ни одна пара не распозналась - это НЕ "цифр нет", а сбой
-        # парсера. Ложный "все ок" тут хуже, чем явное "проверь руками".
-        b["_parse_failed"] = (not no_figures_declared) and not figures
+        b["_parse_failed"] = (not no_figures_declared) and not declared_figures and bool(raw_figures)
         bodies = bodies_for_source(b["source"], selected, raw_figures)
         b["_bodies"] = bodies
-        b["_level_a"] = verify_figures_local(figures, bodies, data_text)
+
+        # Сквозная верификация всех чисел из body черновика (ликвидация слепоты знаменателя):
+        # извлекаем ВСЕ числа из body, объединяем с объявленными в FIGURES
+        body_nums = extract_body_figures(b.get("body", ""))
+        default_src = declared_figures[0][1] if declared_figures else (b.get("source") or "body")
+        declared_forms = set()
+        for v, _ in declared_figures:
+            declared_forms.add(v)
+            c, s = _split_value(v)
+            if c:
+                declared_forms.add(c)
+                if s:
+                    declared_forms.add(f"{c} {s.split()[0]}")
+        combined_pairs = list(declared_figures)
+        for bn in body_nums:
+            c_bn, _ = _split_value(bn)
+            if bn not in declared_forms and (not c_bn or c_bn not in declared_forms):
+                combined_pairs.append((bn, default_src))
+
+        # Если парсер блока FIGURES упал, но в body есть числа, не прячем их
+        figures_to_verify = combined_pairs if combined_pairs else (declared_figures if declared_figures else None)
+        b["_level_a"] = verify_figures_local(figures_to_verify, bodies, data_text)
 
     candidates = []
     for i, b in enumerate(blocks):

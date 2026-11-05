@@ -407,3 +407,35 @@ def test_humanize_hugs_briefing_prunes_four_bullets_before_editor(monkeypatch):
 
 
 
+
+
+# ---------------------------------------------------------------- verification in hugs workflow
+
+def test_hugs_workflow_applies_verifier_footer(monkeypatch):
+    from src.hugs_workflow import humanize_hugs_briefing, HugsPost
+
+    post = HugsPost(
+        post_id="HugsFund/50",
+        url="https://t.me/HugsFund/50",
+        published_at=datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc),
+        text="US sovereign debt rose by 1.8 trillion while yields widened 25 bps.",
+    )
+
+    sample_briefing = (
+        "📌 <b>KEY HIGHLIGHTS</b>\n\n"
+        "• Story 1 [Bloomberg]\n\n"
+        "───────────────\n\n"
+        "📝 <b>DRAFT 1 — DIGEST</b> (110-130 words)\n\n"
+        "US sovereign debt rose by 1.8 trillion while yields widened 25 bps.\n\n"
+        "───────────────\n\n"
+        "💡 <b>DRAFT 2 — SINGLE TOPIC</b> (100-120 words)\n\n"
+        "Yields widened 25 bps following sovereign debt expansion of 1.8 trillion.\n"
+    )
+
+    # edit_and_humanize_draft возвращает переданный черновик
+    monkeypatch.setattr("src.brain.edit_and_humanize_draft", lambda d, draft_type="single", context_summary="": d)
+
+    result = humanize_hugs_briefing(sample_briefing, posts=[post])
+    assert "DRAFT 1 — DIGEST" in result
+    assert "DRAFT 2 — SINGLE TOPIC" in result
+    assert "цифры 2/2 ✅" in result

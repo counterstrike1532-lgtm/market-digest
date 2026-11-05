@@ -1102,3 +1102,67 @@ def test_non_sum_still_not_found():
     body = "Rzad wyda 20 mld zl na drogi i 10 mld zl na kolej."
     res = verify.verify_figures_local([("31 billion", "Story 1")], [body], "")
     assert res[0]["status"] == "NOT_FOUND"
+
+# ---------------------------------------------------------------- сквозная верификация чисел body и нормализация польских запятых
+
+def test_verify_drafts_validates_unmentioned_body_figures():
+    """Числа из body, не упомянутые в FIGURES, обязаны извлекаться и верифицироваться по источнику."""
+    raw_draft = (
+        "SHAPE: single\n"
+        "BODY: Export share hit 82.7%, while renewable generation reached 36.58 TWh and debt reached 100,000 PLN.\n"
+        "FIGURES: 82.7% -> Story 1\n"
+        "SOURCE: Story 1\n"
+        "WHY_THIS_ONE: none\n"
+        "VERDICT: POST\n"
+        "WHY: none\n"
+        "CHECK_FIRST: -\n"
+    )
+    # Источник содержит и 82.7%, и 36.58 TWh, и 100,000 PLN
+    source_body = "Eksport: 82.7%, energia: 36.58 TWh, dlug: 100 000 PLN."
+    selected = [{"item": None, "body": source_body}]
+
+    _, _, blocks = verify.verify_drafts(raw_draft, selected=selected, data_text="")
+    assert len(blocks) == 1
+    b = blocks[0]
+
+    # Знаменатель отражает все 3 числа из body: 82.7%, 36.58 TWh, 100,000 PLN
+    countable = [r for r in b["_level_a"] if r["status"] != "YEAR"]
+    assert len(countable) == 3
+    assert all(r["status"] == "FOUND" for r in countable)
+    assert b["_report"].startswith("✅ verified (3/3 found)")
+
+
+def test_verify_drafts_unmentioned_body_figure_not_in_source_downgrades():
+    """Число из body, отсутствующее в источнике, понижает вердикт до MAYBE и отражается в знаменателе."""
+    raw_draft = (
+        "SHAPE: single\n"
+        "BODY: Export share hit 82.7%, but capex reached 999 billion PLN.\n"
+        "FIGURES: 82.7% -> Story 1\n"
+        "SOURCE: Story 1\n"
+        "WHY_THIS_ONE: none\n"
+        "VERDICT: POST\n"
+        "WHY: none\n"
+        "CHECK_FIRST: -\n"
+    )
+    source_body = "Eksport: 82.7%."
+    selected = [{"item": None, "body": source_body}]
+
+    _, _, blocks = verify.verify_drafts(raw_draft, selected=selected, data_text="")
+    assert len(blocks) == 1
+    b = blocks[0]
+
+    countable = [r for r in b["_level_a"] if r["status"] != "YEAR"]
+    assert len(countable) == 2
+    assert b["_downgrade"] is True
+    assert "999 billion" in b["_offending"][0]
+
+
+def test_polish_comma_normalization_matching():
+    """Нормализация польских десятичных запятых: '82,7 proc.' против '82.7%', '5,0%' против '5.0%', '4,2 mld' против '4.2 mld'."""
+    raw_polish_body = "Wzrost PKB wyniosl 82,7 proc., a produkcja 4,2 mld PLN, inflacja 5,0%."
+    pairs = [("82.7%", "Story 1"), ("4.2 mld PLN", "Story 1"), ("5.0%", "Story 1")]
+
+    norm_body = verify.normalize_polish_source_text(raw_polish_body)
+    res = verify.verify_figures_local(pairs, [norm_body], "")
+    assert len(res) == 3
+    assert all(r["status"] == "FOUND" for r in res)

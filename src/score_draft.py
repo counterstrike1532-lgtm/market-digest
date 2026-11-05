@@ -420,3 +420,62 @@ def check_number_preservation(stage1_text: str, stage2_text: str) -> tuple[bool,
 
         return False, f"числа из Stage 1 отсутствуют в Stage 2: {', '.join(unique_missing)}"
     return True, "ок"
+
+
+def lint_style_ticks(text: str) -> list[str]:
+    """Детерминированный Style Linter (без LLM).
+    Проверяет маркеры стиля:
+    1. 'balance sheet' / 'balance-sheet' встречается > 1 раза -> [STYLE] duplicate balance sheet
+    2. Слова-паразиты: 'structural', 'compress' / 'compressing', 'aggressive' / 'aggressively',
+       'fundamentally reshaping', 'presents the illusion'
+    3. Scaffolding-шаблоны: 'The mechanism is clear', 'introduces two critical', 'The takeaway is simple'
+    4. Антитезы: 'isn\'t just', 'is not just ... it is'
+    5. Менторские глаголы (Tone Ceiling): 'must now', 'will ultimately force', 'pivoting permanently'
+    """
+    flags: list[str] = []
+    if not text:
+        return flags
+    low = text.lower()
+
+    # 1. 'balance sheet' / 'balance-sheet' встречается > 1 раза
+    bs_count = len(re.findall(r'\bbalance[-\s]sheet(?:s)?\b', low))
+    if bs_count > 1:
+        flags.append("[STYLE] duplicate balance sheet")
+
+    # 2. Слова-паразиты
+    parasite_patterns = [
+        (r'\bstructural\b', "structural"),
+        (r'\bcompress(?:ing)?\b', "compress/compressing"),
+        (r'\baggressive(?:ly)?\b', "aggressive/aggressively"),
+        (r'\bfundamentally\s+reshaping\b', "fundamentally reshaping"),
+        (r'\bpresents\s+the\s+illusion\b', "presents the illusion"),
+    ]
+    for pat, name in parasite_patterns:
+        if re.search(pat, low):
+            flags.append(f"[STYLE] parasite word: {name}")
+
+    # 3. Scaffolding-шаблоны
+    scaffolding_patterns = [
+        (r'\bthe\s+mechanism\s+is\s+clear\b', "The mechanism is clear"),
+        (r'\bintroduces\s+two\s+critical\b', "introduces two critical"),
+        (r'\bthe\s+takeaway\s+is\s+simple\b', "The takeaway is simple"),
+    ]
+    for pat, name in scaffolding_patterns:
+        if re.search(pat, low):
+            flags.append(f"[STYLE] scaffolding: {name}")
+
+    # 4. Антитезы
+    if re.search(r"\bisn['\u2019]t\s+just\b", low) or re.search(r"\bis\s+not\s+just\b.*?\bit\s+is\b", low, re.DOTALL):
+        flags.append("[STYLE] antithesis: isn't just / is not just ... it is")
+
+    # 5. Менторские глаголы (нарушение Tone Ceiling)
+    mentor_patterns = [
+        (r'\bmust\s+now\b', "must now"),
+        (r'\bwill\s+ultimately\s+force\b', "will ultimately force"),
+        (r'\bpivoting\s+permanently\b', "pivoting permanently"),
+    ]
+    for pat, name in mentor_patterns:
+        if re.search(pat, low):
+            flags.append(f"[STYLE] mentor tone: {name}")
+
+    return flags
