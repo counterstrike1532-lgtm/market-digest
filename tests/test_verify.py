@@ -1196,3 +1196,59 @@ def test_verify_drafts_ignores_dates_and_word_numerals_in_body_and_figures():
     b = blocks[0]
     assert b["_downgrade"] is False
     assert b["_report"].startswith("✅ verified (1/1 found)")
+
+
+def test_cross_day_entity_ledger_detects_conflicts(tmp_path):
+    from datetime import datetime, timezone
+
+    ledger_file = tmp_path / "entity_ledger.json"
+    day1 = datetime(2026, 11, 12, 8, 0, 0, tzinfo=timezone.utc)
+    day2 = datetime(2026, 11, 13, 8, 0, 0, tzinfo=timezone.utc)
+
+    # День 1: фиксируем метрики по Anthropic и CoreWeave
+    day1_draft = (
+        "SHAPE: single\n"
+        "BODY: Anthropic H1 loss reached $80.7B on $17.8B annual revenue, while CoreWeave yield hit 15%.\n"
+        "FIGURES: $80.7B -> Story 1; $17.8B -> Story 1; 15% -> Story 1\n"
+        "SOURCE: Story 1\n"
+        "WHY_THIS_ONE: test\n"
+        "VERDICT: POST\n"
+        "WHY: ok\n"
+        "CHECK_FIRST: -\n"
+    )
+    src1 = "Anthropic H1 loss $80.7B and annual revenue $17.8B. CoreWeave yield 15%."
+    out1, _, blocks1 = verify.verify_drafts(
+        day1_draft,
+        selected=[{"item": None, "body": src1}],
+        data_text="",
+        ledger_path=ledger_file,
+        now=day1,
+    )
+    assert blocks1[0]["_cross_day_conflicts"] == []
+    assert "CROSS-DAY CONFLICT" not in out1
+    assert ledger_file.exists()
+
+    # День 2: противоречия (9M loss $23.3B < H1 loss $80.7B, quarterly revenue $17B vs annual $17.8B, yield 16% vs 15%)
+    day2_draft = (
+        "SHAPE: single\n"
+        "BODY: Anthropic 9M loss totaled $23.3B on $17B quarterly revenue, while CoreWeave yield climbed to 16%.\n"
+        "FIGURES: $23.3B -> Story 1; $17B -> Story 1; 16% -> Story 1\n"
+        "SOURCE: Story 1\n"
+        "WHY_THIS_ONE: test\n"
+        "VERDICT: POST\n"
+        "WHY: ok\n"
+        "CHECK_FIRST: -\n"
+    )
+    src2 = "Anthropic 9M loss $23.3B and quarterly revenue $17B. CoreWeave yield 16%."
+    out2, _, blocks2 = verify.verify_drafts(
+        day2_draft,
+        selected=[{"item": None, "body": src2}],
+        data_text="",
+        ledger_path=ledger_file,
+        now=day2,
+    )
+    conflicts = blocks2[0]["_cross_day_conflicts"]
+    assert any("CROSS-DAY CONFLICT: Anthropic loss differs from 2026-11-12 ($80.7B)" in c for c in conflicts)
+    assert any("CROSS-DAY CONFLICT: Anthropic revenue differs from 2026-11-12 ($17.8B)" in c for c in conflicts)
+    assert any("CROSS-DAY CONFLICT: CoreWeave yield differs from 2026-11-12 (15%)" in c for c in conflicts)
+    assert "⚠️ CROSS-DAY CONFLICT:" in out2

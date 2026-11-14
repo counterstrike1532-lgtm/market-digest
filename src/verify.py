@@ -17,12 +17,19 @@ WHY_THIS_ONE/VERDICT/WHY/CHECK_FIRST. Только дописывает отчё
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone, timedelta
+import json
 import logging
+import os
+from pathlib import Path
 import re
 
 from . import brain, charts
 
 log = logging.getLogger(__name__)
+
+_DEFAULT_ENTITY_LEDGER_PATH = Path(__file__).resolve().parent.parent / "state" / "entity_ledger.json"
+ENTITY_LEDGER_PATH = _DEFAULT_ENTITY_LEDGER_PATH
 
 _DRAFT_RE = re.compile(
     r"(?i)SHAPE:\s*(?P<shape>.*?)\n"
@@ -1060,14 +1067,278 @@ def _strip_model_header(segment: str) -> str:
     return "\n".join(lines).rstrip()
 
 
+_LEDGER_ENTITY_STOPWORDS = {
+    "The", "This", "That", "These", "Those", "There", "Here", "When", "While", "Where",
+    "What", "Why", "How", "Most", "Many", "Some", "Each", "Every", "All", "Both",
+    "After", "Before", "Since", "Until", "Despite", "Although", "Because", "However",
+    "Instead", "Meanwhile", "Yet", "Still", "Only", "Even", "More", "Less", "Higher",
+    "Lower", "Rising", "Falling", "Global", "Local", "Regional", "National", "Federal",
+    "Central", "Public", "Private", "Corporate", "Commercial", "Financial", "European",
+    "American", "Polish", "Chinese", "Japanese", "Treasury", "Market", "Markets",
+    "Investors", "Banks", "Lenders", "Firms", "Companies", "Shareholders", "Bondholders",
+    "January", "February", "March", "April", "May", "June", "July", "August",
+    "September", "October", "November", "December", "Monday", "Tuesday", "Wednesday",
+    "Thursday", "Friday", "Saturday", "Sunday", "Annual", "Quarterly", "Monthly",
+    "Daily", "Weekly", "First", "Second", "Third", "Fourth", "Half", "Full", "Nine",
+    "PLN", "EUR", "USD", "GDP", "NIM", "WACC", "ROIC", "GAAP", "EBITDA", "CAPEX",
+    "IPO", "ETF", "US", "EU", "UK", "AI", "Q1", "Q2", "Q3", "Q4", "H1", "H2", "FY",
+    "9M", "YTD", "TTM", "ESA",
+}
+
+_LEDGER_METRIC_PATTERNS: tuple[tuple[str, re.Pattern], ...] = (
+    ("loss", re.compile(r"\b(?:net\s+)?loss(?:es)?\b", re.IGNORECASE)),
+    ("revenue", re.compile(r"\b(?:revenue|revenues|sales|ARR)\b", re.IGNORECASE)),
+    ("yield", re.compile(r"\b(?:yield|yields|coupon|interest\s+rate|borrowing\s+rate|borrowing\s+cost)\b", re.IGNORECASE)),
+    ("debt", re.compile(r"\b(?:debt|loan|credit\s+line|credit\s+facility|borrowings?)\b", re.IGNORECASE)),
+    ("capex", re.compile(r"\b(?:capex|capital\s+expenditures?)\b", re.IGNORECASE)),
+    ("backlog", re.compile(r"\b(?:backlog|commitments?)\b", re.IGNORECASE)),
+    ("profit", re.compile(r"\b(?:net\s+profit|profit|net\s+income|EBITDA)\b", re.IGNORECASE)),
+)
+
+_LEDGER_PERIOD_PATTERNS: tuple[tuple[str, re.Pattern], ...] = (
+    ("H1", re.compile(r"\b(?:H1|first[-\s]+half)\b", re.IGNORECASE)),
+    ("9M", re.compile(r"\b(?:9M|nine[-\s]+month)\b", re.IGNORECASE)),
+    ("quarterly", re.compile(r"\b(?:Q[1-4]|quarter(?:ly)?)\b", re.IGNORECASE)),
+    ("annual", re.compile(r"\b(?:annual(?:ly)?|full[-\s]+year|FY\d*)\b", re.IGNORECASE)),
+)
+
+_LEDGER_NUM_RE = re.compile(
+    r"(?P<val>[\$€£]?\d+(?:,\d{3})*(?:\.\d+)?\s*"
+    r"(?:trillion|billion|million|thousand|mld|mln|bln|tys\.?|%|B\b|M\b|T\b|PLN\b|EUR\b|USD\b)?)",
+    re.IGNORECASE,
+)
+
+
+def _ledger_parse_numeric(val_str: str) -> float | None:
+    s = (val_str or "").strip()
+    if not s:
+        return None
+    m = re.match(r"^[\$€£]?(\d+(?:,\d{3})*(?:\.\d+)?)\s*([A-Za-z.%]+)?$", s)
+    if not m:
+        return _to_float(s)
+    num_core = m.group(1).replace(",", "")
+    suffix = (m.group(2) or "").strip()
+    if suffix.upper() == "B":
+        return _to_float(f"{num_core} billion")
+    if suffix.upper() == "M":
+        return _to_float(f"{num_core} million")
+    if suffix.upper() == "T":
+        return _to_float(f"{num_core} trillion")
+    if suffix == "%":
+        return _to_float(num_core)
+    return _to_float(f"{num_core} {suffix}".strip())
+
+
+def extract_entity_metrics(text: str) -> list[dict]:
+    """Извлекает (entity, metric, period, value, numeric_value) из предложений черновика."""
+    clean = re.sub(r"<[^>]+>", " ", text or "")
+    if not clean.strip():
+        return []
+    clean = _BODY_DATE_RE.sub(" ", clean)
+
+    camel_re = re.compile(r"\b[A-Z][a-z]+[A-Z][A-Za-z0-9]*\b")
+    proper_re = re.compile(r"\b[A-Z][A-Za-z0-9]{2,}\b")
+
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", clean) if s.strip()]
+    primary_entity = ""
+    for sent in sentences:
+        camels = [t for t in camel_re.findall(sent) if t not in _LEDGER_ENTITY_STOPWORDS]
+        if camels:
+            primary_entity = camels[0]
+            break
+        propers = [t for t in proper_re.findall(sent) if t not in _LEDGER_ENTITY_STOPWORDS]
+        if propers:
+            primary_entity = propers[0]
+            break
+
+    extracted: list[dict] = []
+    entity_tok_re = re.compile(r"\b(?:[A-Z][a-z]+[A-Z][A-Za-z0-9]*|[A-Z][A-Za-z0-9]{2,})\b")
+    for sent in sentences:
+        sent_entities = [
+            tok for tok in entity_tok_re.findall(sent)
+            if tok not in _LEDGER_ENTITY_STOPWORDS
+        ]
+        sent_entity = sent_entities[0] if sent_entities else primary_entity
+        if not sent_entity:
+            continue
+
+        clauses = [c.strip() for c in re.split(r"\s*(?:;|,\s*(?:while|whereas|and|but))\s+", sent) if c.strip()]
+        for clause in clauses:
+            clause_ents = [
+                tok for tok in entity_tok_re.findall(clause)
+                if tok not in _LEDGER_ENTITY_STOPWORDS
+            ]
+            clause_entity = clause_ents[0] if clause_ents else sent_entity
+
+            for nm in _LEDGER_NUM_RE.finditer(clause):
+                raw_val = nm.group("val").strip()
+                if not raw_val:
+                    continue
+                if _BARE_YEAR.fullmatch(raw_val):
+                    continue
+                num_val = _ledger_parse_numeric(raw_val)
+                if num_val is None:
+                    continue
+
+                win_start = max(0, nm.start() - 35)
+                win_end = min(len(clause), nm.end() + 35)
+                local_ctx = clause[win_start:win_end]
+
+                # Уточняем сущность по ближайшему упоминанию до числа в той же клаузе
+                local_ents = [
+                    t for t in entity_tok_re.findall(clause[:nm.start() + 10])
+                    if t not in _LEDGER_ENTITY_STOPWORDS
+                ]
+                row_entity = local_ents[-1] if local_ents else clause_entity
+
+                matched_metric = None
+                best_dist = None
+                for metric_name, pat in _LEDGER_METRIC_PATTERNS:
+                    for mm in pat.finditer(local_ctx):
+                        dist = abs((win_start + mm.start()) - nm.start())
+                        if best_dist is None or dist < best_dist:
+                            best_dist = dist
+                            matched_metric = metric_name
+                if not matched_metric:
+                    continue
+
+                period = ""
+                for p_name, p_pat in _LEDGER_PERIOD_PATTERNS:
+                    if p_pat.search(local_ctx):
+                        period = p_name
+                        break
+
+                extracted.append({
+                    "entity": row_entity,
+                    "metric": matched_metric,
+                    "period": period,
+                    "value": raw_val,
+                    "numeric_value": num_val,
+                })
+    return extracted
+
+
+def load_entity_ledger(
+    days: int = 14,
+    now: datetime | None = None,
+    path: Path | None = None,
+) -> list[dict]:
+    """Читает записи из state/entity_ledger.json за скользящее окно `days` (14 дней)."""
+    target = path or ENTITY_LEDGER_PATH
+    if not target.exists():
+        return []
+    try:
+        raw = target.read_text(encoding="utf-8")
+        data = json.loads(raw) if raw.strip() else []
+    except Exception as exc:
+        log.warning("Ошибка чтения entity_ledger (%s): %s", target, exc)
+        return []
+    if not isinstance(data, list):
+        return []
+
+    ref_now = now or datetime.now(timezone.utc)
+    cutoff_date = (ref_now - timedelta(days=days)).strftime("%Y-%m-%d")
+    kept: list[dict] = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        row_date = str(row.get("date") or "")
+        if row_date >= cutoff_date:
+            kept.append(row)
+    return kept
+
+
+def check_and_update_entity_ledger(
+    text: str,
+    now: datetime | None = None,
+    path: Path | None = None,
+    days: int = 14,
+) -> list[str]:
+    """Сверяет ключевые метрики по сущности с 14-дневным реестром и обновляет его."""
+    target = path or ENTITY_LEDGER_PATH
+    ref_now = now or datetime.now(timezone.utc)
+    today_str = ref_now.strftime("%Y-%m-%d")
+
+    ledger = load_entity_ledger(days=days, now=ref_now, path=target)
+    current_items = extract_entity_metrics(text)
+    if not current_items:
+        return []
+
+    conflicts: list[str] = []
+    seen_conflicts: set[str] = set()
+    flow_metrics = {"loss", "revenue", "profit", "capex"}
+
+    for item in current_items:
+        ent = item["entity"]
+        metric = item["metric"]
+        new_period = item["period"]
+        new_num = item["numeric_value"]
+
+        for prev in ledger:
+            if str(prev.get("entity") or "").lower() != ent.lower():
+                continue
+            if str(prev.get("metric") or "").lower() != metric.lower():
+                continue
+
+            old_date = str(prev.get("date") or "")
+            old_val = str(prev.get("value") or "")
+            old_period = str(prev.get("period") or "")
+            old_num = prev.get("numeric_value")
+            if old_num is None:
+                old_num = _ledger_parse_numeric(old_val)
+            if old_num is None:
+                continue
+
+            is_conflict = False
+            # 1. Накопительная инверсия: H1 > 9M
+            if metric in flow_metrics and {old_period, new_period} == {"H1", "9M"}:
+                h1_val = old_num if old_period == "H1" else new_num
+                m9_val = new_num if new_period == "9M" else old_num
+                if m9_val < h1_val:
+                    is_conflict = True
+            # 2. Годовая vs квартальная: квартальная >= 40% от годовой (сопоставимый масштаб)
+            elif metric in flow_metrics and {old_period, new_period} == {"annual", "quarterly"}:
+                ann_val = old_num if old_period == "annual" else new_num
+                q_val = new_num if new_period == "quarterly" else old_num
+                if ann_val > 0 and q_val >= 0.4 * ann_val:
+                    is_conflict = True
+            # 3. Расхождение значений по той же метрике/периоду
+            elif old_period == new_period or not old_period or not new_period:
+                if abs(new_num - old_num) > max(abs(old_num) * 0.01, 1e-6):
+                    is_conflict = True
+
+            if is_conflict:
+                msg = f"⚠️ CROSS-DAY CONFLICT: {ent} {metric} differs from {old_date} ({old_val})"
+                if msg not in seen_conflicts:
+                    seen_conflicts.add(msg)
+                    conflicts.append(msg)
+
+    for item in current_items:
+        ledger.append({
+            "entity": item["entity"],
+            "metric": item["metric"],
+            "period": item["period"],
+            "value": item["value"],
+            "numeric_value": item["numeric_value"],
+            "date": today_str,
+        })
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(ledger, indent=2, ensure_ascii=False), encoding="utf-8")
+    return conflicts
+
+
 def _report_lines(b: dict) -> list[str]:
     if b.get("_parse_failed"):
-        return ["ЦИФРЫ: ⚠️ FIGURES не распарсился - проверь числа руками"]
-    lines = [f"ЦИФРЫ: {b['_report']}"]
-    if b["_downgrade"] and b["verdict"].strip().upper() == "POST":
-        values = ", ".join(f'"{v}"' for v in b["_offending"])
-        lines.append(f'  ! верификатор: VERDICT эффективно MAYBE - '
-                    f'сверь {values} перед публикацией')
+        lines = ["ЦИФРЫ: ⚠️ FIGURES не распарсился - проверь числа руками"]
+    else:
+        lines = [f"ЦИФРЫ: {b['_report']}"]
+        if b["_downgrade"] and b["verdict"].strip().upper() == "POST":
+            values = ", ".join(f'"{v}"' for v in b["_offending"])
+            lines.append(f'  ! верификатор: VERDICT эффективно MAYBE - '
+                        f'сверь {values} перед публикацией')
+    for conflict in b.get("_cross_day_conflicts") or []:
+        lines.append(conflict)
     return lines
 
 
@@ -1114,7 +1385,9 @@ def _stats_from_blocks(blocks: list[dict]) -> dict:
 
 
 def verify_drafts(drafts_text: str, selected: list[dict],
-                  data_text: str) -> tuple[str, dict, list[dict]]:
+                  data_text: str,
+                  ledger_path: Path | None = None,
+                  now: datetime | None = None) -> tuple[str, dict, list[dict]]:
     """Точка входа. Дописывает под каждым черновиком строку "ЦИФРЫ: ..." и, если
     хоть одно число NOT_FOUND или MISMATCH, явную пометку о принудительном
     понижении VERDICT до MAYBE - саму строку VERDICT черновика не трогает, только
@@ -1175,6 +1448,22 @@ def verify_drafts(drafts_text: str, selected: list[dict],
         # Если парсер блока FIGURES упал, но в body есть числа, не прячем их
         figures_to_verify = combined_pairs if combined_pairs else (declared_figures if declared_figures else None)
         b["_level_a"] = verify_figures_local(figures_to_verify, bodies, data_text)
+
+        use_ledger = (
+            ledger_path is not None
+            or ENTITY_LEDGER_PATH != _DEFAULT_ENTITY_LEDGER_PATH
+            or ENTITY_LEDGER_PATH.exists()
+            or os.environ.get("NEWSBOT_ALLOW_LIVE") == "1"
+            or os.environ.get("NEWSBOT_PERSIST_STATE") == "1"
+        )
+        if use_ledger:
+            b["_cross_day_conflicts"] = check_and_update_entity_ledger(
+                b.get("body", ""),
+                now=now,
+                path=ledger_path or ENTITY_LEDGER_PATH,
+            )
+        else:
+            b["_cross_day_conflicts"] = []
 
     candidates = []
     for i, b in enumerate(blocks):

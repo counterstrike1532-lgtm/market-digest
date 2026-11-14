@@ -435,6 +435,8 @@ def lint_style_ticks(text: str) -> list[str]:
        'directly', 'effectively', 'will force' -> absolutist tone
     7. Шаблонные зачины / жаргон: 'most investors assume', 'many investors assume',
        'everyone is watching', 'liquidity plumbing' -> cliche opener/jargon
+    8. Тире и дефисы в диапазонах: любое '—' / '–' или числовой диапазон через дефис -> dash/range formatting
+    9. Доп. шаблоны/слова: 'sits alongside', 'two critical figures', 'bottleneck', 'must'
     """
     flags: list[str] = []
     if not text:
@@ -453,6 +455,7 @@ def lint_style_ticks(text: str) -> list[str]:
         (r'\baggressive(?:ly)?\b', "aggressive/aggressively"),
         (r'\bfundamentally\s+reshaping\b', "fundamentally reshaping"),
         (r'\bpresents\s+the\s+illusion\b', "presents the illusion"),
+        (r'\bbottleneck(?:s)?\b', "bottleneck"),
     ]
     for pat, name in parasite_patterns:
         if re.search(pat, low):
@@ -463,6 +466,8 @@ def lint_style_ticks(text: str) -> list[str]:
         (r'\bthe\s+mechanism\s+is\s+clear\b', "The mechanism is clear"),
         (r'\bintroduces\s+two\s+critical\b', "introduces two critical"),
         (r'\bthe\s+takeaway\s+is\s+simple\b', "The takeaway is simple"),
+        (r'\bsits\s+alongside\b', "sits alongside"),
+        (r'\btwo\s+critical\s+figures\b', "two critical figures"),
     ]
     for pat, name in scaffolding_patterns:
         if re.search(pat, low):
@@ -477,6 +482,7 @@ def lint_style_ticks(text: str) -> list[str]:
         (r'\bmust\s+now\b', "must now"),
         (r'\bwill\s+ultimately\s+force\b', "will ultimately force"),
         (r'\bpivoting\s+permanently\b', "pivoting permanently"),
+        (r'\bmust\b', "must"),
     ]
     for pat, name in mentor_patterns:
         if re.search(pat, low):
@@ -506,5 +512,9 @@ def lint_style_ticks(text: str) -> list[str]:
     for pat, name in cliche_patterns:
         if re.search(pat, low):
             flags.append(f"[STYLE] cliche opener/jargon: {name}")
+
+    # 8. Запрет всех длинных/средних тире (— / –) и дефисов в числовых диапазонах
+    if "—" in text or "–" in text or re.search(r"\b\d+(?:[.,]\d+)?%?\s*[–—-]\s*[\$€£]?\d+(?:[.,]\d+)?", text):
+        flags.append("[STYLE] dash/range formatting: use 'to' instead of dashes")
 
     return flags

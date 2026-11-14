@@ -3,7 +3,7 @@ Free tier Google AI Studio. Модель задаётся через GEMINI_MODE
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import logging
 import os
@@ -18,6 +18,8 @@ logger = log
 
 GOLDEN_REWRITES_PATH = Path(__file__).resolve().parent.parent / "style" / "golden_rewrites.md"
 FLAGGED_PHRASES_PATH = Path(__file__).resolve().parent.parent / "state" / "flagged_phrases.json"
+_DEFAULT_SINGLE_TOPIC_HISTORY_PATH = Path(__file__).resolve().parent.parent / "state" / "single_topic_history.json"
+SINGLE_TOPIC_HISTORY_PATH = _DEFAULT_SINGLE_TOPIC_HISTORY_PATH
 
 
 def load_golden_rewrites() -> str:
@@ -560,6 +562,14 @@ Strictly distinguish and NEVER conflate or swap the following financial concepts
 - Banned cliché openers: "Most investors assume", "Many investors assume", "Everyone is watching", "These two numbers sit oddly next to each other".
 - DIGEST COHERENCE: Combine 2–3 stories into a digest ONLY when they share a single concrete financial mechanism. Strictly forbidden to stitch unrelated stories together via generic filler about "cost of capital".
 
+=== 16. EXACT ARITHMETIC, PREPAYMENTS, PUBLIC DEBT METHODOLOGY & RANGE FORMATTING ===
+- EXACT ARITHMETIC & BASES: Always calculate ratios and multiples accurately: if 40.3% / 11.8% = 3.41, write "3.4x" or "over three times" — NEVER round 3.41 up to "four times". State the exact period and base for every figure (never mix a monthly rejection rate with an annual market volume estimate without explicitly naming both periods).
+- PREPAYMENTS (CUSTOMER ADVANCES): Client prepayments are deferred revenue; the CUSTOMER is the creditor who paid upfront, and the customer bears the non-delivery / credit risk, NOT the supplier.
+- ESA 2010 VS NATIONAL DEBT METHODOLOGY: Never compare general government debt under ESA 2010 methodology (e.g. 59.6% of GDP) directly against Poland's 60% constitutional debt threshold (national methodology) without explicitly stating the methodology difference.
+- RETAIL TREASURY BONDS: Never claim that retail government bonds sit on commercial bank balance sheets as deposits — they are held in brokerage and registry accounts directly with the Ministry of Finance agent.
+- HOOK B (SINGLE ANCHOR FIGURE): Anchor Hook B around ONE primary figure. Strictly forbidden to use connectors "now sits alongside" or "defined by two critical figures".
+- STRICT BAN ON DASHES IN RANGES: Never use em-dashes (—), en-dashes (–), or hyphens (-) in numeric ranges. Write ALL ranges using the word "to": "20 to 22%", "45.0 to 45.5", "$1.1 to $1.3 trillion" (NEVER "20–22%" or "$1.1–1.3 trillion").
+
 === FEW-SHOT EXAMPLES (THE STANDARD: SHARP, SIMPLE, PRACTICAL) ===
 
 EXAMPLE 1: SINGLE TOPIC (Big Tech Capex & Risk)
@@ -658,7 +668,184 @@ def is_default_style_template(text: str) -> bool:
     return any(m in clean for m in markers)
 
 
-def draft(selected: list[dict], data: dict, style_text: str, n: int = 2) -> str:
+_SINGLE_TOPIC_STOPWORDS = {
+    "The", "This", "That", "These", "Those", "There", "Here", "When", "While", "Where",
+    "What", "Why", "How", "Most", "Many", "Some", "Each", "Every", "All", "Both",
+    "After", "Before", "Since", "Until", "Despite", "Although", "Because", "However",
+    "Instead", "Meanwhile", "Yet", "Still", "Only", "Even", "More", "Less", "Higher",
+    "Lower", "Rising", "Falling", "Global", "Local", "Regional", "National", "Federal",
+    "Central", "Public", "Private", "Corporate", "Commercial", "Financial", "European",
+    "American", "Polish", "Chinese", "Japanese", "Treasury", "Market", "Markets",
+    "Investors", "Banks", "Lenders", "Firms", "Companies", "Shareholders", "Bondholders",
+    "January", "February", "March", "April", "May", "June", "July", "August",
+    "September", "October", "November", "December", "Monday", "Tuesday", "Wednesday",
+    "Thursday", "Friday", "Saturday", "Sunday", "DRAFT", "SINGLE", "TOPIC", "DIGEST",
+    "KEY", "HIGHLIGHTS", "POST", "MAYBE", "SKIP", "SOURCE", "FIGURES", "PLN", "EUR",
+    "USD", "GDP", "NIM", "WACC", "ROIC", "GAAP", "EBITDA", "CAPEX", "IPO", "ETF",
+    "US", "EU", "UK", "AI", "Q1", "Q2", "Q3", "Q4", "H1", "H2", "FY", "9M", "ESA",
+}
+
+
+def extract_single_topic_entities(text: str) -> list[str]:
+    """Извлекает ключевые сущности/компании из текста сингл-поста (DRAFT 2 / ЧЕРНОВИК 2)."""
+    clean = re.sub(r"<[^>]+>", " ", text or "").strip()
+    if not clean:
+        return []
+
+    first_sentence = re.split(r"(?<=[.!?])\s+|\n+", clean, maxsplit=1)[0]
+    camel_re = re.compile(r"\b[A-Z][a-z]+[A-Z][A-Za-z0-9]*\b")
+    proper_re = re.compile(r"\b[A-Z][A-Za-z0-9]{2,}\b")
+
+    seen: set[str] = set()
+    ordered: list[str] = []
+
+    def _add(tok: str) -> None:
+        if tok in _SINGLE_TOPIC_STOPWORDS:
+            return
+        low = tok.lower()
+        if low in seen:
+            return
+        seen.add(low)
+        ordered.append(tok)
+
+    for tok in camel_re.findall(clean):
+        _add(tok)
+
+    for idx, tok in enumerate(proper_re.findall(first_sentence)):
+        if idx == 0 and tok in _SINGLE_TOPIC_STOPWORDS:
+            continue
+        _add(tok)
+
+    non_start_clean = re.sub(r"(?:^|[.!?]\s+|\n\s*)[A-Z][a-z]+\b", " ", clean)
+    for tok in proper_re.findall(non_start_clean):
+        _add(tok)
+
+    return ordered[:5]
+
+
+def _extract_draft2_body_from_output(raw: str) -> str:
+    """Извлекает тело второго черновика (single topic) из ответа brain.draft() или брифинга Hugs."""
+    if not raw:
+        return ""
+    blocks = list(re.finditer(
+        r"(?is)SHAPE:\s*(?P<shape>.*?)\nBODY:\s*(?P<body>.*?)\n(?:FIGURES|FIGURES\s+USED|DIGITS|NUMBERS)\s*:",
+        raw,
+    ))
+    if blocks:
+        for b in blocks:
+            if "digest" not in (b.group("shape") or "").lower():
+                return (b.group("body") or "").strip()
+        if len(blocks) >= 2:
+            return (blocks[1].group("body") or "").strip()
+    m = re.search(
+        r"(?:💡\s*)?(?:<b>\s*)?DRAFT\s*2[^<\n]*(?:</b>)?[^\n]*\n+(.*?)(?=\n+─{3,}|\n+---|\Z)",
+        raw,
+        re.DOTALL | re.IGNORECASE,
+    )
+    return m.group(1).strip() if m else ""
+
+
+def load_recent_single_topic_history(
+    days: int = 7,
+    hours: int | None = None,
+    now: datetime | None = None,
+    path: Path | None = None,
+) -> list[dict]:
+    """Читает общую 7-дневную историю компаний/сюжетов DRAFT 2 / ЧЕРНОВИК 2 для обоих потоков."""
+    target = path or SINGLE_TOPIC_HISTORY_PATH
+    if not target.exists():
+        return []
+    try:
+        raw = target.read_text(encoding="utf-8")
+        data = json.loads(raw) if raw.strip() else []
+    except Exception as exc:
+        log.warning("Ошибка чтения 7d реестра сингл-тем (%s): %s", target, exc)
+        return []
+    if not isinstance(data, list):
+        return []
+
+    ref_now = now or datetime.now(timezone.utc)
+    delta = timedelta(hours=hours) if hours is not None else timedelta(days=days)
+    cutoff = ref_now - delta
+    recent: list[dict] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        ts_raw = entry.get("timestamp")
+        if not ts_raw:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(ts_raw))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if ts >= cutoff:
+            recent.append(entry)
+    return recent
+
+
+def get_recent_single_topic_entities(
+    days: int = 7,
+    hours: int | None = None,
+    now: datetime | None = None,
+    path: Path | None = None,
+) -> list[str]:
+    """Возвращает уникальный список главных компаний/сущностей DRAFT 2 за последние 7 дней."""
+    recent = load_recent_single_topic_history(days=days, hours=hours, now=now, path=path)
+    seen: set[str] = set()
+    entities: list[str] = []
+    for entry in recent:
+        items = entry.get("entities") or ([] if not entry.get("entity") else [entry.get("entity")])
+        for ent in items:
+            s = str(ent).strip()
+            if s and s.lower() not in seen:
+                seen.add(s.lower())
+                entities.append(s)
+    return entities
+
+
+def save_single_topic_history(
+    text: str,
+    entities: list[str] | None = None,
+    headline: str | None = None,
+    days: int = 7,
+    hours: int | None = None,
+    now: datetime | None = None,
+    path: Path | None = None,
+    source_pipeline: str = "main",
+) -> list[str]:
+    """Сохраняет сущность/заголовок DRAFT 2 в общий 7-дневный реестр в state/."""
+    target = path or SINGLE_TOPIC_HISTORY_PATH
+    ref_now = now or datetime.now(timezone.utc)
+    recent = load_recent_single_topic_history(days=days, hours=hours, now=ref_now, path=target)
+
+    clean_body = re.sub(r"<[^>]+>", " ", text or "").strip()
+    extracted_entities = entities if entities is not None else extract_single_topic_entities(clean_body)
+    if not extracted_entities:
+        return []
+
+    first_line = headline or (re.split(r"(?<=[.!?])\s+|\n+", clean_body, maxsplit=1)[0][:180] if clean_body else "")
+    recent.append({
+        "timestamp": ref_now.isoformat(),
+        "pipeline": source_pipeline,
+        "entities": extracted_entities,
+        "headline": first_line,
+    })
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(recent, indent=2, ensure_ascii=False), encoding="utf-8")
+    return extracted_entities
+
+
+def draft(
+    selected: list[dict],
+    data: dict,
+    style_text: str,
+    n: int = 2,
+    history_path: Path | None = None,
+    now: datetime | None = None,
+) -> str:
     blocks = []
     # Жесткий лимит: передавать модели ровно 3 (максимум) или 2 сюжета для дайджеста
     for i, s_ in enumerate(selected[:3], 1):
@@ -679,9 +866,37 @@ def draft(selected: list[dict], data: dict, style_text: str, n: int = 2) -> str:
     else:
         style = clean_style
 
-    return _call(DRAFT_PROMPT.format(n=n, stories="\n\n".join(blocks),
-                                     data=data_txt, style=style),
-                 temperature=0.9, max_tokens=16384)
+    prompt = DRAFT_PROMPT.format(n=n, stories="\n\n".join(blocks),
+                                 data=data_txt, style=style)
+
+    target_history = history_path or SINGLE_TOPIC_HISTORY_PATH
+    use_history = (
+        history_path is not None
+        or SINGLE_TOPIC_HISTORY_PATH != _DEFAULT_SINGLE_TOPIC_HISTORY_PATH
+        or SINGLE_TOPIC_HISTORY_PATH.exists()
+        or os.environ.get("NEWSBOT_ALLOW_LIVE") == "1"
+        or os.environ.get("NEWSBOT_PERSIST_STATE") == "1"
+    )
+    if use_history:
+        recent_entities = get_recent_single_topic_entities(days=7, now=now, path=target_history)
+        if recent_entities:
+            stories_blob = "\n".join(blocks).lower()
+            matched = [e for e in recent_entities if e.lower() in stories_blob]
+            banned_list = ", ".join(matched if matched else recent_entities)
+            prompt += (
+                "\n\n=== 7-DAY ANTI-DUPLICATE BAN FOR DRAFT 2 (SINGLE TOPIC) ===\n"
+                f"STRICTLY FORBIDDEN to feature the following company/entity as the main subject of DRAFT 2 (single) "
+                f"more than once in 7 days: {banned_list}.\n"
+                "Exception: ONLY if a fundamentally new milestone event occurred (for example, official IPO pricing). "
+                "Otherwise select the second most significant story of the day for DRAFT 2 instead.\n"
+            )
+
+    raw = _call(prompt, temperature=0.9, max_tokens=16384)
+    if use_history:
+        d2_body = _extract_draft2_body_from_output(raw)
+        if d2_body:
+            save_single_topic_history(d2_body, days=7, now=now, path=target_history, source_pipeline="main")
+    return raw
 
 
 # ------------------------------------------------------------------
@@ -878,6 +1093,13 @@ CRITICAL FORMATTING & READABILITY RULES:
      * Strip out deterministic intensifiers: inevitably, permanently, entirely, directly, effectively, immediately, fundamentally, will force, no longer.
      * Strip out cliché openers: "Most investors assume", "Many investors assume", "Everyone is watching", "These two numbers sit oddly next to each other".
      * DIGEST COHERENCE: Combine 2–3 stories into a digest ONLY when they share a single concrete financial mechanism. Strictly forbidden to stitch unrelated stories together via generic filler about "cost of capital".
+   - EXACT ARITHMETIC, PREPAYMENTS, PUBLIC DEBT METHODOLOGY & RANGE FORMATTING:
+     * Exact arithmetic: calculate ratios/multiples accurately (e.g. 40.3% / 11.8% = 3.41 -> "3.4x" or "over three times", NEVER round up to "four times"). State the exact period and base for every figure.
+     * Prepayments: customer prepayments are deferred revenue; the CUSTOMER is the creditor who paid upfront and bears the non-delivery risk, NOT the supplier.
+     * ESA 2010 vs national debt: never compare ESA 2010 debt (e.g. 59.6% GDP) directly against Poland's 60% constitutional threshold (national methodology) without noting the methodology difference.
+     * Retail Treasury bonds: never claim retail government bonds sit on commercial bank balance sheets as deposits — they are held in brokerage/registry accounts directly with the Ministry of Finance agent.
+     * Hook B reform: anchor Hook B around ONE primary figure; never use "now sits alongside" or "defined by two critical figures".
+     * No dashes in ranges: strictly forbid em-dashes (—), en-dashes (–), and hyphens (-) in numeric ranges; write ALL ranges using "to" (e.g. "20 to 22%", "45.0 to 45.5", "$1.1 to $1.3 trillion").
 
 OUTPUT FORMAT:
 Return ONLY the final edited post text. No introductory remarks, no quotes, no word counts in brackets.

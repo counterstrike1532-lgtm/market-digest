@@ -650,3 +650,53 @@ def test_rank_applies_cee_ranking(monkeypatch):
                         '[{"id": 0, "score": 8}, {"id": 1, "score": 7}]')
     result = brain.rank(items, top_n=5)
     assert result[0]["item"] is items[1]
+
+
+def test_brain_draft_7d_company_anti_duplicate_shared_registry(monkeypatch, tmp_path):
+    from datetime import datetime, timezone, timedelta
+
+    history_file = tmp_path / "single_topic_history.json"
+    t0 = datetime(2026, 11, 10, 8, 0, 0, tzinfo=timezone.utc)
+    t_within_7d = t0 + timedelta(days=4)
+    t_after_7d = t0 + timedelta(days=8)
+
+    # День 1: запись из Hugs (или прошлого прогона) про Meta попадает в общий реестр
+    brain.save_single_topic_history(
+        "Meta issued $20 billion in debt for AI data centers.",
+        now=t0,
+        path=history_file,
+        source_pipeline="hugs",
+    )
+    assert "Meta" in brain.get_recent_single_topic_entities(days=7, now=t_within_7d, path=history_file)
+
+    captured_prompts = []
+
+    def fake_post(url, **kw):
+        captured_prompts.append(kw["json"]["contents"][0]["parts"][0]["text"])
+        return _ok(
+            "SHAPE: digest\nBODY: Digest text.\nFIGURES: none used\nSOURCE: Story 1\n"
+            "WHY_THIS_ONE: d\nVERDICT: POST\nWHY: ok\nCHECK_FIRST: -\n\n"
+            "SHAPE: A\nBODY: Orlen posted 15.8 billion PLN profit.\nFIGURES: 15.8 billion PLN -> Story 2\n"
+            "SOURCE: Story 2\nWHY_THIS_ONE: s\nVERDICT: POST\nWHY: ok\nCHECK_FIRST: -"
+        )
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+
+    item1 = SimpleNamespace(title="Meta capex rises", source="reuters.com", url="https://reuters.com/meta", published_known=True)
+    item2 = SimpleNamespace(title="Orlen profit update", source="bankier.pl", url="https://bankier.pl/orlen", published_known=True)
+    selected = [
+        {"item": item1, "angle": "Meta capex", "why_nonobvious": "debt", "body": "Meta capex text"},
+        {"item": item2, "angle": "Orlen profit", "why_nonobvious": "state", "body": "Orlen text"},
+    ]
+
+    # День 5 (+4 дня): Meta запрещена для DRAFT 2, а новый DRAFT 2 про Orlen сохраняется в тот же реестр
+    brain.draft(selected, data={}, style_text="", n=2, history_path=history_file, now=t_within_7d)
+    assert "7-DAY ANTI-DUPLICATE BAN FOR DRAFT 2" in captured_prompts[-1]
+    assert "Meta" in captured_prompts[-1]
+    assert "official IPO pricing" in captured_prompts[-1]
+
+    recent = brain.get_recent_single_topic_entities(days=7, now=t_within_7d, path=history_file)
+    assert "Orlen" in recent
+
+    # День 9 (+8 дней): Meta истекла за пределами 7-дневного окна
+    assert "Meta" not in brain.get_recent_single_topic_entities(days=7, now=t_after_7d, path=history_file)

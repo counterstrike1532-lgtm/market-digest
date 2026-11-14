@@ -468,3 +468,24 @@ def test_lint_style_ticks_cliche_openers():
     assert "[STYLE] cliche opener/jargon: many investors assume" in flags2
     assert "[STYLE] cliche opener/jargon: everyone is watching" in flags2
     assert "[STYLE] cliche opener/jargon: liquidity plumbing" in flags2
+
+
+def test_lint_style_ticks_dash_ranges_and_new_banned_phrases():
+    t_en_dash = "Lending rates rose 20–22% across retail portfolios."
+    assert "[STYLE] dash/range formatting: use 'to' instead of dashes" in score_draft.lint_style_ticks(t_en_dash)
+
+    t_hyphen_range = "Yields sit at 4.2-4.8% while debt reached $1.1-$1.3 trillion."
+    assert "[STYLE] dash/range formatting: use 'to' instead of dashes" in score_draft.lint_style_ticks(t_hyphen_range)
+
+    t_em_dash = "CoreWeave added debt — raising fixed charges."
+    assert "[STYLE] dash/range formatting: use 'to' instead of dashes" in score_draft.lint_style_ticks(t_em_dash)
+
+    t_phrases = (
+        "This ratio now sits alongside two critical figures: "
+        "a power bottleneck means lenders must tighten covenants."
+    )
+    flags = score_draft.lint_style_ticks(t_phrases)
+    assert "[STYLE] scaffolding: sits alongside" in flags
+    assert "[STYLE] scaffolding: two critical figures" in flags
+    assert "[STYLE] parasite word: bottleneck" in flags
+    assert "[STYLE] mentor tone: must" in flags

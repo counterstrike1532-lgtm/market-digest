@@ -19,7 +19,7 @@ from .hugs_parser import HugsPost, fetch_channel_posts, filter_posts
 
 log = logging.getLogger("hugs_workflow")
 
-HUGS_DRAFT2_HISTORY_PATH = Path(__file__).resolve().parent.parent / "state" / "hugs_draft2_history.json"
+HUGS_DRAFT2_HISTORY_PATH = brain.SINGLE_TOPIC_HISTORY_PATH
 
 EDITOR_HUMANIZER_PROMPT = """
 You are an expert financial editor refining LinkedIn drafts.
@@ -79,6 +79,13 @@ CRITICAL FORMATTING & READABILITY RULES:
      * Strip out deterministic intensifiers: inevitably, permanently, entirely, directly, effectively, immediately, fundamentally, will force, no longer.
      * Strip out cliché openers: "Most investors assume", "Many investors assume", "Everyone is watching", "These two numbers sit oddly next to each other".
      * DIGEST COHERENCE: Combine 2–3 stories into a digest ONLY when they share a single concrete financial mechanism. Strictly forbidden to stitch unrelated stories together via generic filler about "cost of capital".
+   - EXACT ARITHMETIC, PREPAYMENTS, PUBLIC DEBT METHODOLOGY & RANGE FORMATTING:
+     * Exact arithmetic: calculate ratios/multiples accurately (e.g. 40.3% / 11.8% = 3.41 -> "3.4x" or "over three times", NEVER round up to "four times"). State the exact period and base for every figure.
+     * Prepayments: customer prepayments are deferred revenue; the CUSTOMER is the creditor who paid upfront and bears the non-delivery risk, NOT the supplier.
+     * ESA 2010 vs national debt: never compare ESA 2010 debt (e.g. 59.6% GDP) directly against Poland's 60% constitutional threshold (national methodology) without noting the methodology difference.
+     * Retail Treasury bonds: never claim retail government bonds sit on commercial bank balance sheets as deposits — they are held in brokerage/registry accounts directly with the Ministry of Finance agent.
+     * Hook B reform: anchor Hook B around ONE primary figure; never use "now sits alongside" or "defined by two critical figures".
+     * No dashes in ranges: strictly forbid em-dashes (—), en-dashes (–), and hyphens (-) in numeric ranges; write ALL ranges using "to" (e.g. "20 to 22%", "45.0 to 45.5", "$1.1 to $1.3 trillion").
 
 OUTPUT FORMAT:
 Return ONLY the final edited post text. No introductory remarks, no quotes, no word counts in brackets.
@@ -204,6 +211,14 @@ Strictly distinguish and NEVER conflate or swap the following financial concepts
 - Banned cliché openers: "Most investors assume", "Many investors assume", "Everyone is watching", "These two numbers sit oddly next to each other".
 - DIGEST COHERENCE: Combine 2–3 stories into a digest ONLY when they share a single concrete financial mechanism. Strictly forbidden to stitch unrelated stories together via generic filler about "cost of capital".
 
+=== 10D. EXACT ARITHMETIC, PREPAYMENTS, PUBLIC DEBT METHODOLOGY & RANGE FORMATTING ===
+- EXACT ARITHMETIC & BASES: Always calculate ratios and multiples accurately: if 40.3% / 11.8% = 3.41, write "3.4x" or "over three times" — NEVER round 3.41 up to "four times". State the exact period and base for every figure (never mix a monthly rejection rate with an annual market volume estimate without explicitly naming both periods).
+- PREPAYMENTS (CUSTOMER ADVANCES): Client prepayments are deferred revenue; the CUSTOMER is the creditor who paid upfront, and the customer bears the non-delivery / credit risk, NOT the supplier.
+- ESA 2010 VS NATIONAL DEBT METHODOLOGY: Never compare general government debt under ESA 2010 methodology (e.g. 59.6% of GDP) directly against Poland's 60% constitutional debt threshold (national methodology) without explicitly stating the methodology difference.
+- RETAIL TREASURY BONDS: Never claim that retail government bonds sit on commercial bank balance sheets as deposits — they are held in brokerage and registry accounts directly with the Ministry of Finance agent.
+- HOOK B (SINGLE ANCHOR FIGURE): Anchor Hook B around ONE primary figure. Strictly forbidden to use connectors "now sits alongside" or "defined by two critical figures".
+- STRICT BAN ON DASHES IN RANGES: Never use em-dashes (—), en-dashes (–), or hyphens (-) in numeric ranges. Write ALL ranges using the word "to": "20 to 22%", "45.0 to 45.5", "$1.1 to $1.3 trillion" (NEVER "20–22%" or "$1.1–1.3 trillion").
+
 === 11. FORMATTING RULES ===
 - Use pure Telegram HTML (<b>, <i>, <code>, <a>).
 - NEVER use markdown headers (### or ####).
@@ -320,130 +335,49 @@ def extract_draft2_section(analysis_text: str) -> str:
 def extract_draft2_entities(text: str) -> list[str]:
     """Извлекает ключевые сущности/имена компаний из текста DRAFT 2."""
     body = extract_draft2_section(text)
-    clean = re.sub(r"<[^>]+>", " ", body or "")
-    if not clean.strip():
-        return []
-
-    first_sentence = re.split(r"(?<=[.!?])\s+|\n+", clean.strip(), maxsplit=1)[0]
-    camel_re = re.compile(r"\b[A-Z][a-z]+[A-Z][A-Za-z0-9]*\b")
-    proper_re = re.compile(r"\b[A-Z][A-Za-z0-9]{2,}\b")
-
-    seen: set[str] = set()
-    ordered: list[str] = []
-
-    def _add(tok: str) -> None:
-        if tok in _DRAFT2_ENTITY_STOPWORDS:
-            return
-        low = tok.lower()
-        if low in seen:
-            return
-        seen.add(low)
-        ordered.append(tok)
-
-    # Сначала CamelCase-бренды (CoreWeave, OpenAI, SpaceX, DeepSeek, JPMorgan)
-    for tok in camel_re.findall(clean):
-        _add(tok)
-
-    # Затем сущности из первого предложения (заголовок / хук)
-    for idx, tok in enumerate(proper_re.findall(first_sentence)):
-        if idx == 0 and tok in _DRAFT2_ENTITY_STOPWORDS:
-            continue
-        _add(tok)
-
-    # Затем повторяющиеся или прочие собственные имена в тексте (без стартовых слов предложений)
-    non_start_clean = re.sub(r"(?:^|[.!?]\s+|\n\s*)[A-Z][a-z]+\b", " ", clean)
-    for tok in proper_re.findall(non_start_clean):
-        _add(tok)
-
-    return ordered[:5]
+    return brain.extract_single_topic_entities(body)
 
 
 def load_recent_draft2_history(
-    hours: int = 48,
+    hours: int = 168,
     now: datetime | None = None,
     path: Path | None = None,
 ) -> list[dict]:
-    """Загружает записи истории DRAFT 2 за последние `hours` часов."""
+    """Загружает записи общей истории DRAFT 2 / ЧЕРНОВИК 2 за последние `hours` часов (по умолчанию 7 дней = 168ч)."""
     target = path or HUGS_DRAFT2_HISTORY_PATH
-    if not target.exists():
-        return []
-    try:
-        raw = target.read_text(encoding="utf-8")
-        data = json.loads(raw) if raw.strip() else []
-    except Exception as exc:
-        log.warning("Ошибка чтения истории DRAFT 2 (%s): %s", target, exc)
-        return []
-    if not isinstance(data, list):
-        return []
-
-    ref_now = now or datetime.now(timezone.utc)
-    cutoff = ref_now - timedelta(hours=hours)
-    recent: list[dict] = []
-    for entry in data:
-        if not isinstance(entry, dict):
-            continue
-        ts_raw = entry.get("timestamp")
-        if not ts_raw:
-            continue
-        try:
-            ts = datetime.fromisoformat(str(ts_raw))
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-        if ts >= cutoff:
-            recent.append(entry)
-    return recent
+    return brain.load_recent_single_topic_history(hours=hours, now=now, path=target)
 
 
 def get_recent_draft2_entities(
-    hours: int = 48,
+    hours: int = 168,
     now: datetime | None = None,
     path: Path | None = None,
 ) -> list[str]:
-    """Возвращает уникальный список сущностей DRAFT 2 за последние `hours` часов."""
-    recent = load_recent_draft2_history(hours=hours, now=now, path=path)
-    seen: set[str] = set()
-    entities: list[str] = []
-    for entry in recent:
-        items = entry.get("entities") or ([] if not entry.get("entity") else [entry.get("entity")])
-        for ent in items:
-            s = str(ent).strip()
-            if s and s.lower() not in seen:
-                seen.add(s.lower())
-                entities.append(s)
-    return entities
+    """Возвращает уникальный список сущностей DRAFT 2 / ЧЕРНОВИК 2 за последние `hours` часов (по умолчанию 7 дней = 168ч)."""
+    target = path or HUGS_DRAFT2_HISTORY_PATH
+    return brain.get_recent_single_topic_entities(hours=hours, now=now, path=target)
 
 
 def save_draft2_history(
     text: str,
     entities: list[str] | None = None,
     headline: str | None = None,
-    hours: int = 48,
+    hours: int = 168,
     now: datetime | None = None,
     path: Path | None = None,
 ) -> list[str]:
-    """Сохраняет ключевые сущности и заголовок DRAFT 2 в state/ с очисткой записей старше `hours` часов."""
+    """Сохраняет ключевые сущности и заголовок DRAFT 2 в общий 7-дневный реестр в state/."""
     target = path or HUGS_DRAFT2_HISTORY_PATH
-    ref_now = now or datetime.now(timezone.utc)
-    recent = load_recent_draft2_history(hours=hours, now=ref_now, path=target)
-
     body = extract_draft2_section(text)
-    clean_body = re.sub(r"<[^>]+>", " ", body or "").strip()
-    extracted_entities = entities if entities is not None else extract_draft2_entities(body)
-    if not extracted_entities:
-        return []
-
-    first_line = headline or (re.split(r"(?<=[.!?])\s+|\n+", clean_body, maxsplit=1)[0][:180] if clean_body else "")
-    recent.append({
-        "timestamp": ref_now.isoformat(),
-        "entities": extracted_entities,
-        "headline": first_line,
-    })
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(recent, indent=2, ensure_ascii=False), encoding="utf-8")
-    return extracted_entities
+    return brain.save_single_topic_history(
+        body,
+        entities=entities,
+        headline=headline,
+        hours=hours,
+        now=now,
+        path=target,
+        source_pipeline="hugs",
+    )
 
 
 def run_llm_analysis(
@@ -458,15 +392,16 @@ def run_llm_analysis(
     posts_text = format_posts_for_prompt(posts)
     prompt = HUGS_ANALYSIS_PROMPT.format(posts_text=posts_text)
 
-    recent_entities = get_recent_draft2_entities(hours=48, now=now, path=history_path)
+    recent_entities = get_recent_draft2_entities(hours=168, now=now, path=history_path)
     if recent_entities:
         matched = [e for e in recent_entities if e.lower() in posts_text.lower()]
         banned_list = ", ".join(matched if matched else recent_entities)
         dedup_block = (
-            "\n=== 48-HOUR ANTI-DUPLICATE BAN FOR DRAFT 2 (SINGLE TOPIC) ===\n"
-            f"STRICTLY FORBIDDEN to use the following entity/topic for DRAFT 2 — SINGLE TOPIC, "
-            f"because it was already covered in DRAFT 2 within the last 48 hours: {banned_list}.\n"
-            "If today's top story centers on this entity, you MUST NOT use it for DRAFT 2 — "
+            "\n=== 7-DAY ANTI-DUPLICATE BAN FOR DRAFT 2 (SINGLE TOPIC) ===\n"
+            f"STRICTLY FORBIDDEN to feature the following company/entity as the main subject of DRAFT 2 — SINGLE TOPIC "
+            f"more than once in 7 days: {banned_list}.\n"
+            "Exception: ONLY if a fundamentally new milestone event occurred (for example, official IPO pricing). "
+            "Otherwise, if today's top story centers on this entity, you MUST NOT use it for DRAFT 2 — "
             "select the second most significant topic of the day for DRAFT 2 instead.\n"
         )
         prompt = prompt + dedup_block
@@ -475,7 +410,7 @@ def run_llm_analysis(
     response = brain._call(prompt, as_json=False, temperature=0.3, max_tokens=32768)
     result = response.strip()
     if re.search(r"DRAFT\s*2", result, re.IGNORECASE):
-        save_draft2_history(result, now=now, path=history_path)
+        save_draft2_history(result, hours=168, now=now, path=history_path)
     return result
 
 
@@ -541,14 +476,19 @@ def verify_hugs_draft_section(
 
         offending = b.get("_offending") or []
         if not denom:
-            return f"{verdict} · цифры не заявлены"
+            footer = f"{verdict} · цифры не заявлены"
         elif found == denom:
-            return f"{verdict} · цифры {found}/{denom} ✅"
+            footer = f"{verdict} · цифры {found}/{denom} ✅"
         elif offending:
             shown = offending[:3]
-            return f"{verdict} · цифры {found}/{denom} — сверь {', '.join(shown)}"
+            footer = f"{verdict} · цифры {found}/{denom} — сверь {', '.join(shown)}"
         else:
-            return f"{verdict} · цифры {found}/{denom}"
+            footer = f"{verdict} · цифры {found}/{denom}"
+
+        conflicts = b.get("_cross_day_conflicts") or []
+        if conflicts:
+            footer += "\n" + "\n".join(conflicts)
+        return footer
     except Exception as exc:
         log.warning("Верификация Hugs черновика упала: %s", exc)
         return "POST — числа не верифицированы"

@@ -492,13 +492,13 @@ def test_verify_hugs_draft_section_counts_key_highlights_and_all_posts_in_numera
 
 
 @patch("src.brain._call")
-def test_hugs_48h_anti_duplicate_draft2(mock_call, tmp_path):
+def test_hugs_7d_anti_duplicate_draft2(mock_call, tmp_path):
     from src.hugs_workflow import get_recent_draft2_entities, run_llm_analysis
 
-    history_file = tmp_path / "hugs_draft2_history.json"
-    t0 = datetime(2026, 11, 12, 6, 0, 0, tzinfo=timezone.utc)
-    t1 = datetime(2026, 11, 13, 6, 0, 0, tzinfo=timezone.utc)   # +24h (внутри 48ч окна)
-    t2 = datetime(2026, 11, 15, 7, 0, 0, tzinfo=timezone.utc)   # +73h (старше 48ч)
+    history_file = tmp_path / "single_topic_history.json"
+    t0 = datetime(2026, 11, 10, 6, 0, 0, tzinfo=timezone.utc)
+    t1 = datetime(2026, 11, 13, 6, 0, 0, tzinfo=timezone.utc)   # +72h (3 дня, внутри 7-дневного окна)
+    t2 = datetime(2026, 11, 18, 7, 0, 0, tzinfo=timezone.utc)   # +8 дней (старше 7 дней)
 
     post_cw = HugsPost(
         post_id="HugsFund/301",
@@ -524,11 +524,11 @@ def test_hugs_48h_anti_duplicate_draft2(mock_call, tmp_path):
         "CoreWeave carries $17.8B debt against $55B in cloud commitments.\n"
     )
 
-    # День 1: сохраняет CoreWeave в историю DRAFT 2
+    # День 1: сохраняет CoreWeave в 7-дневный реестр DRAFT 2
     run_llm_analysis([post_cw], history_path=history_file, now=t0)
-    assert "CoreWeave" in get_recent_draft2_entities(hours=48, now=t1, path=history_file)
+    assert "CoreWeave" in get_recent_draft2_entities(hours=168, now=t1, path=history_file)
 
-    # День 2 (+24h): в промпте появляется прямой запрет использовать CoreWeave для DRAFT 2
+    # День 4 (+72h): CoreWeave всё ещё под баном в 7-дневном окне
     mock_call.return_value = (
         "📌 <b>KEY HIGHLIGHTS</b>\n\n"
         "• <b>Nvidia supplier terms</b> — Tighter credit. [Reuters]\n\n"
@@ -541,10 +541,11 @@ def test_hugs_48h_anti_duplicate_draft2(mock_call, tmp_path):
     )
     run_llm_analysis([post_cw, post_nvda], history_path=history_file, now=t1)
     second_prompt = mock_call.call_args_list[-1][0][0]
-    assert "48-HOUR ANTI-DUPLICATE BAN FOR DRAFT 2" in second_prompt
+    assert "7-DAY ANTI-DUPLICATE BAN FOR DRAFT 2" in second_prompt
     assert "CoreWeave" in second_prompt
+    assert "official IPO pricing" in second_prompt
     assert "second most significant topic of the day" in second_prompt
 
-    # День 4 (+73h): старая запись про CoreWeave истекла за пределами 48ч
-    recent_after_73h = get_recent_draft2_entities(hours=48, now=t2, path=history_file)
-    assert "CoreWeave" not in recent_after_73h
+    # День 9 (+8 дней): старая запись про CoreWeave истекла за пределами 7 дней
+    recent_after_8d = get_recent_draft2_entities(hours=168, now=t2, path=history_file)
+    assert "CoreWeave" not in recent_after_8d

@@ -426,6 +426,9 @@ def render_draft_message(block: dict, num: int, selected: list[dict] | None = No
         flags_str = ", ".join(f.replace("[STYLE] ", "") for f in style_flags)
         lines.append(f"⚠️ STYLE FLAGS: {flags_str}")
 
+    for conflict in block.get("_cross_day_conflicts") or []:
+        lines.append(conflict)
+
     # T15: строка "источники:" печатается всегда, ни при каком входе не
     # исчезает - пустой результат раньше (T12a/T14a) читался как "печатать
     # нечего" и молча пропадал, а на деле означал одно из трёх разных
