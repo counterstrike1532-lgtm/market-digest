@@ -431,6 +431,10 @@ def lint_style_ticks(text: str) -> list[str]:
     3. Scaffolding-шаблоны: 'The mechanism is clear', 'introduces two critical', 'The takeaway is simple'
     4. Антитезы: 'isn\'t just', 'is not just ... it is'
     5. Менторские глаголы (Tone Ceiling): 'must now', 'will ultimately force', 'pivoting permanently'
+    6. Детерминистские слова-усилители: 'inevitably', 'permanently', 'entirely', 'fundamentally',
+       'directly', 'effectively', 'will force' -> absolutist tone
+    7. Шаблонные зачины / жаргон: 'most investors assume', 'many investors assume',
+       'everyone is watching', 'liquidity plumbing' -> cliche opener/jargon
     """
     flags: list[str] = []
     if not text:
@@ -477,5 +481,30 @@ def lint_style_ticks(text: str) -> list[str]:
     for pat, name in mentor_patterns:
         if re.search(pat, low):
             flags.append(f"[STYLE] mentor tone: {name}")
+
+    # 6. Детерминистские слова-усилители (ложная категоричность)
+    absolutist_patterns = [
+        (r'\binevitably\b', "inevitably"),
+        (r'\bpermanently\b', "permanently"),
+        (r'\bentirely\b', "entirely"),
+        (r'\bfundamentally\b', "fundamentally"),
+        (r'\bdirectly\b', "directly"),
+        (r'\beffectively\b', "effectively"),
+        (r'\bwill\s+force\b', "will force"),
+    ]
+    for pat, name in absolutist_patterns:
+        if re.search(pat, low):
+            flags.append(f"[STYLE] absolutist tone: {name}")
+
+    # 7. Шаблонные зачины / жаргон
+    cliche_patterns = [
+        (r'\bmost\s+investors\s+assume\b', "most investors assume"),
+        (r'\bmany\s+investors\s+assume\b', "many investors assume"),
+        (r'\beveryone\s+is\s+watching\b', "everyone is watching"),
+        (r'\bliquidity\s+plumbing\b', "liquidity plumbing"),
+    ]
+    for pat, name in cliche_patterns:
+        if re.search(pat, low):
+            flags.append(f"[STYLE] cliche opener/jargon: {name}")
 
     return flags

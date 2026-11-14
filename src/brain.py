@@ -436,7 +436,7 @@ Never treat Hugs Fund Briefings as generic high-level summaries. Extract the exa
 - ZERO TOLERANCE FOR:
   * Observer openers: "What caught my eye...", "A few stories caught my eye...", "I've been tracking..."
   * Fake contrasts: "These two numbers sit oddly next to each other...", "At the same time..."
-  * False consensus / strawmen: "Many investors assume...", "Most retail investors think...", "Everyone is watching/talking about...", "Everyone is watching..."
+  * False consensus / strawmen: "Most investors assume...", "Many investors assume...", "Most retail investors think...", "Everyone is watching/talking about...", "Everyone is watching..."
   * Generic setups: "In today's fast-paced world...", "In today's volatile market...", "It is no secret that...", "The market is shifting..."
   * Anti-Leak check: NEVER copy-paste verbatim openers from few-shot examples ("AI data centers are running into an insurance wall", "Persistent energy inflation and heavy debt issuance are breaking the market's rate-cut bets"). Hook must be original to today's data.
 - APPROVED HOOK PATTERNS:
@@ -539,6 +539,26 @@ Closing rules:
 
 === 12. INPUT GROUNDING (NO HALLUCINATIONS) ===
 - The hook, every mechanism, and all numbers must be grounded strictly in today's source text or fresh data. Extrapolating or hallucinating external facts beyond the briefing is strictly forbidden.
+
+=== 13. ACCOUNTING CLASSIFICATION CHECK (NO TERM CONFLATION) ===
+Strictly distinguish and NEVER conflate or swap the following financial concepts:
+- Contractual commitments / backlog != funded debt (cloud commitments or customer orders are NOT balance-sheet debt and NOT guaranteed cash).
+- Debt guarantee / contingent exposure != loan (a guarantee is a contingent liability, NOT a funded loan).
+- Net borrowing / budget deficit != gross bond issuance (net deficit borrowing != total gross securities issuance).
+- GAAP net loss != operating cash burn (separate non-cash mark-to-market revaluations of convertible bonds or derivatives from operating cash flow).
+- Secondary market bond yield != coupon / current interest expense (secondary market yield reflects risk pricing, NOT the interest rate on already-issued loans/bonds).
+- Gross mortgage originations != net credit growth (origination volume including refinancing does NOT prove net loan book growth).
+- Liabilities of non-monetary financial institutions (leasing/factoring) != corporate capex debt (never equate intermediary liabilities with a specific asset class without data).
+
+=== 14. CAUSAL EVIDENCE REQUIREMENT & NO LEGAL PROPHECIES ===
+- Forbidden to make causal leaps to WACC, ROIC, NIM, or deposit rates if the source lacks the intermediate link. When the causal chain is incomplete, use probabilistic phrasing ("Whether this narrows margins depends on...", "adds upward pressure on...").
+- Preserve the exact event status from the source: if the source says considers / proposed / draft, it is strictly forbidden to write negotiating / introduces / launched.
+- Categorically forbidden to make legal prophecies about EU court or national regulator rulings (never write "will no longer hold up under EU law" or "zero judicial recourse"). Describe only the specific evidentiary standard and its impact on corporate liquidity or provisions.
+
+=== 15. BAN ON FALSE ABSOLUTISM, CLICHÉ OPENERS & DIGEST COHERENCE ===
+- Banned deterministic intensifiers: inevitably, permanently, entirely, directly, effectively, immediately, fundamentally, will force, no longer.
+- Banned cliché openers: "Most investors assume", "Many investors assume", "Everyone is watching", "These two numbers sit oddly next to each other".
+- DIGEST COHERENCE: Combine 2–3 stories into a digest ONLY when they share a single concrete financial mechanism. Strictly forbidden to stitch unrelated stories together via generic filler about "cost of capital".
 
 === FEW-SHOT EXAMPLES (THE STANDARD: SHARP, SIMPLE, PRACTICAL) ===
 
@@ -840,6 +860,24 @@ CRITICAL FORMATTING & READABILITY RULES:
    - Single Topic: STRICTLY 105–115 words (allowable: 95–135 words).
    - Digest: STRICTLY 115–125 words (allowable: 105–140 words) (strictly 2–3 bullets with action headers like "1. Buying your own customer:").
    - Every post MUST end with complete closing punctuation (. or !). Never cut off mid-thought.
+
+5. ACCOUNTING CLASSIFICATION, CAUSAL EVIDENCE & ANTI-ABSOLUTISM:
+   - ACCOUNTING CLASSIFICATION CHECK (NO TERM CONFLATION): Strictly distinguish and NEVER conflate or swap:
+     * Contractual commitments / backlog != funded debt (cloud commitments or orders are NOT balance-sheet debt and NOT guaranteed cash).
+     * Debt guarantee / contingent exposure != loan (a guarantee is a contingent liability, NOT a funded loan).
+     * Net borrowing / budget deficit != gross bond issuance (net deficit borrowing != total gross securities issuance).
+     * GAAP net loss != operating cash burn (separate non-cash mark-to-market revaluations of convertible bonds or derivatives from operating cash flow).
+     * Secondary market bond yield != coupon / current interest expense (secondary market yield reflects risk pricing, NOT the interest rate on already-issued loans/bonds).
+     * Gross mortgage originations != net credit growth (origination volume including refinancing does NOT prove net loan book growth).
+     * Liabilities of non-monetary financial institutions (leasing/factoring) != corporate capex debt (never equate intermediary liabilities with a specific asset class without data).
+   - CAUSAL EVIDENCE REQUIREMENT & NO LEGAL PROPHECIES:
+     * Forbidden to make causal leaps to WACC, ROIC, NIM, or deposit rates if the source lacks the intermediate link. When the causal chain is incomplete, use probabilistic phrasing ("Whether this narrows margins depends on...", "adds upward pressure on...").
+     * Preserve exact event status from the draft/source: if it says considers / proposed / draft, never escalate to negotiating / introduces / launched.
+     * Categorically forbidden to make legal prophecies about EU court or national regulator rulings (never write "will no longer hold up under EU law" or "zero judicial recourse"). Describe only the specific evidentiary standard and its impact on corporate liquidity or provisions.
+   - BAN ON FALSE ABSOLUTISM, CLICHÉ OPENERS & DIGEST COHERENCE:
+     * Strip out deterministic intensifiers: inevitably, permanently, entirely, directly, effectively, immediately, fundamentally, will force, no longer.
+     * Strip out cliché openers: "Most investors assume", "Many investors assume", "Everyone is watching", "These two numbers sit oddly next to each other".
+     * DIGEST COHERENCE: Combine 2–3 stories into a digest ONLY when they share a single concrete financial mechanism. Strictly forbidden to stitch unrelated stories together via generic filler about "cost of capital".
 
 OUTPUT FORMAT:
 Return ONLY the final edited post text. No introductory remarks, no quotes, no word counts in brackets.

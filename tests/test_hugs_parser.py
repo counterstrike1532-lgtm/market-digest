@@ -439,3 +439,112 @@ def test_hugs_workflow_applies_verifier_footer(monkeypatch):
     assert "DRAFT 1 — DIGEST" in result
     assert "DRAFT 2 — SINGLE TOPIC" in result
     assert "цифры 2/2 ✅" in result
+
+
+def test_verify_hugs_draft_section_counts_key_highlights_and_all_posts_in_numerator(monkeypatch):
+    from src.hugs_workflow import humanize_hugs_briefing, verify_hugs_draft_section
+
+    post1 = HugsPost(
+        post_id="HugsFund/201",
+        url="https://t.me/HugsFund/201",
+        published_at=datetime(2026, 11, 13, 10, 0, 0, tzinfo=timezone.utc),
+        text="CoreWeave Q3 revenue reached $1.25 billion while gross debt rose to 17.8 billion.",
+    )
+    post2 = HugsPost(
+        post_id="HugsFund/202",
+        url="https://t.me/HugsFund/202",
+        published_at=datetime(2026, 11, 13, 11, 0, 0, tzinfo=timezone.utc),
+        text="Corporate high-yield spreads remain at 13% while leasing borrowing grew 15%.",
+    )
+
+    key_highlights = (
+        "📌 <b>KEY HIGHLIGHTS</b>\n\n"
+        "• <b>CoreWeave funding gap</b> — Revenue hit 1.25 billion against 17.8 billion debt, "
+        "while spreads sit at 13% and leasing costs jumped 15%. [FT]"
+    )
+
+    draft_body = (
+        "CoreWeave posted 1.25 billion in revenue against 17.8 billion in obligations, "
+        "while credit costs sit at 13% and borrowing climbed 15%."
+    )
+
+    # 1. Прямой вызов с key_highlights (без постов) -> 4/4 ✅
+    footer_kh = verify_hugs_draft_section(draft_body, posts=[], key_highlights=key_highlights)
+    assert footer_kh == "POST · цифры 4/4 ✅"
+
+    # 2. Прямой вызов по нескольким постам (числа из post2 тоже в числителе) -> 4/4 ✅
+    footer_posts = verify_hugs_draft_section(draft_body, posts=[post1, post2], key_highlights="")
+    assert footer_posts == "POST · цифры 4/4 ✅"
+
+    # 3. Полный цикл humanize_hugs_briefing склеивает KEY HIGHLIGHTS + все посты
+    sample_briefing = (
+        f"{key_highlights}\n\n"
+        "───────────────\n\n"
+        "📝 <b>DRAFT 1 — DIGEST</b> (110-130 words)\n\n"
+        f"{draft_body}\n\n"
+        "───────────────\n\n"
+        "💡 <b>DRAFT 2 — SINGLE TOPIC</b> (100-120 words)\n\n"
+        f"{draft_body}\n"
+    )
+    monkeypatch.setattr("src.brain.edit_and_humanize_draft", lambda d, draft_type="single", context_summary="": d)
+    result = humanize_hugs_briefing(sample_briefing, posts=[post1, post2])
+    assert result.count("POST · цифры 4/4 ✅") == 2
+
+
+@patch("src.brain._call")
+def test_hugs_48h_anti_duplicate_draft2(mock_call, tmp_path):
+    from src.hugs_workflow import get_recent_draft2_entities, run_llm_analysis
+
+    history_file = tmp_path / "hugs_draft2_history.json"
+    t0 = datetime(2026, 11, 12, 6, 0, 0, tzinfo=timezone.utc)
+    t1 = datetime(2026, 11, 13, 6, 0, 0, tzinfo=timezone.utc)   # +24h (внутри 48ч окна)
+    t2 = datetime(2026, 11, 15, 7, 0, 0, tzinfo=timezone.utc)   # +73h (старше 48ч)
+
+    post_cw = HugsPost(
+        post_id="HugsFund/301",
+        url="https://t.me/HugsFund/301",
+        published_at=t0,
+        text="CoreWeave expanded cloud backlog to $55B against $17.8B debt.",
+    )
+    post_nvda = HugsPost(
+        post_id="HugsFund/302",
+        url="https://t.me/HugsFund/302",
+        published_at=t1,
+        text="Nvidia supplier financing terms tightened in Q4.",
+    )
+
+    mock_call.return_value = (
+        "📌 <b>KEY HIGHLIGHTS</b>\n\n"
+        "• <b>CoreWeave backlog</b> — Backlog at $55B. [Bloomberg]\n\n"
+        "───────────────\n\n"
+        "📝 <b>DRAFT 1 — DIGEST</b> (110-130 words)\n\n"
+        "Digest body.\n\n"
+        "───────────────\n\n"
+        "💡 <b>DRAFT 2 — SINGLE TOPIC</b> (100-120 words)\n\n"
+        "CoreWeave carries $17.8B debt against $55B in cloud commitments.\n"
+    )
+
+    # День 1: сохраняет CoreWeave в историю DRAFT 2
+    run_llm_analysis([post_cw], history_path=history_file, now=t0)
+    assert "CoreWeave" in get_recent_draft2_entities(hours=48, now=t1, path=history_file)
+
+    # День 2 (+24h): в промпте появляется прямой запрет использовать CoreWeave для DRAFT 2
+    mock_call.return_value = (
+        "📌 <b>KEY HIGHLIGHTS</b>\n\n"
+        "• <b>Nvidia supplier terms</b> — Tighter credit. [Reuters]\n\n"
+        "───────────────\n\n"
+        "📝 <b>DRAFT 1 — DIGEST</b> (110-130 words)\n\n"
+        "Digest body.\n\n"
+        "───────────────\n\n"
+        "💡 <b>DRAFT 2 — SINGLE TOPIC</b> (100-120 words)\n\n"
+        "Nvidia tightened supplier payment terms by 15 days.\n"
+    )
+    run_llm_analysis([post_cw, post_nvda], history_path=history_file, now=t1)
+    second_prompt = mock_call.call_args_list[-1][0][0]
+    assert "48-HOUR ANTI-DUPLICATE BAN FOR DRAFT 2" in second_prompt
+    assert "CoreWeave" in second_prompt
+    assert "second most significant topic of the day" in second_prompt
+
+    # День 4 (+73h): старая запись про CoreWeave истекла за пределами 48ч
+    recent_after_73h = get_recent_draft2_entities(hours=48, now=t2, path=history_file)
+    assert "CoreWeave" not in recent_after_73h

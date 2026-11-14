@@ -615,10 +615,26 @@ def normalize_polish_source_text(text: str) -> str:
     return text
 
 
+_MONTH_RE_STR = (
+    r"(?:January|February|March|April|May|June|July|August|"
+    r"September|October|November|December|"
+    r"Jan\.?|Feb\.?|Mar\.?|Apr\.?|Jun\.?|Jul\.?|Aug\.?|Sep\.?|Sept\.?|Oct\.?|Nov\.?|Dec\.?)"
+)
+_BODY_DATE_RE = re.compile(
+    rf"\b(?:{_MONTH_RE_STR}\s+\d{{1,2}}(?:st|nd|rd|th)?,\s*\d{{4}}"
+    rf"|{_MONTH_RE_STR}\s+\d{{1,2}}(?:st|nd|rd|th)?\s+\d{{4}}"
+    rf"|\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH_RE_STR},?\s+\d{{4}}"
+    rf"|(?:January|February|March|April|June|July|August|September|October|November|December)\s+\d{{1,2}}(?:st|nd|rd|th)?"
+    rf"|\d{{1,2}}(?:st|nd|rd|th)?\s+(?:January|February|March|April|June|July|August|September|October|November|December))\b",
+    re.IGNORECASE,
+)
+
+
 def extract_body_figures(text: str) -> list[str]:
     """Извлекает все числовые конструкции из фактического текста черновика
     с помощью _NUMBER_RE и слов-множителей/единиц. Исключает нумерацию списков
-    в начале строк."""
+    в начале строк, даты (<Month> <Day>, <Year>, <Day> <Month> <Year>) и
+    отдельно стоящие четырехзначные годы (1900-2099) без единиц/валюты."""
     seen: set[str] = set()
     out: list[str] = []
     _UNIT_RE = re.compile(
@@ -628,11 +644,16 @@ def extract_body_figures(text: str) -> list[str]:
     )
     for line in (text or "").splitlines():
         cl = re.sub(r"^\s*(?:[•\-*]\s*)?(?:<\w+>\s*)?(?:\d+[.)]\s*)?", "", line)
+        cl = _BODY_DATE_RE.sub(" ", cl)
         for m in _NUMBER_RE.finditer(cl):
             raw_val = m.group(0)
+            num_part = m.group("num")
             unit = m.group("unit")
             after = cl[m.end():]
             sm = _UNIT_RE.match(after)
+            has_currency_prefix = m.start() > 0 and cl[m.start() - 1] in "$€£"
+            if not unit and not sm and not has_currency_prefix and _BARE_YEAR.fullmatch(_normalize_number(num_part)):
+                continue
             if sm and not unit:
                 val = f"{raw_val} {sm.group(1)}"
             else:
@@ -1123,9 +1144,13 @@ def verify_drafts(drafts_text: str, selected: list[dict],
 
     for b in blocks:
         raw_figures = b["figures"].strip()
-        declared_figures = parse_figures(raw_figures) or []
+        raw_declared = parse_figures(raw_figures) or []
+        declared_figures = [
+            (v, s) for v, s in raw_declared
+            if re.search(r"\d", v) and (quoted_source_form(s) or not _BODY_DATE_RE.fullmatch(v.strip()))
+        ]
         no_figures_declared = (not raw_figures) or raw_figures.lower().startswith("none used")
-        b["_parse_failed"] = (not no_figures_declared) and not declared_figures and bool(raw_figures)
+        b["_parse_failed"] = (not no_figures_declared) and not raw_declared and bool(raw_figures)
         bodies = bodies_for_source(b["source"], selected, raw_figures)
         b["_bodies"] = bodies
 

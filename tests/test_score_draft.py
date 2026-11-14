@@ -441,3 +441,30 @@ def test_lint_style_ticks_mentor_tone():
     assert any("must now" in f for f in flags)
     assert any("will ultimately force" in f for f in flags)
     assert any("pivoting permanently" in f for f in flags)
+
+
+def test_lint_style_ticks_absolutist_tone():
+    t = (
+        "Higher rates will inevitably and permanently compress returns, entirely erasing buffers "
+        "while fundamentally altering and directly hitting margins, effectively forcing exits and will force cuts."
+    )
+    flags = score_draft.lint_style_ticks(t)
+    assert "[STYLE] absolutist tone: inevitably" in flags
+    assert "[STYLE] absolutist tone: permanently" in flags
+    assert "[STYLE] absolutist tone: entirely" in flags
+    assert "[STYLE] absolutist tone: fundamentally" in flags
+    assert "[STYLE] absolutist tone: directly" in flags
+    assert "[STYLE] absolutist tone: effectively" in flags
+    assert "[STYLE] absolutist tone: will force" in flags
+
+
+def test_lint_style_ticks_cliche_openers():
+    t1 = "Most investors assume sovereign issuance stays liquid."
+    flags1 = score_draft.lint_style_ticks(t1)
+    assert "[STYLE] cliche opener/jargon: most investors assume" in flags1
+
+    t2 = "Many investors assume yields drop while everyone is watching liquidity plumbing."
+    flags2 = score_draft.lint_style_ticks(t2)
+    assert "[STYLE] cliche opener/jargon: many investors assume" in flags2
+    assert "[STYLE] cliche opener/jargon: everyone is watching" in flags2
+    assert "[STYLE] cliche opener/jargon: liquidity plumbing" in flags2

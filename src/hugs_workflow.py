@@ -5,17 +5,21 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Optional
 
 from . import brain, deliver, verify
 from .hugs_parser import HugsPost, fetch_channel_posts, filter_posts
 
 log = logging.getLogger("hugs_workflow")
+
+HUGS_DRAFT2_HISTORY_PATH = Path(__file__).resolve().parent.parent / "state" / "hugs_draft2_history.json"
 
 EDITOR_HUMANIZER_PROMPT = """
 You are an expert financial editor refining LinkedIn drafts.
@@ -58,6 +62,24 @@ CRITICAL FORMATTING & READABILITY RULES:
    - Digest: STRICTLY 115–125 words (allowable: 105–140 words) (strictly 2–3 bullets with action headers like "1. Buying your own customer:").
    - Every post MUST end with complete closing punctuation (. or !). Never cut off mid-thought.
 
+5. ACCOUNTING CLASSIFICATION, CAUSAL EVIDENCE & ANTI-ABSOLUTISM:
+   - ACCOUNTING CLASSIFICATION CHECK (NO TERM CONFLATION): Strictly distinguish and NEVER conflate or swap:
+     * Contractual commitments / backlog != funded debt (cloud commitments or orders are NOT balance-sheet debt and NOT guaranteed cash).
+     * Debt guarantee / contingent exposure != loan (a guarantee is a contingent liability, NOT a funded loan).
+     * Net borrowing / budget deficit != gross bond issuance (net deficit borrowing != total gross securities issuance).
+     * GAAP net loss != operating cash burn (separate non-cash mark-to-market revaluations of convertible bonds or derivatives from operating cash flow).
+     * Secondary market bond yield != coupon / current interest expense (secondary market yield reflects risk pricing, NOT the interest rate on already-issued loans/bonds).
+     * Gross mortgage originations != net credit growth (origination volume including refinancing does NOT prove net loan book growth).
+     * Liabilities of non-monetary financial institutions (leasing/factoring) != corporate capex debt (never equate intermediary liabilities with a specific asset class without data).
+   - CAUSAL EVIDENCE REQUIREMENT & NO LEGAL PROPHECIES:
+     * Forbidden to make causal leaps to WACC, ROIC, NIM, or deposit rates if the source lacks the intermediate link. When the causal chain is incomplete, use probabilistic phrasing ("Whether this narrows margins depends on...", "adds upward pressure on...").
+     * Preserve exact event status from the draft/source: if it says considers / proposed / draft, never escalate to negotiating / introduces / launched.
+     * Categorically forbidden to make legal prophecies about EU court or national regulator rulings (never write "will no longer hold up under EU law" or "zero judicial recourse"). Describe only the specific evidentiary standard and its impact on corporate liquidity or provisions.
+   - BAN ON FALSE ABSOLUTISM, CLICHÉ OPENERS & DIGEST COHERENCE:
+     * Strip out deterministic intensifiers: inevitably, permanently, entirely, directly, effectively, immediately, fundamentally, will force, no longer.
+     * Strip out cliché openers: "Most investors assume", "Many investors assume", "Everyone is watching", "These two numbers sit oddly next to each other".
+     * DIGEST COHERENCE: Combine 2–3 stories into a digest ONLY when they share a single concrete financial mechanism. Strictly forbidden to stitch unrelated stories together via generic filler about "cost of capital".
+
 OUTPUT FORMAT:
 Return ONLY the final edited post text. No introductory remarks, no quotes, no word counts in brackets.
 """
@@ -86,7 +108,7 @@ TASK:
 - ZERO TOLERANCE FOR:
   * Observer openers: "What caught my eye...", "A few stories caught my eye...", "I've been tracking..."
   * Fake contrasts: "These two numbers sit oddly next to each other...", "At the same time..."
-  * False consensus / strawmen: "Many investors assume...", "Most retail investors think...", "Everyone is watching/talking about...", "Everyone is watching..."
+  * False consensus / strawmen: "Most investors assume...", "Many investors assume...", "Most retail investors think...", "Everyone is watching/talking about...", "Everyone is watching..."
   * Generic setups: "In today's fast-paced world...", "In today's volatile market...", "It is no secret that...", "The market is shifting..."
   * Anti-Leak check: NEVER copy-paste verbatim openers from few-shot examples ("AI data centers are running into an insurance wall", "Persistent energy inflation and heavy debt issuance are breaking the market's rate-cut bets"). Hook must be original to today's data.
 - APPROVED HOOK PATTERNS:
@@ -162,6 +184,26 @@ Keep the financial concept exact, but the phrasing natural, simple, and conversa
 === 10. INPUT GROUNDING (NO HALLUCINATIONS) ===
 - The hook, every mechanism, and all numbers must be grounded strictly in today's source text or fresh data. Extrapolating or hallucinating external facts beyond the briefing is strictly forbidden.
 
+=== 10A. ACCOUNTING CLASSIFICATION CHECK (NO TERM CONFLATION) ===
+Strictly distinguish and NEVER conflate or swap the following financial concepts:
+- Contractual commitments / backlog != funded debt (cloud commitments or customer orders are NOT balance-sheet debt and NOT guaranteed cash).
+- Debt guarantee / contingent exposure != loan (a guarantee is a contingent liability, NOT a funded loan).
+- Net borrowing / budget deficit != gross bond issuance (net deficit borrowing != total gross securities issuance).
+- GAAP net loss != operating cash burn (separate non-cash mark-to-market revaluations of convertible bonds or derivatives from operating cash flow).
+- Secondary market bond yield != coupon / current interest expense (secondary market yield reflects risk pricing, NOT the interest rate on already-issued loans/bonds).
+- Gross mortgage originations != net credit growth (origination volume including refinancing does NOT prove net loan book growth).
+- Liabilities of non-monetary financial institutions (leasing/factoring) != corporate capex debt (never equate intermediary liabilities with a specific asset class without data).
+
+=== 10B. CAUSAL EVIDENCE REQUIREMENT & NO LEGAL PROPHECIES ===
+- Forbidden to make causal leaps to WACC, ROIC, NIM, or deposit rates if the source lacks the intermediate link. When the causal chain is incomplete, use probabilistic phrasing ("Whether this narrows margins depends on...", "adds upward pressure on...").
+- Preserve the exact event status from the source: if the source says considers / proposed / draft, it is strictly forbidden to write negotiating / introduces / launched.
+- Categorically forbidden to make legal prophecies about EU court or national regulator rulings (never write "will no longer hold up under EU law" or "zero judicial recourse"). Describe only the specific evidentiary standard and its impact on corporate liquidity or provisions.
+
+=== 10C. BAN ON FALSE ABSOLUTISM, CLICHÉ OPENERS & DIGEST COHERENCE ===
+- Banned deterministic intensifiers: inevitably, permanently, entirely, directly, effectively, immediately, fundamentally, will force, no longer.
+- Banned cliché openers: "Most investors assume", "Many investors assume", "Everyone is watching", "These two numbers sit oddly next to each other".
+- DIGEST COHERENCE: Combine 2–3 stories into a digest ONLY when they share a single concrete financial mechanism. Strictly forbidden to stitch unrelated stories together via generic filler about "cost of capital".
+
 === 11. FORMATTING RULES ===
 - Use pure Telegram HTML (<b>, <i>, <code>, <a>).
 - NEVER use markdown headers (### or ####).
@@ -219,7 +261,196 @@ def format_posts_for_prompt(posts: list[HugsPost]) -> str:
     return "\n".join(parts)
 
 
-def run_llm_analysis(posts: list[HugsPost]) -> str:
+_DRAFT2_ENTITY_STOPWORDS = {
+    "The", "This", "That", "These", "Those", "There", "Here", "When", "While", "Where",
+    "What", "Why", "How", "Most", "Many", "Some", "Each", "Every", "All", "Both",
+    "After", "Before", "Since", "Until", "Despite", "Although", "Because", "However",
+    "Instead", "Meanwhile", "Yet", "Still", "Only", "Even", "More", "Less", "Higher",
+    "Lower", "Rising", "Falling", "Global", "Local", "Regional", "National", "Federal",
+    "Central", "Public", "Private", "Corporate", "Commercial", "Financial", "European",
+    "American", "Polish", "Chinese", "Japanese", "Treasury", "Market", "Markets",
+    "Investors", "Banks", "Lenders", "Firms", "Companies", "Shareholders", "Bondholders",
+    "January", "February", "March", "April", "May", "June", "July", "August",
+    "September", "October", "November", "December", "Monday", "Tuesday", "Wednesday",
+    "Thursday", "Friday", "Saturday", "Sunday", "DRAFT", "SINGLE", "TOPIC", "DIGEST",
+    "KEY", "HIGHLIGHTS", "POST", "MAYBE", "SKIP", "SOURCE", "FIGURES", "PLN", "EUR",
+    "USD", "GDP", "NIM", "WACC", "ROIC", "GAAP", "EBITDA", "CAPEX", "IPO", "ETF",
+    "US", "EU", "UK", "AI", "Q1", "Q2", "Q3", "Q4", "H1", "H2",
+}
+
+
+def extract_key_highlights(analysis_text: str) -> str:
+    """Извлекает блок KEY HIGHLIGHTS из сгенерированного брифинга HugsFund."""
+    if not analysis_text:
+        return ""
+    m = re.search(
+        r"(?:📌\s*)?(?:<b>\s*)?KEY\s+HIGHLIGHTS.*?(?=\n+─{3,}|\n+---|\n+(?:📝\s*)?<b>\s*DRAFT\s*1|\Z)",
+        analysis_text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if m:
+        return m.group(0).strip()
+    m_before = re.search(
+        r"^.*?(?=\n+─{3,}|\n+(?:📝\s*)?<b>\s*DRAFT\s*1)",
+        analysis_text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    return m_before.group(0).strip() if m_before else ""
+
+
+def extract_draft2_section(analysis_text: str) -> str:
+    """Извлекает тело секции DRAFT 2 — SINGLE TOPIC из брифинга HugsFund."""
+    if not analysis_text:
+        return ""
+    d2_pattern = re.compile(
+        r"(?:💡\s*)?<b>\s*DRAFT\s*2[^<]*</b>[^\n]*\n+(.*?)(?=(\n+─{3,}|\n+---|\Z))",
+        re.DOTALL | re.IGNORECASE,
+    )
+    m = d2_pattern.search(analysis_text)
+    if m:
+        return m.group(1).strip()
+    m_plain = re.search(
+        r"DRAFT\s*2[^\n]*\n+(.*?)(?=(\n+─{3,}|\n+---|\Z))",
+        analysis_text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    return m_plain.group(1).strip() if m_plain else analysis_text.strip()
+
+
+def extract_draft2_entities(text: str) -> list[str]:
+    """Извлекает ключевые сущности/имена компаний из текста DRAFT 2."""
+    body = extract_draft2_section(text)
+    clean = re.sub(r"<[^>]+>", " ", body or "")
+    if not clean.strip():
+        return []
+
+    first_sentence = re.split(r"(?<=[.!?])\s+|\n+", clean.strip(), maxsplit=1)[0]
+    camel_re = re.compile(r"\b[A-Z][a-z]+[A-Z][A-Za-z0-9]*\b")
+    proper_re = re.compile(r"\b[A-Z][A-Za-z0-9]{2,}\b")
+
+    seen: set[str] = set()
+    ordered: list[str] = []
+
+    def _add(tok: str) -> None:
+        if tok in _DRAFT2_ENTITY_STOPWORDS:
+            return
+        low = tok.lower()
+        if low in seen:
+            return
+        seen.add(low)
+        ordered.append(tok)
+
+    # Сначала CamelCase-бренды (CoreWeave, OpenAI, SpaceX, DeepSeek, JPMorgan)
+    for tok in camel_re.findall(clean):
+        _add(tok)
+
+    # Затем сущности из первого предложения (заголовок / хук)
+    for idx, tok in enumerate(proper_re.findall(first_sentence)):
+        if idx == 0 and tok in _DRAFT2_ENTITY_STOPWORDS:
+            continue
+        _add(tok)
+
+    # Затем повторяющиеся или прочие собственные имена в тексте (без стартовых слов предложений)
+    non_start_clean = re.sub(r"(?:^|[.!?]\s+|\n\s*)[A-Z][a-z]+\b", " ", clean)
+    for tok in proper_re.findall(non_start_clean):
+        _add(tok)
+
+    return ordered[:5]
+
+
+def load_recent_draft2_history(
+    hours: int = 48,
+    now: datetime | None = None,
+    path: Path | None = None,
+) -> list[dict]:
+    """Загружает записи истории DRAFT 2 за последние `hours` часов."""
+    target = path or HUGS_DRAFT2_HISTORY_PATH
+    if not target.exists():
+        return []
+    try:
+        raw = target.read_text(encoding="utf-8")
+        data = json.loads(raw) if raw.strip() else []
+    except Exception as exc:
+        log.warning("Ошибка чтения истории DRAFT 2 (%s): %s", target, exc)
+        return []
+    if not isinstance(data, list):
+        return []
+
+    ref_now = now or datetime.now(timezone.utc)
+    cutoff = ref_now - timedelta(hours=hours)
+    recent: list[dict] = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        ts_raw = entry.get("timestamp")
+        if not ts_raw:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(ts_raw))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if ts >= cutoff:
+            recent.append(entry)
+    return recent
+
+
+def get_recent_draft2_entities(
+    hours: int = 48,
+    now: datetime | None = None,
+    path: Path | None = None,
+) -> list[str]:
+    """Возвращает уникальный список сущностей DRAFT 2 за последние `hours` часов."""
+    recent = load_recent_draft2_history(hours=hours, now=now, path=path)
+    seen: set[str] = set()
+    entities: list[str] = []
+    for entry in recent:
+        items = entry.get("entities") or ([] if not entry.get("entity") else [entry.get("entity")])
+        for ent in items:
+            s = str(ent).strip()
+            if s and s.lower() not in seen:
+                seen.add(s.lower())
+                entities.append(s)
+    return entities
+
+
+def save_draft2_history(
+    text: str,
+    entities: list[str] | None = None,
+    headline: str | None = None,
+    hours: int = 48,
+    now: datetime | None = None,
+    path: Path | None = None,
+) -> list[str]:
+    """Сохраняет ключевые сущности и заголовок DRAFT 2 в state/ с очисткой записей старше `hours` часов."""
+    target = path or HUGS_DRAFT2_HISTORY_PATH
+    ref_now = now or datetime.now(timezone.utc)
+    recent = load_recent_draft2_history(hours=hours, now=ref_now, path=target)
+
+    body = extract_draft2_section(text)
+    clean_body = re.sub(r"<[^>]+>", " ", body or "").strip()
+    extracted_entities = entities if entities is not None else extract_draft2_entities(body)
+    if not extracted_entities:
+        return []
+
+    first_line = headline or (re.split(r"(?<=[.!?])\s+|\n+", clean_body, maxsplit=1)[0][:180] if clean_body else "")
+    recent.append({
+        "timestamp": ref_now.isoformat(),
+        "entities": extracted_entities,
+        "headline": first_line,
+    })
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(recent, indent=2, ensure_ascii=False), encoding="utf-8")
+    return extracted_entities
+
+
+def run_llm_analysis(
+    posts: list[HugsPost],
+    history_path: Path | None = None,
+    now: datetime | None = None,
+) -> str:
     """Запускает аналитическую обработку постов через Gemini."""
     if not posts:
         return "No fresh HugsFund posts found for the specified period."
@@ -227,21 +458,64 @@ def run_llm_analysis(posts: list[HugsPost]) -> str:
     posts_text = format_posts_for_prompt(posts)
     prompt = HUGS_ANALYSIS_PROMPT.format(posts_text=posts_text)
 
+    recent_entities = get_recent_draft2_entities(hours=48, now=now, path=history_path)
+    if recent_entities:
+        matched = [e for e in recent_entities if e.lower() in posts_text.lower()]
+        banned_list = ", ".join(matched if matched else recent_entities)
+        dedup_block = (
+            "\n=== 48-HOUR ANTI-DUPLICATE BAN FOR DRAFT 2 (SINGLE TOPIC) ===\n"
+            f"STRICTLY FORBIDDEN to use the following entity/topic for DRAFT 2 — SINGLE TOPIC, "
+            f"because it was already covered in DRAFT 2 within the last 48 hours: {banned_list}.\n"
+            "If today's top story centers on this entity, you MUST NOT use it for DRAFT 2 — "
+            "select the second most significant topic of the day for DRAFT 2 instead.\n"
+        )
+        prompt = prompt + dedup_block
+
     log.info("Отправка запроса в Gemini (%d постов, %d симв. промпта)...", len(posts), len(prompt))
     response = brain._call(prompt, as_json=False, temperature=0.3, max_tokens=32768)
-    return response.strip()
+    result = response.strip()
+    if re.search(r"DRAFT\s*2", result, re.IGNORECASE):
+        save_draft2_history(result, now=now, path=history_path)
+    return result
 
 
-def verify_hugs_draft_section(draft_text: str, posts: list[HugsPost] | None = None) -> str:
+def verify_hugs_draft_section(
+    draft_text: str,
+    posts: list[HugsPost] | list[str] | None = None,
+    key_highlights: str = "",
+) -> str:
     """Верифицирует цифры в тексте черновика HugsFund с помощью verify.verify_drafts.
+    Передаёт в качестве эталонного корпуса склеенный текст всех отфильтрованных
+    постов Hugs + весь блок KEY HIGHLIGHTS.
     Возвращает строку футера (например, 'POST · цифры 2/2 ✅')."""
     if not draft_text or not draft_text.strip():
         return ""
-    # Формируем виртуальный selected для verify.bodies_for_source
-    selected = []
+
+    corpus_parts: list[str] = []
+    first_url = "https://t.me/HugsFund"
     if posts:
         for p in posts:
-            selected.append({"item": type("ItemDummy", (), {"url": p.url})(), "body": p.clean_text})
+            if isinstance(p, str):
+                txt = p.strip()
+            else:
+                txt = (getattr(p, "clean_text", "") or getattr(p, "text", "") or "").strip()
+                if getattr(p, "url", "") and first_url == "https://t.me/HugsFund":
+                    first_url = p.url
+            if txt:
+                corpus_parts.append(txt)
+
+    if key_highlights and key_highlights.strip():
+        kh_clean = re.sub(r"<[^>]+>", " ", key_highlights).strip()
+        corpus_parts.append(key_highlights.strip())
+        if kh_clean and kh_clean != key_highlights.strip():
+            corpus_parts.append(kh_clean)
+
+    combined_corpus = "\n\n".join(corpus_parts)
+    selected = (
+        [{"item": type("ItemDummy", (), {"url": first_url})(), "body": combined_corpus}]
+        if combined_corpus
+        else []
+    )
 
     draft_block_format = (
         "SHAPE: single\n"
@@ -287,6 +561,7 @@ def humanize_hugs_briefing(analysis_text: str, posts: list[HugsPost] | None = No
         return analysis_text
 
     text = analysis_text
+    key_highlights = extract_key_highlights(analysis_text)
     badge = " ⚠️ [RAW DRAFT: EDITOR FAILED]"
 
     # 1. Секция DRAFT 1 (Digest)
@@ -306,7 +581,7 @@ def humanize_hugs_briefing(analysis_text: str, posts: list[HugsPost] | None = No
                 text = text[:m1.start(1)] + header + clean_body + "\n\n" + text[m1.end(2):]
                 brain.inspect_and_collect_flagged_phrases(clean_body, "DRAFT 1 — DIGEST")
             elif edited_d1:
-                d1_footer = verify_hugs_draft_section(edited_d1, posts=posts)
+                d1_footer = verify_hugs_draft_section(edited_d1, posts=posts, key_highlights=key_highlights)
                 d1_with_footer = f"{edited_d1}\n\n{d1_footer}" if d1_footer else edited_d1
                 text = text[:m1.start(2)] + d1_with_footer + "\n\n" + text[m1.end(2):]
                 brain.inspect_and_collect_flagged_phrases(edited_d1, "DRAFT 1 — DIGEST")
@@ -327,7 +602,7 @@ def humanize_hugs_briefing(analysis_text: str, posts: list[HugsPost] | None = No
                 text = text[:m2.start(1)] + header + clean_body + ("\n" if not clean_body.endswith("\n") else "") + text[m2.end(2):]
                 brain.inspect_and_collect_flagged_phrases(clean_body, "DRAFT 2 — SINGLE TOPIC")
             elif edited_d2:
-                d2_footer = verify_hugs_draft_section(edited_d2, posts=posts)
+                d2_footer = verify_hugs_draft_section(edited_d2, posts=posts, key_highlights=key_highlights)
                 d2_with_footer = f"{edited_d2}\n\n{d2_footer}" if d2_footer else edited_d2
                 text = text[:m2.start(2)] + d2_with_footer + ("\n" if not d2_with_footer.endswith("\n") else "") + text[m2.end(2):]
                 brain.inspect_and_collect_flagged_phrases(edited_d2, "DRAFT 2 — SINGLE TOPIC")

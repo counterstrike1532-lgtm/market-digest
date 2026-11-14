@@ -1166,3 +1166,33 @@ def test_polish_comma_normalization_matching():
     res = verify.verify_figures_local(pairs, [norm_body], "")
     assert len(res) == 3
     assert all(r["status"] == "FOUND" for r in res)
+
+
+def test_extract_body_figures_excludes_dates_and_bare_years():
+    text = (
+        "Since March 17, 2022 and 15 December 2026, all seven Polish legal challenges "
+        "totaled 500 million PLN in 2025."
+    )
+    extracted = verify.extract_body_figures(text)
+    assert extracted == ["500 million"]
+
+
+def test_verify_drafts_ignores_dates_and_word_numerals_in_body_and_figures():
+    raw_draft = (
+        "SHAPE: single\n"
+        "BODY: Since March 17, 2022, all seven Polish legal challenges totaled 500 million PLN.\n"
+        "FIGURES: 500 million PLN -> Story 1; March 17, 2022 -> Story 1; seven -> Story 1\n"
+        "SOURCE: Story 1\n"
+        "WHY_THIS_ONE: legal risk\n"
+        "VERDICT: POST\n"
+        "WHY: clear reserve risk\n"
+        "CHECK_FIRST: -\n"
+    )
+    source_body = "Court rulings dating to March 17, 2022 put claims across seven cases at 500 million PLN."
+    selected = [{"item": None, "body": source_body}]
+
+    _, _, blocks = verify.verify_drafts(raw_draft, selected=selected, data_text="")
+    assert len(blocks) == 1
+    b = blocks[0]
+    assert b["_downgrade"] is False
+    assert b["_report"].startswith("✅ verified (1/1 found)")
