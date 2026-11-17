@@ -50,8 +50,19 @@ if (-not (Test-Path "secrets.ps1")) {
         '#                    and find  "chat":{"id":NUMBER',
         '',
         '$env:GEMINI_API_KEY     = ""',
+        '$env:GEMINI_MODEL       = ""',
         '$env:TELEGRAM_BOT_TOKEN = ""',
         '$env:TELEGRAM_CHAT_ID   = ""',
+        '',
+        '# Financial Times IMAP pipeline (optional)',
+        '$env:FT_IMAP_HOST          = "imap.gmail.com"',
+        '$env:FT_IMAP_PORT          = "993"',
+        '$env:FT_IMAP_USER          = ""',
+        '$env:FT_IMAP_PASSWORD      = ""',
+        '$env:FT_IMAP_FOLDER        = "INBOX"',
+        '$env:FT_FORWARDER_EMAIL    = ""',
+        '$env:FT_LOOKBACK_HOURS     = "36"',
+        '$env:FT_MAX_DRAFTS_PER_RUN = "2"',
         ''
     )
     # ASCII encoding so PowerShell 5.1 always reads it correctly

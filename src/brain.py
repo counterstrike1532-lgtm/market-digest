@@ -32,7 +32,7 @@ API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateC
 # GEMINI_MODEL можно задать списком через запятую — пробуем по очереди.
 # Актуальные имена для своего ключа: .\run.ps1 models
 _DEFAULT_MODELS = "gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite"
-MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", _DEFAULT_MODELS).split(",") if m.strip()]
+MODELS = [m.strip() for m in (os.getenv("GEMINI_MODEL") or _DEFAULT_MODELS).split(",") if m.strip()]
 
 _requests_made = 0
 _successful_calls = 0    # реально вернувшие пригодный текст

@@ -1,0 +1,97 @@
+name: ft premium digest
+
+on:
+  schedule:
+    - cron: "30 8 * * 1-5"      # 08:30 UTC / 09:30 CET в будни, после утренних рассылок FT
+  workflow_dispatch:            # кнопка "Run workflow" для ручного запуска
+    inputs:
+      hours:
+        description: "Окно свежести писем FT (в часах)"
+        default: "36"
+      max_drafts:
+        description: "Максимум черновиков FT за запуск"
+        default: "2"
+
+concurrency:
+  group: ft-digest
+  cancel-in-progress: false
+
+permissions:
+  contents: write               # нужно для коммита файлов состояния в state/
+
+jobs:
+  ft-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Собрать и отправить черновики FT Premium
+        env:
+          FT_IMAP_HOST:          ${{ secrets.FT_IMAP_HOST }}
+          FT_IMAP_USER:          ${{ secrets.FT_IMAP_USER }}
+          FT_IMAP_PASSWORD:      ${{ secrets.FT_IMAP_PASSWORD }}
+          FT_FORWARDER_EMAIL:    ${{ secrets.FT_FORWARDER_EMAIL }}
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL:          ${{ secrets.GEMINI_MODEL }}
+          TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
+          FT_LOOKBACK_HOURS:     ${{ github.event.inputs.hours || '36' }}
+          FT_MAX_DRAFTS_PER_RUN: ${{ github.event.inputs.max_drafts || '2' }}
+          NEWSBOT_ALLOW_LIVE:    "1"
+          NEWSBOT_PERSIST_STATE: "1"
+        run: |
+          python -m src.ft_workflow --hours "$FT_LOOKBACK_HOURS" --max-drafts "$FT_MAX_DRAFTS_PER_RUN" 2>&1 | tee ft_digest.log
+
+      - name: Загрузить лог прогона
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ft-digest-log-${{ github.run_id }}
+          path: ft_digest.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Сохранить состояние FT пайплайна
+        id: remember
+        continue-on-error: true
+        run: |
+          git config user.name  "digest-bot"
+          git config user.email "actions@github.com"
+          for f in state/ft_seen.json state/single_topic_history.json state/entity_ledger.json state/flagged_phrases.json; do
+            [ -f "$f" ] && git add "$f"
+          done
+          git diff --staged --quiet || git commit -m "state: ft_seen + history + ledger $(date -u +%F)"
+          git pull --rebase --autostash origin master || true
+          git push
+
+      - name: Notify on state commit failure
+        if: steps.remember.outcome == 'failure'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d chat_id="$TELEGRAM_CHAT_ID" \
+            -d disable_web_page_preview=true \
+            --data-urlencode text="FT state не сохранён, возможны повторы. Ран: $RUN_URL"
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d chat_id="$TELEGRAM_CHAT_ID" \
+            -d disable_web_page_preview=true \
+            --data-urlencode text="FT Premium дайджест упал. Лог: $RUN_URL"

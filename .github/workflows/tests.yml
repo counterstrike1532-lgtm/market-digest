@@ -8,6 +8,8 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
     steps:
       - uses: actions/checkout@v4
 
