@@ -1129,6 +1129,29 @@ def _ledger_parse_numeric(val_str: str) -> float | None:
     return _to_float(f"{num_core} {suffix}".strip())
 
 
+def _bind_nearest_to_numbers(
+    matches: list[tuple[str, re.Match]],
+    num_matches: list[tuple[re.Match, str, float]],
+    max_dist: int = 35,
+) -> dict[int, tuple[int, str]]:
+    """Привязывает каждый маркер к ближайшему числу в окне не более max_dist символов."""
+    bound: dict[int, tuple[int, str]] = {}
+    for label, m in matches:
+        m_start, m_end = m.start(), m.end()
+        nearest_idx = None
+        nearest_dist = None
+        for idx, (nm, _, _) in enumerate(num_matches):
+            dist = max(0, m_start - nm.end(), nm.start() - m_end)
+            if nearest_dist is None or dist < nearest_dist:
+                nearest_dist = dist
+                nearest_idx = idx
+        if nearest_idx is not None and nearest_dist is not None and nearest_dist <= max_dist:
+            prev_best = bound.get(nearest_idx)
+            if prev_best is None or nearest_dist < prev_best[0]:
+                bound[nearest_idx] = (nearest_dist, label)
+    return bound
+
+
 def extract_entity_metrics(text: str) -> list[dict]:
     """Извлекает (entity, metric, period, value, numeric_value) из предложений черновика."""
     clean = re.sub(r"<[^>]+>", " ", text or "")
@@ -1170,19 +1193,47 @@ def extract_entity_metrics(text: str) -> list[dict]:
             ]
             clause_entity = clause_ents[0] if clause_ents else sent_entity
 
+            period_hits: list[tuple[str, re.Match]] = []
+            for p_name, p_pat in _LEDGER_PERIOD_PATTERNS:
+                for pm in p_pat.finditer(clause):
+                    period_hits.append((p_name, pm))
+
+            num_matches = []
             for nm in _LEDGER_NUM_RE.finditer(clause):
                 raw_val = nm.group("val").strip()
-                if not raw_val:
+                if not raw_val or _BARE_YEAR.fullmatch(raw_val):
                     continue
-                if _BARE_YEAR.fullmatch(raw_val):
+                # Исключаем цифры внутри буквенно-цифровых кодов (H1, Q3, FY26) и голые маркеры периода (9M)
+                if nm.start() > 0 and clause[nm.start() - 1].isalpha():
+                    continue
+                if raw_val[0] not in "$€£" and any(
+                    pm.start() <= nm.start() and nm.end() <= pm.end()
+                    for _, pm in period_hits
+                ):
                     continue
                 num_val = _ledger_parse_numeric(raw_val)
                 if num_val is None:
                     continue
+                num_matches.append((nm, raw_val, num_val))
 
-                win_start = max(0, nm.start() - 35)
-                win_end = min(len(clause), nm.end() + 35)
-                local_ctx = clause[win_start:win_end]
+            if not num_matches:
+                continue
+
+            metric_hits = [
+                (metric_name, mm)
+                for metric_name, pat in _LEDGER_METRIC_PATTERNS
+                for mm in pat.finditer(clause)
+            ]
+            bound_metrics = _bind_nearest_to_numbers(metric_hits, num_matches)
+            bound_periods = _bind_nearest_to_numbers(period_hits, num_matches)
+
+            for idx, (nm, raw_val, num_val) in enumerate(num_matches):
+                metric_hit = bound_metrics.get(idx)
+                if not metric_hit:
+                    continue
+                matched_metric = metric_hit[1]
+                period_hit = bound_periods.get(idx)
+                period = period_hit[1] if period_hit else ""
 
                 # Уточняем сущность по ближайшему упоминанию до числа в той же клаузе
                 local_ents = [
@@ -1190,23 +1241,6 @@ def extract_entity_metrics(text: str) -> list[dict]:
                     if t not in _LEDGER_ENTITY_STOPWORDS
                 ]
                 row_entity = local_ents[-1] if local_ents else clause_entity
-
-                matched_metric = None
-                best_dist = None
-                for metric_name, pat in _LEDGER_METRIC_PATTERNS:
-                    for mm in pat.finditer(local_ctx):
-                        dist = abs((win_start + mm.start()) - nm.start())
-                        if best_dist is None or dist < best_dist:
-                            best_dist = dist
-                            matched_metric = metric_name
-                if not matched_metric:
-                    continue
-
-                period = ""
-                for p_name, p_pat in _LEDGER_PERIOD_PATTERNS:
-                    if p_pat.search(local_ctx):
-                        period = p_name
-                        break
 
                 extracted.append({
                     "entity": row_entity,
@@ -1281,6 +1315,8 @@ def check_and_update_entity_ledger(
                 continue
 
             old_date = str(prev.get("date") or "")
+            if old_date == today_str:
+                continue
             old_val = str(prev.get("value") or "")
             old_period = str(prev.get("period") or "")
             old_num = prev.get("numeric_value")

@@ -157,7 +157,7 @@ Keep the financial concept exact, but the phrasing natural, simple, and conversa
   * Single Topic Post: Strictly 3 to 5 core quantitative figures. NEVER overload a 100-word draft with 7+ data points. Prioritize the central economic mechanism over listing every secondary contract number.
   * Digest: Strictly 1-2 numbers per bullet (maximum 5 numbers across the entire digest).
 - DRAFT 1 (DIGEST): Line 1 frames the single core conflict immediately. Keep it short, dense, and name the sectors or core conflict right away. Never open with a long, empty abstract setup ending in a colon (e.g. NEVER "Divergent operational input costs are fundamentally reshaping the long-term baseline margin profile:"). Must contain strictly 2 to 3 bullets (hard limit: strictly 2 or 3 items, maximum 3, never 4). Give every item a bold 2–4 word header stating the exact action or mechanism (e.g. `• <b>1. Off-budget defense spending:</b>`). NEVER use lazy transitions ("Meanwhile...", "At the same time...", "Finally...").
-- DRAFT 2 (SINGLE TOPIC): Deep dive into the strongest balance-sheet or structural market mechanism.
+- DRAFT 2 (SINGLE TOPIC): Deep dive into the strongest balance-sheet or structural market mechanism. If a company/entity is in the 7-day anti-duplicate ban list and other stories exist today, it is unconditionally prohibited for DRAFT 2 (no exceptions for IPOs or new milestones) — pick another company/story instead.
 - NEVER end with open questions ("What do you think?"), moral lessons, or empty advice ("Watch this space").
 - Natural analytical conclusion grounded in facts: End the post with a natural analytical conclusion based on the facts, without forcing artificial drama or repetitive tropes (no forced "forcing multiple compression").
   Permitted conclusion types:
@@ -398,11 +398,11 @@ def run_llm_analysis(
         banned_list = ", ".join(matched if matched else recent_entities)
         dedup_block = (
             "\n=== 7-DAY ANTI-DUPLICATE BAN FOR DRAFT 2 (SINGLE TOPIC) ===\n"
-            f"STRICTLY FORBIDDEN to feature the following company/entity as the main subject of DRAFT 2 — SINGLE TOPIC "
-            f"more than once in 7 days: {banned_list}.\n"
-            "Exception: ONLY if a fundamentally new milestone event occurred (for example, official IPO pricing). "
-            "Otherwise, if today's top story centers on this entity, you MUST NOT use it for DRAFT 2 — "
-            "select the second most significant topic of the day for DRAFT 2 instead.\n"
+            f"UNCONDITIONAL 7-DAY BAN: It is STRICTLY FORBIDDEN under any circumstances (NO exceptions for IPOs, "
+            f"valuation rounds, or new milestones) to feature the following company/entity as the main subject of "
+            f"DRAFT 2 — SINGLE TOPIC more than once in 7 days: {banned_list}.\n"
+            "If today's top story centers on this entity and other stories exist in today's batch, you MUST NOT use "
+            "it for DRAFT 2 — select the second most significant topic of the day from another company/sector for DRAFT 2 instead.\n"
         )
         prompt = prompt + dedup_block
 

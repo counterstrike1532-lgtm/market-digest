@@ -543,7 +543,8 @@ def test_hugs_7d_anti_duplicate_draft2(mock_call, tmp_path):
     second_prompt = mock_call.call_args_list[-1][0][0]
     assert "7-DAY ANTI-DUPLICATE BAN FOR DRAFT 2" in second_prompt
     assert "CoreWeave" in second_prompt
-    assert "official IPO pricing" in second_prompt
+    assert "UNCONDITIONAL 7-DAY BAN" in second_prompt
+    assert "NO exceptions" in second_prompt
     assert "second most significant topic of the day" in second_prompt
 
     # День 9 (+8 дней): старая запись про CoreWeave истекла за пределами 7 дней

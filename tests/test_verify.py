@@ -1252,3 +1252,42 @@ def test_cross_day_entity_ledger_detects_conflicts(tmp_path):
     assert any("CROSS-DAY CONFLICT: Anthropic revenue differs from 2026-11-12 ($17.8B)" in c for c in conflicts)
     assert any("CROSS-DAY CONFLICT: CoreWeave yield differs from 2026-11-12 (15%)" in c for c in conflicts)
     assert "⚠️ CROSS-DAY CONFLICT:" in out2
+
+
+def test_entity_ledger_no_false_conflict_between_revenue_and_commitments_or_same_day(tmp_path):
+    from datetime import datetime, timezone
+
+    ledger_file = tmp_path / "entity_ledger.json"
+    today = datetime(2026, 11, 17, 8, 0, 0, tzinfo=timezone.utc)
+
+    # 1. В одном предложении присутствуют и revenue ($3 billion), и long-term compute commitments ($895.4 billion).
+    #    revenue должно привязаться только к ближайшему числу ($3 billion), а $895.4 billion — к backlog (commitments).
+    sentence = (
+        "Anthropic revenue reached $3 billion, with $895.4 billion in long-term compute commitments."
+    )
+    items = verify.extract_entity_metrics(sentence)
+    by_val = {it["value"]: it["metric"] for it in items}
+    assert by_val.get("$3 billion") == "revenue"
+    assert by_val.get("$895.4 billion") == "backlog"
+    assert [it for it in items if it["metric"] == "revenue"] == [
+        next(it for it in items if it["value"] == "$3 billion")
+    ]
+
+    # 2. Повторная проверка в тот же день (entry["date"] == today) не должна вызывать ложный CROSS-DAY CONFLICT
+    conflicts_run1 = verify.check_and_update_entity_ledger(sentence, now=today, path=ledger_file)
+    assert conflicts_run1 == []
+
+    same_day_draft = "Anthropic revenue reached $4.5 billion alongside $895.4 billion in long-term compute commitments."
+    conflicts_run2 = verify.check_and_update_entity_ledger(same_day_draft, now=today, path=ledger_file)
+    assert conflicts_run2 == []
+
+    # 3. На следующий день $3 billion revenue не должен конфликтовать со вчерашним $895.4 billion commitments
+    tomorrow = datetime(2026, 11, 18, 8, 0, 0, tzinfo=timezone.utc)
+    next_day_ledger = tmp_path / "entity_ledger_next_day.json"
+    assert verify.check_and_update_entity_ledger(sentence, now=today, path=next_day_ledger) == []
+    conflicts_next_day = verify.check_and_update_entity_ledger(
+        "Anthropic revenue held at $3 billion.",
+        now=tomorrow,
+        path=next_day_ledger,
+    )
+    assert conflicts_next_day == []
