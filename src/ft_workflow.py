@@ -189,6 +189,21 @@ def parse_stage1_output(raw: str) -> tuple[str, str, str]:
     return headline, body, figures
 
 
+_FT_PERCENT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s+per\s+cent\b", re.IGNORECASE)
+_FT_BN_RE = re.compile(r"(?<![A-Za-z0-9])([\$€£]?\d+(?:,\d{3})*(?:\.\d+)?)\s*bn\b", re.IGNORECASE)
+_FT_MN_RE = re.compile(r"(?<![A-Za-z0-9])([\$€£]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:mn|m)\b", re.IGNORECASE)
+
+
+def normalize_ft_units_for_verify(text: str) -> str:
+    """Нормализует британский стиль чисел FT для сверки в verify_drafts."""
+    if not text:
+        return ""
+    out = _FT_PERCENT_RE.sub(r"\1%", text)
+    out = _FT_BN_RE.sub(r"\1 billion", out)
+    out = _FT_MN_RE.sub(r"\1 million", out)
+    return out
+
+
 def verify_ft_draft(
     draft_body: str,
     newsletter: FTNewsletter,
@@ -200,10 +215,17 @@ def verify_ft_draft(
     if not draft_body or not draft_body.strip():
         return ""
 
+    normalized_text = normalize_ft_units_for_verify(newsletter.clean_text)
+    combined_body = (
+        f"{newsletter.clean_text}\n\n{normalized_text}"
+        if normalized_text and normalized_text != newsletter.clean_text
+        else newsletter.clean_text
+    )
+
     selected = [
         {
             "item": type("FTItemDummy", (), {"url": "https://www.ft.com"})(),
-            "body": newsletter.clean_text,
+            "body": combined_body,
         }
     ]
     draft_block_format = (

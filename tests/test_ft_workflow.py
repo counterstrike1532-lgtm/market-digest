@@ -627,3 +627,41 @@ def test_from_file_html_and_txt_and_verify_maybe_downgrade(tmp_path, monkeypatch
     )
     assert "MAYBE · цифры 1/2 — сверь 99%" in res["message"]
 
+
+def test_normalize_ft_units_for_verify_british_per_cent_and_bn_mn(tmp_path):
+    raw = (
+        "Share buybacks jumped 70 per cent while inflation held at 2.6 Per Cent. "
+        "Total debt hit $104bn (or 104bn locally), with cash flow of $53mn and fees of $53m."
+    )
+    normalized = ft_workflow.normalize_ft_units_for_verify(raw)
+    assert "70%" in normalized
+    assert "2.6%" in normalized
+    assert "$104 billion" in normalized
+    assert "104 billion" in normalized
+    assert "$53 million" in normalized
+    assert normalized.count("$53 million") == 2
+
+    nl = ft_imap.FTNewsletter(
+        message_id="<ft-uk-units@ft.com>",
+        newsletter_name="Lex",
+        subject="Lex: UK capital distribution",
+        date="2026-11-18T08:00:00+00:00",
+        clean_text=(
+            "European utilities raised capital spending by 70 per cent as regulated inflation reached 2.6 per cent. "
+            "Combined net debt climbed to $104bn alongside $53mn in quarterly restructuring fees and $12m in advisory charges. "
+            * 4
+        ),
+    )
+    draft_body = (
+        "European utilities increased capital spending by 70% while inflation ran at 2.6%. "
+        "Net debt reached $104 billion against $53 million in restructuring fees and $12 million in advisory charges."
+    )
+    footer = ft_workflow.verify_ft_draft(
+        draft_body,
+        newsletter=nl,
+        ledger_path=tmp_path / "entity_ledger.json",
+        dry_run=True,
+    )
+    assert footer == "POST · цифры 5/5 ✅"
+
+
