@@ -1,0 +1,23 @@
+[
+  {
+    "timestamp": "2026-11-18T17:40:08.672204+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "AAII",
+      "Bloomberg",
+      "Aggregate",
+      "MSCI",
+      "World"
+    ],
+    "headline": "High Starting Yields Prompt Global Portfolio Rebalancing"
+  },
+  {
+    "timestamp": "2026-11-18T17:40:28.520100+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Nvidia",
+      "Singapore"
+    ],
+    "headline": "Nvidia's Singapore Revenue: High Volume, Low Profit"
+  }
+]

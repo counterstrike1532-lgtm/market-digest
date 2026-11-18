@@ -1,0 +1,26 @@
+[
+  {
+    "entity": "AAII",
+    "metric": "yield",
+    "period": "",
+    "value": "4.9%",
+    "numeric_value": 4.9,
+    "date": "2026-11-18"
+  },
+  {
+    "entity": "Singapore",
+    "metric": "revenue",
+    "period": "",
+    "value": "$104 billion",
+    "numeric_value": 104000000000.0,
+    "date": "2026-11-18"
+  },
+  {
+    "entity": "Nvidia",
+    "metric": "profit",
+    "period": "",
+    "value": "$53 million",
+    "numeric_value": 53000000.0,
+    "date": "2026-11-18"
+  }
+]
