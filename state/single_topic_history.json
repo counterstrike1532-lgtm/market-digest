@@ -19,5 +19,27 @@
       "Singapore"
     ],
     "headline": "Nvidia's Singapore Revenue: High Volume, Low Profit"
+  },
+  {
+    "timestamp": "2026-11-20T17:15:02.528525+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Anthropic",
+      "Zion",
+      "Research",
+      "Group",
+      "Alphabet"
+    ],
+    "headline": "Anthropic IPO Pricing Reveals High Required Revenue Run-Rate"
+  },
+  {
+    "timestamp": "2026-11-20T17:17:43.593475+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Coca",
+      "Cola",
+      "Microsoft"
+    ],
+    "headline": "Defensive Equity Rotation Creates Valuation Anomaly in Quality Stocks"
   }
 ]

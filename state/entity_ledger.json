@@ -22,5 +22,29 @@
     "value": "$53 million",
     "numeric_value": 53000000.0,
     "date": "2026-11-18"
+  },
+  {
+    "entity": "Anthropic",
+    "metric": "backlog",
+    "period": "",
+    "value": "$901 billion",
+    "numeric_value": 901000000000.0,
+    "date": "2026-11-20"
+  },
+  {
+    "entity": "Achieving",
+    "metric": "revenue",
+    "period": "annual",
+    "value": "$602 billion",
+    "numeric_value": 602000000000.0,
+    "date": "2026-11-20"
+  },
+  {
+    "entity": "Microsoft",
+    "metric": "yield",
+    "period": "",
+    "value": "$346 billion",
+    "numeric_value": 346000000000.0,
+    "date": "2026-11-20"
   }
 ]
