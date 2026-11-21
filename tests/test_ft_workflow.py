@@ -665,3 +665,347 @@ def test_normalize_ft_units_for_verify_british_per_cent_and_bn_mn(tmp_path):
     assert footer == "POST · цифры 5/5 ✅"
 
 
+def test_chart_of_the_week_identified_as_unhedged():
+    assert ft_imap.identify_newsletter("Chart of the Week: Going public, but only a little") == "Unhedged"
+
+    raw = _build_eml(
+        subject="FW: Chart of the Week: Going public, but only a little",
+        from_addr="student@uni.edu",
+        plain_body=f"Financial Times ft.com\n\n{_make_long_ft_body()}",
+    )
+    nl = ft_imap.parse_raw_email(raw, forwarder_email="student@uni.edu")
+    assert nl is not None
+    assert nl.newsletter_name == "Unhedged"
+    assert nl.subject == "Chart of the Week: Going public, but only a little"
+
+
+def test_identify_forwarded_newsletters_via_outlook_header_and_html_tags():
+    body_html = "".join(f"<p>{p}</p>" for p in _make_long_ft_body().split("\n\n"))
+
+    # 1. Energy Source: в Subject только заголовок статьи, название в Outlook From:
+    raw_energy = _build_eml(
+        subject="FW: The US-China race for nuclear energy dominance",
+        from_addr="Student <student@uni.edu>",
+        html_body=(
+            "<html><body>"
+            "<div id='divRplyFwdMsg'><p><b>From:</b> FT Energy Source &lt;newsletters@ft.com&gt;<br/>"
+            "<b>Sent:</b> Friday, November 20, 2026 6:00 AM<br/>"
+            "<b>To:</b> Student &lt;student@uni.edu&gt;<br/>"
+            "<b>Subject:</b> The US-China race for nuclear energy dominance</p></div>"
+            f"{body_html}"
+            "<p>Unsubscribe | Copyright The Financial Times Limited 2026</p>"
+            "</body></html>"
+        ),
+    )
+    nl_energy = ft_imap.parse_raw_email(raw_energy, forwarder_email="student@uni.edu")
+    assert nl_energy is not None
+    assert nl_energy.newsletter_name == "Energy Source"
+    assert "FT Energy Source" not in nl_energy.clean_text
+    assert "Sent: Friday" not in nl_energy.clean_text
+
+    # 2. Due Diligence: в Subject только заголовок статьи, From общий, название в alt="..." HTML-логотипа
+    raw_dd_alt = _build_eml(
+        subject="FW: Anthropic’s Wall Street stimulus fades",
+        from_addr="Student <student@uni.edu>",
+        html_body=(
+            "<html><body>"
+            "<div id='divRplyFwdMsg'><p><b>From:</b> Financial Times &lt;newsletters@ft.com&gt;<br/>"
+            "<b>Sent:</b> Friday, November 20, 2026 7:00 AM<br/>"
+            "<b>To:</b> Student &lt;student@uni.edu&gt;<br/>"
+            "<b>Subject:</b> Anthropic’s Wall Street stimulus fades</p></div>"
+            "<img src='https://ft.com/logo.png' alt='Due Diligence' />"
+            f"{body_html}"
+            "</body></html>"
+        ),
+    )
+    nl_dd_alt = ft_imap.parse_raw_email(raw_dd_alt, forwarder_email="student@uni.edu")
+    assert nl_dd_alt is not None
+    assert nl_dd_alt.newsletter_name == "Due Diligence"
+
+    # 2b. Due Diligence через title="..." и скрытый preheader
+    raw_dd_title = _build_eml(
+        subject="FW: Private credit takes another software buyout",
+        from_addr="Student <student@uni.edu>",
+        html_body=(
+            "<html><body>"
+            "<a href='https://ft.com' title='Due Diligence — Financial Times'>Banner</a>"
+            f"{body_html}"
+            "</body></html>"
+        ),
+    )
+    nl_dd_title = ft_imap.parse_raw_email(raw_dd_title, forwarder_email="student@uni.edu")
+    assert nl_dd_title is not None
+    assert nl_dd_title.newsletter_name == "Due Diligence"
+
+    raw_dd_pre = _build_eml(
+        subject="FW: Dealmaking pipeline cools",
+        from_addr="Student <student@uni.edu>",
+        html_body=(
+            "<html><body>"
+            "<div class='preheader' style='display:none'>Due Diligence — Financial Times corporate deals</div>"
+            f"{body_html}"
+            "</body></html>"
+        ),
+    )
+    nl_dd_pre = ft_imap.parse_raw_email(raw_dd_pre, forwarder_email="student@uni.edu")
+    assert nl_dd_pre is not None
+    assert nl_dd_pre.newsletter_name == "Due Diligence"
+
+    # 3. Lex и Chris Giles on Central Banks с заголовком статьи в Subject
+    raw_lex = _build_eml(
+        subject="FW: Big Tech capex meets bond math",
+        from_addr="Student <student@uni.edu>",
+        html_body=(
+            "<html><body>"
+            "<div id='divRplyFwdMsg'><p><b>From:</b> The Lex Newsletter &lt;newsletters@ft.com&gt;<br/>"
+            "<b>Sent:</b> Friday, November 20, 2026 8:00 AM<br/>"
+            "<b>To:</b> Student &lt;student@uni.edu&gt;<br/>"
+            "<b>Subject:</b> Big Tech capex meets bond math</p></div>"
+            f"{body_html}"
+            "</body></html>"
+        ),
+    )
+    nl_lex = ft_imap.parse_raw_email(raw_lex, forwarder_email="student@uni.edu")
+    assert nl_lex is not None
+    assert nl_lex.newsletter_name == "Lex"
+
+    raw_cb = _build_eml(
+        subject="FW: Inflation persistence tests rate-setters",
+        from_addr="Student <student@uni.edu>",
+        html_body=(
+            "<html><body>"
+            "<img src='https://ft.com/cb.png' alt='Chris Giles on Central Banks' />"
+            f"{body_html}"
+            "</body></html>"
+        ),
+    )
+    nl_cb = ft_imap.parse_raw_email(raw_cb, forwarder_email="student@uni.edu")
+    assert nl_cb is not None
+    assert nl_cb.newsletter_name == "Central Banks"
+
+    # 4. Негативный тест: посторонняя рассылка FT, где слова "central banks"/"due diligence"
+    # встречаются в тексте, а Unhedged — только в кросс-промо баннере футера после Unsubscribe
+    raw_non_wl = _build_eml(
+        subject="FW: FT News Briefing: Morning headlines",
+        from_addr="Student <student@uni.edu>",
+        html_body=(
+            "<html><body>"
+            "<p>Global central banks kept policy rates unchanged while investors did due diligence on sovereign debt. "
+            f"{_make_long_ft_body()}</p>"
+            "<p>Unsubscribe | Copyright The Financial Times Limited 2026</p>"
+            "<div class='promo'><img src='https://ft.com/u.png' alt='Unhedged' /></div>"
+            "</body></html>"
+        ),
+    )
+    assert ft_imap.parse_raw_email(raw_non_wl, forwarder_email="student@uni.edu") is None
+
+
+def test_fetch_ft_newsletters_logs_skip_reasons(tmp_path, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    now = datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc)
+    seen_file = tmp_path / "ft_seen.json"
+
+    seen_nl = ft_imap.FTNewsletter(
+        message_id="<seen-1@ft.com>",
+        newsletter_name="Unhedged",
+        subject="Unhedged: Seen item",
+        date=(now - timedelta(hours=3)).isoformat(),
+        clean_text=_make_long_ft_body(),
+    )
+    seen_dict: dict[str, str] = {}
+    ft_imap.mark_newsletter_seen(seen_nl, seen_dict, now=now)
+    ft_imap.save_ft_seen(seen_dict, path=seen_file)
+
+    eml_unknown = _build_eml(
+        subject="FW: FT Weekend Magazine: Architecture special",
+        from_addr="student@uni.edu",
+        message_id="<unknown-1@ft.com>",
+        date_dt=now - timedelta(hours=1),
+        plain_body=f"Financial Times ft.com\n\n{_make_long_ft_body()}",
+    )
+    eml_short = _build_eml(
+        subject="Due Diligence: Brief note",
+        from_addr="newsletters@ft.com",
+        message_id="<short-1@ft.com>",
+        date_dt=now - timedelta(hours=2),
+        plain_body="Short update only.",
+    )
+    eml_seen = _build_eml(
+        subject="FW: Unhedged: Seen item",
+        from_addr="student@uni.edu",
+        message_id="<seen-1@ft.com>",
+        date_dt=now - timedelta(hours=3),
+        plain_body=f"Financial Times ft.com\n\n{_make_long_ft_body()}",
+    )
+
+    imap = MagicMock()
+    imap.search.return_value = ("OK", [b"1 2 3"])
+    imap.fetch.side_effect = [
+        ("OK", [(b"1 (RFC822)", eml_unknown)]),
+        ("OK", [(b"2 (RFC822)", eml_short)]),
+        ("OK", [(b"3 (RFC822)", eml_seen)]),
+    ]
+    monkeypatch.setenv("FT_FORWARDER_EMAIL", "student@uni.edu")
+
+    items = ft_imap.fetch_ft_newsletters(
+        seen_path=seen_file,
+        now=now,
+        imap_client=imap,
+    )
+    assert items == []
+    assert "IGNORED: unknown newsletter" in caplog.text
+    assert "SKIPPED: too short (<600 chars)" in caplog.text
+    assert "SKIPPED: already seen" in caplog.text
+
+
+def test_normalize_ft_units_for_verify_word_numbers_and_verify_draft(tmp_path):
+    raw = (
+        "The one-year swap rose while two-year yields held firm and three-month bills jumped. "
+        "Over a five-year and ten-year horizon, core inflation held between two per cent and three per cent "
+        "for three months, unlike twenty-one-year bonds."
+    )
+    norm = ft_workflow.normalize_ft_units_for_verify(raw)
+    assert "1-year" in norm
+    assert "2-year" in norm
+    assert "3-month" in norm
+    assert "5-year" in norm
+    assert "10-year" in norm
+    assert "2%" in norm
+    assert "3%" in norm
+    assert "3 months" in norm
+    assert "twenty-one-year" in norm
+
+    nl = ft_imap.FTNewsletter(
+        message_id="<ft-words@ft.com>",
+        newsletter_name="Unhedged",
+        subject="Unhedged: Yield curve shifts",
+        date="2026-11-21T08:00:00+00:00",
+        clean_text=(
+            "Three-month Treasury bills yielded two per cent as one-year forward swaps repriced sharply. "
+            * 8
+        ),
+    )
+    draft_body = "Three-month equivalent 3-month bills moved to 2% while 1-year swaps repriced."
+    footer = ft_workflow.verify_ft_draft(
+        draft_body,
+        newsletter=nl,
+        ledger_path=tmp_path / "entity_ledger.json",
+        dry_run=True,
+    )
+    assert footer == "POST · цифры 3/3 ✅"
+
+
+def test_defaults_and_inspect_inbox_mode(tmp_path, monkeypatch, capsys):
+    assert ft_imap.FT_LOOKBACK_HOURS == 48
+    assert ft_workflow.FT_MAX_DRAFTS_PER_RUN == 4
+
+    monkeypatch.delenv("NEWSBOT_ALLOW_LIVE", raising=False)
+    monkeypatch.setenv("FT_IMAP_USER", "user@gmail.com")
+    monkeypatch.setenv("FT_IMAP_PASSWORD", "app-pass")
+    with pytest.raises(RuntimeError, match="NEWSBOT_ALLOW_LIVE"):
+        ft_imap.inspect_ft_inbox()
+
+    now = datetime(2026, 11, 21, 14, 0, tzinfo=timezone.utc)
+    seen_file = tmp_path / "ft_seen.json"
+    seen_nl = ft_imap.FTNewsletter(
+        message_id="<insp-seen@ft.com>",
+        newsletter_name="Unhedged",
+        subject="Chart of the Week: Credit spreads",
+        date=(now - timedelta(hours=5)).isoformat(),
+        clean_text=_make_long_ft_body(),
+    )
+    seen_dict: dict[str, str] = {}
+    ft_imap.mark_newsletter_seen(seen_nl, seen_dict, now=now)
+    ft_imap.save_ft_seen(seen_dict, path=seen_file)
+    seen_before = seen_file.read_text(encoding="utf-8")
+
+    eml_new_energy = _build_eml(
+        subject="FW: The US-China race for nuclear energy dominance",
+        from_addr="student@uni.edu",
+        message_id="<insp-energy@ft.com>",
+        date_dt=now - timedelta(hours=1),
+        html_body=(
+            "<html><body>"
+            "<div id='divRplyFwdMsg'><p><b>From:</b> FT Energy Source &lt;newsletters@ft.com&gt;<br/>"
+            "<b>Sent:</b> Sat<br/><b>To:</b> student@uni.edu<br/>"
+            "<b>Subject:</b> The US-China race for nuclear energy dominance</p></div>"
+            f"<p>{_make_long_ft_body()}</p></body></html>"
+        ),
+    )
+    eml_seen_unhedged = _build_eml(
+        subject="FW: Chart of the Week: Credit spreads",
+        from_addr="student@uni.edu",
+        message_id="<insp-seen@ft.com>",
+        date_dt=now - timedelta(hours=5),
+        plain_body=f"Financial Times ft.com\n\n{_make_long_ft_body()}",
+    )
+    eml_short_dd = _build_eml(
+        subject="Due Diligence: Brief alert",
+        from_addr="newsletters@ft.com",
+        message_id="<insp-short@ft.com>",
+        date_dt=now - timedelta(hours=2),
+        plain_body="Short blurb.",
+    )
+    eml_ignored = _build_eml(
+        subject="FW: FT Weekend Magazine: Autumn travel",
+        from_addr="student@uni.edu",
+        message_id="<insp-ign@ft.com>",
+        date_dt=now - timedelta(hours=4),
+        plain_body=f"Financial Times ft.com\n\n{_make_long_ft_body()}",
+    )
+
+    imap = MagicMock()
+    imap.search.return_value = ("OK", [b"1 2 3 4"])
+    imap.fetch.side_effect = [
+        ("OK", [(b"1 (RFC822)", eml_new_energy)]),
+        ("OK", [(b"2 (RFC822)", eml_seen_unhedged)]),
+        ("OK", [(b"3 (RFC822)", eml_short_dd)]),
+        ("OK", [(b"4 (RFC822)", eml_ignored)]),
+    ]
+    monkeypatch.setenv("FT_FORWARDER_EMAIL", "student@uni.edu")
+
+    mock_brain = MagicMock()
+    mock_send = MagicMock()
+    monkeypatch.setattr(brain, "_call", mock_brain)
+    monkeypatch.setattr("src.deliver.send", mock_send)
+
+    items = ft_workflow.inspect_inbox(
+        lookback_hours=48,
+        seen_path=seen_file,
+        now=now,
+        imap_client=imap,
+    )
+    assert len(items) == 4
+    out = capsys.readouterr().out
+    assert "Energy Source" in out and "NEW" in out
+    assert "Unhedged" in out and "SEEN" in out
+    assert "Due Diligence" in out and "TOO_SHORT" in out
+    assert "IGNORED" in out
+    assert "The US-China race for nuclear energy dominance" in out
+    assert not mock_brain.called
+    assert not mock_send.called
+    assert seen_file.read_text(encoding="utf-8") == seen_before
+
+    # Проверка CLI --inspect-inbox через main()
+    fake_items = [
+        ft_imap.InspectedEmail(
+            date=now.isoformat(),
+            newsletter_name="Due Diligence",
+            status="NEW",
+            text_len=1420,
+            subject="Anthropic’s Wall Street stimulus fades",
+            reason="NEW",
+        )
+    ]
+    monkeypatch.setattr(ft_imap, "inspect_ft_inbox", lambda lookback_hours=None, **kw: fake_items)
+    rc = ft_workflow.main(["--inspect-inbox", "--hours", "48"])
+    assert rc == 0
+    cli_out = capsys.readouterr().out
+    assert "Due Diligence" in cli_out
+    assert "1420" in cli_out
+    assert "Anthropic’s Wall Street stimulus fades" in cli_out
+    assert not mock_brain.called
+    assert not mock_send.called
+
+
+

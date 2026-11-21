@@ -1,7 +1,7 @@
 """Автономный пайплайн анализа премиум-рассылок Financial Times и отправки в Telegram.
 
 Запуск:
-    python -m src.ft_workflow [--dry-run] [--from-file path] [--hours 36] [--max-drafts 2]
+    python -m src.ft_workflow [--dry-run] [--inspect-inbox] [--from-file path] [--hours 48] [--max-drafts 4]
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from .ft_imap import FTNewsletter
 
 log = logging.getLogger(__name__)
 
-FT_MAX_DRAFTS_PER_RUN = int(os.getenv("FT_MAX_DRAFTS_PER_RUN") or 2)
+FT_MAX_DRAFTS_PER_RUN = int(os.getenv("FT_MAX_DRAFTS_PER_RUN") or 4)
 
 NEWSLETTER_PRIORITY: list[str] = [
     "Unhedged",
@@ -193,6 +193,34 @@ _FT_PERCENT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s+per\s+cent\b", re.IGNORECASE)
 _FT_BN_RE = re.compile(r"(?<![A-Za-z0-9])([\$€£]?\d+(?:,\d{3})*(?:\.\d+)?)\s*bn\b", re.IGNORECASE)
 _FT_MN_RE = re.compile(r"(?<![A-Za-z0-9])([\$€£]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:mn|m)\b", re.IGNORECASE)
 
+_WORD_NUMBERS_1_TO_10: dict[str, str] = {
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+}
+_FT_WORD_NUM_PATTERN = "|".join(_WORD_NUMBERS_1_TO_10.keys())
+_FT_WORD_TIME_RE = re.compile(
+    rf"(?<![A-Za-z0-9-])(?P<num>{_FT_WORD_NUM_PATTERN})(?P<sep>[-\s]+)"
+    r"(?P<unit>years?|months?|weeks?|days?|quarters?|decades?|hours?)\b",
+    re.IGNORECASE,
+)
+_FT_WORD_PERCENT_RE = re.compile(
+    rf"(?<![A-Za-z0-9-])(?P<num>{_FT_WORD_NUM_PATTERN})\s+per\s*cent\b",
+    re.IGNORECASE,
+)
+_FT_WORD_POINTS_RE = re.compile(
+    rf"(?<![A-Za-z0-9-])(?P<num>{_FT_WORD_NUM_PATTERN})\s+"
+    r"(?P<unit>(?:percentage|basis)\s+points?|bps|pp)\b",
+    re.IGNORECASE,
+)
+
 
 def normalize_ft_units_for_verify(text: str) -> str:
     """Нормализует британский стиль чисел FT для сверки в verify_drafts."""
@@ -201,6 +229,18 @@ def normalize_ft_units_for_verify(text: str) -> str:
     out = _FT_PERCENT_RE.sub(r"\1%", text)
     out = _FT_BN_RE.sub(r"\1 billion", out)
     out = _FT_MN_RE.sub(r"\1 million", out)
+    out = _FT_WORD_PERCENT_RE.sub(
+        lambda m: f"{_WORD_NUMBERS_1_TO_10[m.group('num').lower()]}%",
+        out,
+    )
+    out = _FT_WORD_TIME_RE.sub(
+        lambda m: f"{_WORD_NUMBERS_1_TO_10[m.group('num').lower()]}{m.group('sep')}{m.group('unit')}",
+        out,
+    )
+    out = _FT_WORD_POINTS_RE.sub(
+        lambda m: f"{_WORD_NUMBERS_1_TO_10[m.group('num').lower()]} {m.group('unit')}",
+        out,
+    )
     return out
 
 
@@ -466,6 +506,66 @@ def run_workflow(
     return messages
 
 
+def _format_inspect_date(date_str: str) -> str:
+    if not date_str:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(date_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+    except ValueError:
+        return date_str[:20]
+
+
+def format_inbox_inspection_table(items: list[ft_imap.InspectedEmail]) -> str:
+    """Форматирует таблицу диагностики входящих писем FT для --inspect-inbox."""
+    headers = ("Дата", "Рассылка", "Статус", "Длина", "Тема")
+    rows = [
+        (
+            _format_inspect_date(item.date),
+            item.newsletter_name,
+            item.status,
+            str(item.text_len),
+            item.subject,
+        )
+        for item in items
+    ]
+    w0 = max([len(headers[0]), *(len(r[0]) for r in rows)])
+    w1 = max([len(headers[1]), *(len(r[1]) for r in rows)])
+    w2 = max([len(headers[2]), *(len(r[2]) for r in rows)])
+    w3 = max([len(headers[3]), *(len(r[3]) for r in rows)])
+
+    def _fmt(row: tuple[str, str, str, str, str]) -> str:
+        return f"{row[0]:<{w0}} | {row[1]:<{w1}} | {row[2]:<{w2}} | {row[3]:>{w3}} | {row[4]}"
+
+    lines = [_fmt(headers), f"{'-' * w0}-+-{'-' * w1}-+-{'-' * w2}-+-{'-' * w3}-+-{'-' * 20}"]
+    if not rows:
+        lines.append("Писем в окне lookback не найдено.")
+    else:
+        lines.extend(_fmt(r) for r in rows)
+    return "\n".join(lines)
+
+
+def inspect_inbox(
+    lookback_hours: int | None = None,
+    seen_path: Path | None = None,
+    now: datetime | None = None,
+    imap_client: Any = None,
+) -> list[ft_imap.InspectedEmail]:
+    """Диагностика входящих писем IMAP без вызова Gemini, Telegram и записи ft_seen.json."""
+    items = ft_imap.inspect_ft_inbox(
+        lookback_hours=lookback_hours,
+        seen_path=seen_path,
+        now=now,
+        imap_client=imap_client,
+    )
+    print(format_inbox_inspection_table(items))
+    return items
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         try:
@@ -482,6 +582,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Выполнить забор и генерацию без отправки в Telegram и без записи ft_seen.json",
     )
     parser.add_argument(
+        "--inspect-inbox",
+        action="store_true",
+        help="Показать таблицу писем в IMAP за окно FT_LOOKBACK_HOURS без вызова Gemini и Telegram",
+    )
+    parser.add_argument(
         "--from-file",
         type=str,
         default=None,
@@ -491,13 +596,13 @@ def main(argv: list[str] | None = None) -> int:
         "--hours",
         type=int,
         default=None,
-        help="Окно свежести писем в часах (по умолчанию FT_LOOKBACK_HOURS или 36)",
+        help="Окно свежести писем в часах (по умолчанию FT_LOOKBACK_HOURS или 48)",
     )
     parser.add_argument(
         "--max-drafts",
         type=int,
         default=None,
-        help="Максимум черновиков за запуск (по умолчанию FT_MAX_DRAFTS_PER_RUN или 2)",
+        help="Максимум черновиков за запуск (по умолчанию FT_MAX_DRAFTS_PER_RUN или 4)",
     )
     args = parser.parse_args(argv)
 
@@ -506,6 +611,10 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s [%(levelname)s] %(message)s",
         stream=sys.stdout,
     )
+
+    if args.inspect_inbox:
+        inspect_inbox(lookback_hours=args.hours)
+        return 0
 
     run_workflow(
         dry_run=args.dry_run,

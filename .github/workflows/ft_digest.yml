@@ -7,10 +7,10 @@ on:
     inputs:
       hours:
         description: "Окно свежести писем FT (в часах)"
-        default: "36"
+        default: "48"
       max_drafts:
         description: "Максимум черновиков FT за запуск"
-        default: "2"
+        default: "4"
 
 concurrency:
   group: ft-digest
@@ -43,8 +43,8 @@ jobs:
           GEMINI_MODEL:          ${{ secrets.GEMINI_MODEL }}
           TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
-          FT_LOOKBACK_HOURS:     ${{ github.event.inputs.hours || '36' }}
-          FT_MAX_DRAFTS_PER_RUN: ${{ github.event.inputs.max_drafts || '2' }}
+          FT_LOOKBACK_HOURS:     ${{ github.event.inputs.hours || '48' }}
+          FT_MAX_DRAFTS_PER_RUN: ${{ github.event.inputs.max_drafts || '4' }}
           NEWSBOT_ALLOW_LIVE:    "1"
           NEWSBOT_PERSIST_STATE: "1"
         run: |
