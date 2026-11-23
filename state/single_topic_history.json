@@ -41,5 +41,24 @@
       "Microsoft"
     ],
     "headline": "Defensive Equity Rotation Creates Valuation Anomaly in Quality Stocks"
+  },
+  {
+    "timestamp": "2026-11-23T20:31:21.895607+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Looking",
+      "Broadcom",
+      "Nvidia",
+      "Micron"
+    ],
+    "headline": "Semiconductor Valuation Traps in Peak Earnings Cycles"
+  },
+  {
+    "timestamp": "2026-11-23T20:32:08.346794+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Parliament"
+    ],
+    "headline": "EU Budget: €1.58tn Proposal Faces Allocation Conflict"
   }
 ]

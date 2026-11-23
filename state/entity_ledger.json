@@ -46,5 +46,13 @@
     "value": "$346 billion",
     "numeric_value": 346000000000.0,
     "date": "2026-11-20"
+  },
+  {
+    "entity": "Micron",
+    "metric": "profit",
+    "period": "quarterly",
+    "value": "28",
+    "numeric_value": 28.0,
+    "date": "2026-11-23"
   }
 ]

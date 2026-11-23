@@ -9,5 +9,26 @@
       "attractive enough to trigger sustained rebalancing away from equities"
     ],
     "context_snippet": "AAII portfolio data shows equity holdings exceeding 70% and government bonds at just 16%. This allocation reflects the past five years, where the Bloomberg Global Aggregate bond index returned a negative 2.6% annualized, while the MSCI World equity index delivered a 12% annualized return.\n\nBut highe..."
+  },
+  {
+    "date": "2026-11-23",
+    "draft_title": "FT PREMIUM · Unhedged",
+    "flagged_phrases": [
+      "trailing multiples look calm",
+      "real cyclical tension",
+      "unprecedented operational expansion"
+    ],
+    "context_snippet": "Looking at chipmaker filings, trailing multiples look calm while forward earnings expectations reveal real cyclical tension. Micron trades at a price to earnings ratio of 78 for 2025, while Broadcom sits at 90 and Nvidia at 37.\n\nThese high multiples reflect unprecedented operational expansion rather..."
+  },
+  {
+    "date": "2026-11-23",
+    "draft_title": "FT PREMIUM · Europe Express",
+    "flagged_phrases": [
+      "significant uplift",
+      "draws fire",
+      "deem the cuts insufficient and misdirected",
+      "deep institutional divide over future capital deployment"
+    ],
+    "context_snippet": "The EU's latest 2028-34 budget proposal totals €1.58tn. Though 10% below the initial plan, this is nearly 25% more than the current seven-year budget. This significant uplift faces broad criticism.\n\nProposed cuts disproportionately target \"new\" priority areas. Competitiveness and innovation budgets..."
   }
 ]
