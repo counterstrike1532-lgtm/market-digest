@@ -60,5 +60,48 @@
       "Parliament"
     ],
     "headline": "EU Budget: €1.58tn Proposal Faces Allocation Conflict"
+  },
+  {
+    "timestamp": "2026-11-24T19:46:07.642968+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Asian",
+      "South",
+      "Korea",
+      "Japan",
+      "Reserve"
+    ],
+    "headline": "Macro Drag and Decelerating Capex Challenge Equity Valuations"
+  },
+  {
+    "timestamp": "2026-11-24T19:47:01.737313+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Nvidia",
+      "Jensen",
+      "Huang",
+      "CEO",
+      "President"
+    ],
+    "headline": "Nvidia's Governance, Political Lobbying, and Market Reaction"
+  },
+  {
+    "timestamp": "2026-11-24T19:47:50.591874+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Brent",
+      "Gulf",
+      "North"
+    ],
+    "headline": "Crude Balance Hides Refined Product Price Divergence"
+  },
+  {
+    "timestamp": "2026-11-24T19:48:19.473667+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Bruegel",
+      "Europe"
+    ],
+    "headline": "EU AI Gains: Single Market Leverage Needed"
   }
 ]
