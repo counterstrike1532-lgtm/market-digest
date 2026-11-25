@@ -1,26 +1,5 @@
 [
   {
-    "timestamp": "2026-11-18T17:40:08.672204+00:00",
-    "pipeline": "ft",
-    "entities": [
-      "AAII",
-      "Bloomberg",
-      "Aggregate",
-      "MSCI",
-      "World"
-    ],
-    "headline": "High Starting Yields Prompt Global Portfolio Rebalancing"
-  },
-  {
-    "timestamp": "2026-11-18T17:40:28.520100+00:00",
-    "pipeline": "ft",
-    "entities": [
-      "Nvidia",
-      "Singapore"
-    ],
-    "headline": "Nvidia's Singapore Revenue: High Volume, Low Profit"
-  },
-  {
     "timestamp": "2026-11-20T17:15:02.528525+00:00",
     "pipeline": "ft",
     "entities": [
@@ -103,5 +82,46 @@
       "Europe"
     ],
     "headline": "EU AI Gains: Single Market Leverage Needed"
+  },
+  {
+    "timestamp": "2026-11-25T18:47:44.041643+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Nifty",
+      "India",
+      "Bank"
+    ],
+    "headline": "India's AI Deployment Strategy: Nifty 50's Growth Path"
+  },
+  {
+    "timestamp": "2026-11-25T18:48:04.082429+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "SpaceX",
+      "Tesla",
+      "Elon",
+      "Musk",
+      "CEO"
+    ],
+    "headline": "SpaceX Tesla $3.5tn Merger Governance Challenges"
+  },
+  {
+    "timestamp": "2026-11-25T18:48:27.912516+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Anthropic"
+    ],
+    "headline": "Anthropic's $1.1 Trillion Spending Commitment Looms"
+  },
+  {
+    "timestamp": "2026-11-25T18:48:56.561241+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "DiversifyEU",
+      "Brussels",
+      "China",
+      "Beijing"
+    ],
+    "headline": "EU Trade Tools Reshape China Supply Chains"
   }
 ]
