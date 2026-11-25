@@ -700,3 +700,112 @@ def test_brain_draft_7d_company_anti_duplicate_shared_registry(monkeypatch, tmp_
 
     # День 9 (+8 дней): Meta истекла за пределами 7-дневного окна
     assert "Meta" not in brain.get_recent_single_topic_entities(days=7, now=t_after_7d, path=history_file)
+
+
+# ---------------------------------------------------------------- быстрый failover моделей Gemini
+
+def test_default_models_prefers_stable_36_first():
+    assert brain._DEFAULT_MODELS.split(",")[0] == "gemini-3.6-flash"
+
+
+def test_call_404_switches_model_instantly(monkeypatch):
+    monkeypatch.setattr(brain, "MODELS", ["gemini-3.8-flash", "gemini-3.6-flash"])
+    sleeps = []
+    monkeypatch.setattr(brain.time, "sleep", lambda s: sleeps.append(s))
+    urls = []
+
+    def fake_post(url, **kw):
+        urls.append(url)
+        if "gemini-3.8-flash" in url:
+            return FakeResponse(404)
+        return _ok("ok")
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+    result = brain._call("prompt")
+    assert result == "ok"
+    assert sleeps == []
+    assert len(urls) == 2
+
+
+def test_call_503_one_short_retry_then_next_model(monkeypatch):
+    monkeypatch.setattr(brain, "MODELS", ["gemini-3.8-flash", "gemini-3.6-flash"])
+    sleeps = []
+    monkeypatch.setattr(brain.time, "sleep", lambda s: sleeps.append(s))
+    first_posts = []
+
+    def fake_post(url, **kw):
+        if "gemini-3.8-flash" in url:
+            first_posts.append(url)
+            return FakeResponse(503, text="service unavailable")
+        return _ok("from second model")
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+    result = brain._call("prompt")
+    assert result == "from second model"
+    assert len(first_posts) == 2
+    assert len(sleeps) == 1
+    assert sleeps[0] <= 4
+
+
+def test_call_uses_request_timeout_at_most_45s(monkeypatch):
+    monkeypatch.setattr(brain, "MODELS", ["gemini-3.6-flash"])
+    timeouts = []
+
+    def fake_post(url, **kw):
+        timeouts.append(kw.get("timeout"))
+        return _ok("ok")
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+    assert brain._call("prompt") == "ok"
+    assert timeouts == [brain._REQUEST_TIMEOUT]
+    assert timeouts[0] <= 45
+
+
+def test_call_max_tokens_moves_to_next_model(monkeypatch):
+    monkeypatch.setattr(brain, "MODELS", ["gemini-3.8-flash", "gemini-3.6-flash"])
+    sleeps = []
+    monkeypatch.setattr(brain.time, "sleep", lambda s: sleeps.append(s))
+
+    def fake_post(url, **kw):
+        if "gemini-3.8-flash" in url:
+            return FakeResponse(200, json_data={"candidates": [
+                {"content": {"parts": [{"text": "cut"}]}, "finishReason": "MAX_TOKENS"}
+            ]})
+        return _ok("full")
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+    result = brain._call("prompt")
+    assert result == "full"
+
+
+def test_call_all_truncated_returns_truncated_text(monkeypatch):
+    monkeypatch.setattr(brain, "MODELS", ["gemini-3.8-flash"])
+    sleeps = []
+    monkeypatch.setattr(brain.time, "sleep", lambda s: sleeps.append(s))
+
+    def fake_post(url, **kw):
+        return FakeResponse(200, json_data={"candidates": [
+            {"content": {"parts": [{"text": "cut"}]}, "finishReason": "MAX_TOKENS"}
+        ]})
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+    result = brain._call("prompt")
+    assert result == "cut"
+
+
+def test_inspect_uses_single_fast_model_no_chain(monkeypatch, tmp_path):
+    monkeypatch.setattr(brain, "FLAGGED_PHRASES_PATH", tmp_path / "flagged_phrases.json")
+    monkeypatch.setattr(brain, "MODELS", ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash"])
+    sleeps = []
+    monkeypatch.setattr(brain.time, "sleep", lambda s: sleeps.append(s))
+    urls = []
+
+    def fake_post(url, **kw):
+        urls.append(url)
+        return FakeResponse(503, text="overloaded")
+
+    monkeypatch.setattr(brain.requests, "post", fake_post)
+    brain.inspect_and_collect_flagged_phrases("Some draft text", "t")
+    assert len(urls) == 1
+    assert "gemini-3.6-flash" in urls[0]
+    assert sleeps == []

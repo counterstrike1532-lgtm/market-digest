@@ -395,6 +395,25 @@ def test_check_number_preservation_preserves_major_magnitudes_auxiliary_dropped(
     assert msg == "ок"
 
 
+def test_check_number_preservation_year_range_expanded():
+    ok_hyphen, msg_hyphen = score_draft.check_number_preservation(
+        "Spending rises over 2028-34.",
+        "Spending rises from 2028 to 2034.",
+    )
+    assert ok_hyphen is True
+    assert msg_hyphen == "ок"
+
+    ok_endash, msg_endash = score_draft.check_number_preservation(
+        "Spending rises over 2028–34.",
+        "Spending rises from 2028 to 2034.",
+    )
+    assert ok_endash is True
+    assert msg_endash == "ок"
+
+    ok_short, _ = score_draft.check_number_preservation("Plan 2028-34", "Plan 2028 to 2034")
+    assert ok_short is True
+
+
 
 # ---------------------------------------------------------------- lint_style_ticks tests
 

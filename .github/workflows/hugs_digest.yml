@@ -16,7 +16,7 @@ concurrency:
 jobs:
   hugs-digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -48,7 +48,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Notify on failure
-        if: failure()
+        if: failure() || cancelled()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -57,4 +57,4 @@ jobs:
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -d chat_id="$TELEGRAM_CHAT_ID" \
             -d disable_web_page_preview=true \
-            --data-urlencode text="HugsFund дайджест упал. Лог: $RUN_URL"
+            --data-urlencode text="⚠️ HUGS DIGEST FAILED OR TIMED OUT — проверь логи GitHub Actions. Лог: $RUN_URL"

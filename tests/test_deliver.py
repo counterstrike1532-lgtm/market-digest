@@ -308,3 +308,37 @@ def test_to_html_preserves_trusted_tags_and_escapes_untrusted():
     assert "&lt;img src=x onerror=alert(1)&gt;" in out
 
 
+def test_to_html_escapes_raw_lt_amp_keeps_trusted_tags():
+    raw = '<b>Fed</b> M&A deals < 5% and > 4 <a href="https://example.com/x">src</a> <script>x</script>'
+    out = deliver._to_html(raw)
+    assert "<b>Fed</b>" in out
+    assert "M&amp;A" in out
+    assert "&lt; 5%" in out
+    assert "&gt; 4" in out
+    assert '<a href="https://example.com/x">src</a>' in out
+    assert "&lt;script&gt;" in out
+    assert "<script>" not in out
+
+
+def test_send_escapes_html_and_sets_parse_mode(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "123456")
+    monkeypatch.setattr(deliver.time, "sleep", lambda *_a, **_k: None)
+    captured = []
+
+    def fake_post(url, **kw):
+        captured.append(kw.get("json"))
+        return SimpleNamespace(ok=True, status_code=200, text="")
+
+    monkeypatch.setattr(deliver.requests, "post", fake_post)
+    deliver.send("Profit & loss <b>up</b> 3 < 4")
+    assert len(captured) == 1
+    payload = captured[0]
+    assert payload["parse_mode"] == "HTML"
+    assert "&amp;" in payload["text"]
+    assert "<b>up</b>" in payload["text"]
+    assert "3 &lt; 4" in payload["text"]
+
+

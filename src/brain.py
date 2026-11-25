@@ -31,8 +31,10 @@ API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateC
 
 # GEMINI_MODEL можно задать списком через запятую — пробуем по очереди.
 # Актуальные имена для своего ключа: .\run.ps1 models
-_DEFAULT_MODELS = "gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite"
+_DEFAULT_MODELS = "gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-3.8-flash,gemini-3.7-flash"
 MODELS = [m.strip() for m in (os.getenv("GEMINI_MODEL") or _DEFAULT_MODELS).split(",") if m.strip()]
+_REQUEST_TIMEOUT = 45    # максимальный таймаут одного HTTP-запроса к Gemini (сек.)
+_RETRY_PAUSE = 3         # короткая пауза перед единственным повтором при 429/500/503/MAX_TOKENS/таймауте (сек.)
 
 _requests_made = 0
 _successful_calls = 0    # реально вернувшие пригодный текст
@@ -72,9 +74,14 @@ def quota_summary() -> dict:
 
 
 def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
-          max_tokens: int = 32768, retries: int = 3, no_thinking: bool = False,
-          system_instruction: str | None = None) -> str:
-    """Перебирает модели из MODELS. На 400 не долбит одним и тем же телом, а упрощает запрос.
+          max_tokens: int = 32768, retries: int = 2, no_thinking: bool = False,
+          system_instruction: str | None = None,
+          models: list[str] | None = None) -> str:
+    """Перебирает модели из models (или MODELS) с быстрым failover:
+    - HTTP 404 / 429 PerDay: мгновенный переход к следующей модели без ожидания.
+    - HTTP 429 (в минуту) / 500 / 503 / MAX_TOKENS / сетевой сбой или таймаут (>45с):
+      максимум 1 повтор с короткой паузой _RETRY_PAUSE (3 с), затем переход к следующей модели.
+    - HTTP 400: упрощает параметры запроса, а не повторяет то же самое.
 
     no_thinking: у thinking-моделей токены размышлений тратятся из maxOutputTokens,
     из-за чего JSON обрывается. Но Gemini 3 может запрещать полное отключение —
@@ -88,8 +95,10 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
             "видишь это в тестах или ручном прогоне, живые вызовы Gemini сейчас не разрешены.")
     key = os.environ["GEMINI_API_KEY"]
     last = "неизвестно"
+    model_list = list(models) if models else MODELS
+    truncated_fallback: tuple[str, str] | None = None
 
-    for model in MODELS:
+    for model in model_list:
         if model in _day_exhausted:
             log.warning("%s: дневная квота уже исчерпана в этом прогоне — пропускаю", model)
             last = f"{model}: дневная квота исчерпана"
@@ -111,7 +120,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                 r = requests.post(API.format(model=model),
                                   headers={"x-goog-api-key": key,
                                            "Content-Type": "application/json"},
-                                  json=body, timeout=180)
+                                  json=body, timeout=_REQUEST_TIMEOUT)
                 _requests_made += 1
 
                 if r.status_code == 404:
@@ -150,18 +159,22 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                         _quota_refusals += 1
                         _day_exhausted.add(model)
                         break
-                    wait = min(20 * (2 ** (attempt - 1)), 120)
-                    log.warning("%s: HTTP 429 (в минуту), ждём %ss", model, wait)
                     last = f"{model}: HTTP 429"
-                    time.sleep(wait)
-                    continue
+                    if attempt < retries:
+                        log.warning("%s: HTTP 429 (в минуту), ждём %ss", model, _RETRY_PAUSE)
+                        time.sleep(_RETRY_PAUSE)
+                        continue
+                    log.warning("%s: HTTP 429 (в минуту), следующая модель", model)
+                    break
 
                 if r.status_code in (500, 503):
-                    wait = min(20 * (2 ** (attempt - 1)), 120)
-                    log.warning("%s: HTTP %s, ждём %ss", model, r.status_code, wait)
                     last = f"{model}: HTTP {r.status_code}"
-                    time.sleep(wait)
-                    continue
+                    if attempt < retries:
+                        log.warning("%s: HTTP %s, ждём %ss", model, r.status_code, _RETRY_PAUSE)
+                        time.sleep(_RETRY_PAUSE)
+                        continue
+                    log.warning("%s: HTTP %s, следующая модель", model, r.status_code)
+                    break
 
                 r.raise_for_status()
                 cand = r.json().get("candidates", [{}])[0]
@@ -169,6 +182,13 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
                                for x in cand.get("content", {}).get("parts", []))
                 if cand.get("finishReason") == "MAX_TOKENS":
                     log.warning("%s: ответ обрезан по лимиту токенов", model)
+                    if text.strip() and truncated_fallback is None:
+                        truncated_fallback = (model, text)
+                    last = f"{model}: ответ обрезан (MAX_TOKENS)"
+                    if attempt < retries:
+                        time.sleep(_RETRY_PAUSE)
+                        continue
+                    break
                 if text.strip():
                     _successful_calls += 1
                     _last_model = model
@@ -180,11 +200,20 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
             except Exception as exc:
                 last = f"{model}: {exc}"
                 log.warning("%s попытка %d: %s", model, attempt, str(exc)[:160])
-                time.sleep(5 * attempt)
+                if attempt < retries:
+                    time.sleep(_RETRY_PAUSE)
 
-    if _day_exhausted >= set(MODELS):
+    if truncated_fallback:
+        fb_model, fb_text = truncated_fallback
+        log.warning("Все модели обрезали ответ (MAX_TOKENS) — возвращаю первый обрезанный ответ (%s, %d симв.)",
+                    fb_model, len(fb_text))
+        _successful_calls += 1
+        _last_model = fb_model
+        return fb_text
+
+    if model_list and _day_exhausted >= set(model_list):
         raise RuntimeError(
-            f"дневная квота Gemini исчерпана на всех моделях ({', '.join(MODELS)}). "
+            f"дневная квота Gemini исчерпана на всех моделях ({', '.join(model_list)}). "
             "Free tier сбрасывается около полуночи по тихоокеанскому времени "
             "(~09:00-10:00 UTC) - раньше запросы не пройдут.")
     raise RuntimeError(f"Gemini недоступен. Последнее: {last}")
@@ -192,7 +221,7 @@ def _call(prompt: str, as_json: bool = False, temperature: float = 0.7,
 
 def call_gemini_api(prompt: str, system_instruction: str | None = None,
                     temperature: float = 0.7, max_tokens: int = 4096) -> str:
-    """Вызов Gemini API через существующий в brain.py клиент."""
+    """Вызов Gemini API через _call с быстрым failover (таймаут 45 с, до 1 повтора на модель)."""
     return _call(prompt, temperature=temperature, max_tokens=max_tokens,
                  system_instruction=system_instruction)
 
@@ -1228,6 +1257,14 @@ def judge_draft(text: str) -> dict:
 # ------------------------------------------------------------------
 #  Weekly Phrase Ledger: неблокирующий сборщик подозрительных фраз
 # ------------------------------------------------------------------
+def _pick_fast_model() -> str | None:
+    """Выбирает одну быструю стабильную модель из MODELS для неблокирующих шагов."""
+    for pref in ("gemini-3.6-flash", "gemini-2.5-flash"):
+        if pref in MODELS:
+            return pref
+    return MODELS[0] if MODELS else None
+
+
 def inspect_and_collect_flagged_phrases(draft_text: str, draft_title: str) -> None:
     """Неблокирующий сборщик подозрительных, неестественных или клишированных фраз
     (Weekly Phrase Ledger). Делает лёгкий запрос к Gemini и сохраняет найденные
@@ -1240,6 +1277,11 @@ def inspect_and_collect_flagged_phrases(draft_text: str, draft_title: str) -> No
     if not clean_text:
         return
 
+    fast = _pick_fast_model()
+    if fast is None:
+        logger.warning("Weekly Phrase Ledger: список MODELS пуст, пропускаю проверку")
+        return
+
     try:
         prompt = (
             "Identify any weird, overly dramatic, clunky, unnatural, or buzzword-heavy "
@@ -1247,7 +1289,8 @@ def inspect_and_collect_flagged_phrases(draft_text: str, draft_title: str) -> No
             "If the text is natural and clean, return an empty list [].\n\n"
             f"DRAFT:\n{clean_text}"
         )
-        raw = _call(prompt, as_json=True, temperature=0.1, max_tokens=1024, no_thinking=True)
+        raw = _call(prompt, as_json=True, temperature=0.1, max_tokens=1024,
+                    no_thinking=True, retries=1, models=[fast])
         parsed = _parse_json(raw)
         if not isinstance(parsed, list):
             logger.warning("inspect_and_collect_flagged_phrases: ожидался JSON-список, получено: %s", type(parsed))

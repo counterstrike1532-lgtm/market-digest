@@ -319,6 +319,7 @@ _WORD_NUMS: dict[str, str] = {
 
 _NUM_TOKEN_RE = re.compile(r'(?<![A-Za-z0-9])(\d+(?:[.,]\d+)?)(?=[A-Za-z%]?|[^\w]|$)')
 _RANGE_RE = re.compile(r'(\d+(?:[.,]\d+)?)\s*%?\s*(?:to|–|-)\s*(\d+(?:[.,]\d+)?)', re.IGNORECASE)
+_SHORT_YEAR_RANGE_RE = re.compile(r'(?<!\d)((?:19|20)\d{2})\s*[-–]\s*(\d{2})(?!\d)')
 
 
 def extract_numbers(text: str) -> list[str]:
@@ -341,6 +342,15 @@ def check_number_preservation(stage1_text: str, stage2_text: str) -> tuple[bool,
     s2_nums = extract_numbers(stage2_text)
     s2_low = stage2_text.lower()
 
+    # Editor разворачивает сокращённые диапазоны лет (напр., 2028-34 -> 2028 to 2034)
+    # по правилу запрета тире в диапазонах; оба числа считаем сохранёнными.
+    expanded_years: set[str] = set()
+    for m in _SHORT_YEAR_RANGE_RE.finditer(stage1_text):
+        start, short = m.group(1), m.group(2)
+        full_end = start[:2] + short
+        if re.search(rf'(?<!\d){start}\s*(?:to|through|until|-|–)\s*{full_end}(?!\d)', stage2_text, re.IGNORECASE):
+            expanded_years.update({start, short})
+
     ranges = _RANGE_RE.findall(stage1_text)
     range_pairs = [(r[0].replace(',', '.'), r[1].replace(',', '.')) for r in ranges]
 
@@ -349,6 +359,9 @@ def check_number_preservation(stage1_text: str, stage2_text: str) -> tuple[bool,
         try:
             val = float(n_str)
         except ValueError:
+            continue
+
+        if n_str in expanded_years:
             continue
 
         matched = False
