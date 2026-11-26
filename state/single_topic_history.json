@@ -123,5 +123,25 @@
       "Beijing"
     ],
     "headline": "EU Trade Tools Reshape China Supply Chains"
+  },
+  {
+    "timestamp": "2026-11-26T18:36:38.375352+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "CAPE"
+    ],
+    "headline": "S&P 500 Earnings Bubble vs. Valuation Perception"
+  },
+  {
+    "timestamp": "2026-11-26T18:37:28.595473+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Court",
+      "Justice",
+      "Commission",
+      "Citizens",
+      "Initiative"
+    ],
+    "headline": "ECJ Ruling Forces Farm Capex Shift"
   }
 ]
