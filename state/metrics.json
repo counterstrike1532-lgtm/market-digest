@@ -1,34 +1,5 @@
 [
 {
-"date": "2026-08-27T16:32:47.363064+00:00",
-"collected": 226,
-"after_dedup": 226,
-"after_freshness": 226,
-"prefiltered": 100,
-"ranked": 5,
-"drafted": 2,
-"verdicts": {
-"POST": 0,
-"MAYBE": 2,
-"SKIP": 0
-},
-"figures": {
-"found": 9,
-"not_found": 1,
-"mismatch": 2,
-"unparsed": 0,
-"no_source": 0
-},
-"gemini_successful": 3,
-"gemini_quota_refused": 0,
-"draft_model": "gemini-3.5-flash",
-"market_source": {
-"WIG20 TR (ETF)": "yfinance",
-"sp500": "yfinance",
-"nasdaq": "yfinance"
-}
-},
-{
 "date": "2026-08-28T17:30:25.212816+00:00",
 "collected": 209,
 "after_dedup": 209,
@@ -1699,6 +1670,35 @@
 "not_found": 6,
 "mismatch": 0,
 "unparsed": 2,
+"no_source": 0
+},
+"gemini_successful": 5,
+"gemini_quota_refused": 2,
+"draft_model": "gemini-2.5-flash",
+"market_source": {
+"WIG20 TR (ETF)": "yfinance",
+"sp500": "yfinance",
+"nasdaq": "yfinance"
+}
+},
+{
+"date": "2026-11-26T15:17:04.035764+00:00",
+"collected": 192,
+"after_dedup": 192,
+"after_freshness": 192,
+"prefiltered": 100,
+"ranked": 12,
+"drafted": 2,
+"verdicts": {
+"POST": 1,
+"MAYBE": 1,
+"SKIP": 0
+},
+"figures": {
+"found": 6,
+"not_found": 2,
+"mismatch": 1,
+"unparsed": 0,
 "no_source": 0
 },
 "gemini_successful": 5,
