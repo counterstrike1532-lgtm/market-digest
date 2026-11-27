@@ -1,27 +1,5 @@
 [
   {
-    "timestamp": "2026-11-20T17:15:02.528525+00:00",
-    "pipeline": "ft",
-    "entities": [
-      "Anthropic",
-      "Zion",
-      "Research",
-      "Group",
-      "Alphabet"
-    ],
-    "headline": "Anthropic IPO Pricing Reveals High Required Revenue Run-Rate"
-  },
-  {
-    "timestamp": "2026-11-20T17:17:43.593475+00:00",
-    "pipeline": "ft",
-    "entities": [
-      "Coca",
-      "Cola",
-      "Microsoft"
-    ],
-    "headline": "Defensive Equity Rotation Creates Valuation Anomaly in Quality Stocks"
-  },
-  {
     "timestamp": "2026-11-23T20:31:21.895607+00:00",
     "pipeline": "ft",
     "entities": [
@@ -143,5 +121,37 @@
       "Initiative"
     ],
     "headline": "ECJ Ruling Forces Farm Capex Shift"
+  },
+  {
+    "timestamp": "2026-11-27T18:25:35.281661+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Miners",
+      "World",
+      "War"
+    ],
+    "headline": "Valuation Gaps and Discount Rates in Mining Capital Allocation"
+  },
+  {
+    "timestamp": "2026-11-27T18:29:35.204734+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Skydance",
+      "Oracle",
+      "Times",
+      "Treasuries"
+    ],
+    "headline": "Oracle and Skydance Debt Expansion Drives Investment Grade Spreads"
+  },
+  {
+    "timestamp": "2026-11-27T18:29:58.657313+00:00",
+    "pipeline": "ft",
+    "entities": [
+      "Germany",
+      "Netherlands",
+      "France",
+      "French"
+    ],
+    "headline": "EU Budget Deadlock Threatens Year-End Deal"
   }
 ]

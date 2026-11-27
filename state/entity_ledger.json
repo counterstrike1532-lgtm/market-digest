@@ -54,5 +54,21 @@
     "value": "28",
     "numeric_value": 28.0,
     "date": "2026-11-23"
+  },
+  {
+    "entity": "Oracle",
+    "metric": "debt",
+    "period": "",
+    "value": "$500 billion",
+    "numeric_value": 500000000000.0,
+    "date": "2026-11-27"
+  },
+  {
+    "entity": "Times",
+    "metric": "yield",
+    "period": "",
+    "value": "100",
+    "numeric_value": 100.0,
+    "date": "2026-11-27"
   }
 ]
